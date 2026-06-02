@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "OPENSC2"
+version = "1.0.0"
+authors = [{name = "MAHTEP Group"}]
+readme = "README.md"
+
+dependencies = [
+# Scientific computing
+"numpy>=1.26",
+"scipy>=1.12",
+"pandas>=2.2",
+
+# Plotting
+"matplotlib>=3.8",
+"Pillow>=10.0",
+
+# Thermodynamics / engineering
+"CoolProp>=6.6",
+
+# Excel support
+"openpyxl>=3.1",
+
+# CLI / utilities
+"click>=8.1",
+"colorama>=0.4.6",
+
+# Interactive shell support
+"ipython>=8.20",
+
+]
+
+[project.optional-dependencies]
+gui = ["PyQt5"] 
+dev = [
+# Formatting / linting
+"black>=24.0",
+"ruff>=0.5",
+
+# Type checking
+"mypy>=1.10",
+
+# Profiling
+"line-profiler>=4.1",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.setuptools]
+package-dir = {"" = "source_code"}
+
+[tool.setuptools.packages.find]
+where = ["source_code"]
