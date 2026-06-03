@@ -196,13 +196,13 @@ class Simulation:
 
     # end method Conductor_instance
 
-    def conductor_initialization(self, gui):
+    def conductor_initialization(self):
         for cond in self.list_of_Conductors:
             # ** INITIALIZATION **
             # s time @ which simulation is started (cdp, 07/2020)
             self.simulation_time = [0.0]
             self.num_step = 0
-            cond.initialization(self, gui)
+            cond.initialization(self)
             # Use electric method only if needed, i.e., user specifies a 
             # current.
             if cond.inputs["I0_OP_MODE"] != IOP_NOT_DEFINED:
