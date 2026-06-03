@@ -37,7 +37,7 @@ def solid_components_temperature_initialization(cond):
                 weight = cond.dict_df_coupling["contact_perimeter"].iloc[
                     0 : cond.inventory["FluidComponent"].number,
                     cc + cond.inventory["FluidComponent"].number,
-                ]
+                ].to_numpy()
                 # evaluate SolidComponent temperature as the weighted average on \
                 # conctat_perimeter with channels (cpd 07/2020)
                 for rr, fluid_comp in enumerate(
