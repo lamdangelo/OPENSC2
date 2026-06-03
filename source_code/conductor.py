@@ -1114,15 +1114,16 @@ class Conductor:
         self.aprior()
         path_diagnostic = os.path.join(self.BASE_PATH, self.file_input["OUTPUT"])
         # Load the content of column self.ID of sheet Space in file conductors_disgnostic.xlsx as a series and convert to numpy array of float.
+        df = pd.read_excel(
+            path_diagnostic,
+            sheet_name="Spatial_distribution",
+            skiprows=2,
+            header=0,
+            usecols=[self.identifier],
+        )
+
         self.Space_save = (
-            pd.read_excel(
-                path_diagnostic,
-                sheet_name="Spatial_distribution",
-                skiprows=2,
-                header=0,
-                usecols=[self.identifier],
-                squeeze=True,
-            )
+            df.iloc[:, 0]
             .dropna()
             .to_numpy()
             .astype(float)
@@ -1142,19 +1143,21 @@ class Conductor:
         # list of number of time steps at wich save the spatial discretization
         self.num_step_save = np.zeros(self.Space_save.shape, dtype=int)
         # Load the content of column self.identifier of sheet Time in file conductors_disgnostic.xlsx as a series and convert to numpy array of float.
+        df = pd.read_excel(
+            path_diagnostic,
+            sheet_name="Time_evolution",
+            skiprows=2,
+            header=0,
+            usecols=[self.identifier],
+        )
+
         self.Time_save = (
-            pd.read_excel(
-                path_diagnostic,
-                sheet_name="Time_evolution",
-                skiprows=2,
-                header=0,
-                usecols=[self.identifier],
-                squeeze=True,
-            )
+            df.iloc[:, 0]
             .dropna()
             .to_numpy()
             .astype(float)
         )
+
         # Adjust the user defined diagnostic.
         self.Time_save = set_diagnostic(
             self.Time_save, lb=0.0, ub=self.inputs["ZLENGTH"]
