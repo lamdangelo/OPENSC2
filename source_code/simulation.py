@@ -704,11 +704,14 @@ class Simulation:
         # Do nothing method, indroduced to use the dictionary dict_benchmark when creating folders.
         pass
 
-    def simulation_folders_manager(self):
+    def simulation_folders_manager(self, target_directory: str=None):
         """[summary]"""
         # Define the dummy dictionary with the integration methods (da sistemare, non utilizzare i numeri come keys)
         dict_int_method = dict(BE="BE", CN="CN", AM4="AM4")
         # Update dictionary self.dict_path
+        if target_directory is not None:
+            self.dict_path["Results_dir"] = target_directory  # user-defined target directory for headless mode
+        self.dict_path["Main_dir"] = self.dict_path["Results_dir"]  # Main_Dir never defined, so just set to Results_dir
         self.dict_path["Sub_dir"] = os.path.join(
             self.dict_path["Main_dir"],
             dict_int_method[self.list_of_Conductors[0].inputs["METHOD"]],
