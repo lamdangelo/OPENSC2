@@ -453,9 +453,11 @@ class StrandComponent(SolidComponent):
         Returns:
             np.ndarray: array of the electric resistance in Ohm of shape {ind.shape = }. The maximum lenght of the outcome is {conductor.grid_input["NELEMS"] = }.
         """
+        node_dist = conductor.node_distance[("StrandComponent", self.identifier)].to_numpy()
+
         return (
             self.dict_Gauss_pt[electrical_resistivity_key][ind]
-            * conductor.node_distance[("StrandComponent", self.identifier)][ind]
+            * node_dist[ind]
             / self.cross_section[cross_section_key]
         )
 
