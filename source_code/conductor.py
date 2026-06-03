@@ -739,7 +739,7 @@ class Conductor:
                         self.inventory["FluidComponent"].collection[ii - 1]
                     )
                 # end for ii (cdp, 09/2020)
-            elif kindObj == "STACK":
+            elif kindObj == "STACK" or kindObj == "STR_SC":
                 # Assign the total number of defined StackComponent object to
                 # attribute number of object ComponentCollection.
                 self.inventory["StackComponent"].number = numObj
