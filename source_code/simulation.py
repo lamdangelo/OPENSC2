@@ -309,7 +309,7 @@ class Simulation:
 
     # end method Conductor_initialization
 
-    def conductor_solution(self, gui):
+    def conductor_solution(self):
         # ** TRANSIENT SOLUTION **
         num_step_store = 100
         count_store = 1
