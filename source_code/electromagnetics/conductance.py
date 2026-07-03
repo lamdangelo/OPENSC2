@@ -136,10 +136,6 @@ def build_conductance_matrix(conductor: object) -> None:
 
     where ``B`` is the contact incidence matrix.
 
-    A debug file ``electric_conductance_unit_length.tsv`` is written to the
-    working directory (retained from the original implementation for
-    diagnostic purposes).
-
     Results stored in:
     * ``conductor.electric_conductance_diag_matrix``: diagonal matrix of
       per-contact conductances.
@@ -152,10 +148,6 @@ def build_conductance_matrix(conductor: object) -> None:
     """
     distance = evaluate_transversal_distance(conductor)
     electric_conductance = evaluate_electric_conductance(conductor, distance)
-
-    np.savetxt(
-        "electric_conductance_unit_length.tsv", electric_conductance, delimiter="\t"
-    )
 
     n_contacts = conductor.contact_nodes_current_carriers.shape[0]
     conductor.electric_conductance_diag_matrix = diags(

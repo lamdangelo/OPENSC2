@@ -48,6 +48,7 @@ from electromagnetics.system_assembly import (
 from electromagnetics.boundary_conditions import (
     assign_equipotential_surfaces,
     assign_fixed_potential,
+    build_reduction_operator,
     reduce_system,
 )
 from electromagnetics.electric_solver import (
@@ -135,8 +136,6 @@ class Conductor:
         
         self.inventory: ComponentInventory = ComponentInventory.empty()
 
-        self.__get_total_cross_section()
-
 
     # end method __init__ (cdp, 11/2020)
 
@@ -152,6 +151,10 @@ class Conductor:
         """
         # call method conductor_components_instance to make instance of conductor components (cdp, 11/2020)
         self.conductor_components_instance(simulation)
+
+        # Total strand/superconductor cross sections can only be evaluated
+        # once the components exist in the inventory.
+        self.__get_total_cross_section()
 
         # Call function evaluate_component_coordinates to build grid coordinates.
         conductor_mesh.evaluate_component_coordinates(self, simulation)
@@ -483,7 +486,7 @@ class Conductor:
             dtype=float,
         )
 
-        self.build_electric_mass_matrix_flag = True
+        self.build_electric_topology_flag = True
         self.electric_mass_matrix = lil_matrix(
             (
                 self.total_elements_current_carriers
@@ -833,8 +836,32 @@ class Conductor:
 
     def electric_preprocessing(self):
         """Method that allows to evaluate most of the quatities and data structures needed for the electric calculation.
-        Builds nodal coordinates and connectiviy dataframes, the connectivity matrix only for StrandComponent, the inicidence matrices in both longitudinal and transversal directions, the resistance matrix (logitudinal) and the conductance matrix (transverse direction).
+
+        The expensive topology structures (nodal coordinates, connectivity,
+        incidence and contact matrices, conductances, inductances and the
+        boundary-condition reduction operator) depend only on the mesh
+        geometry, so they are built once and reused until the mesh changes.
+        Only the temperature- and current-dependent resistance and stiffness
+        matrices are rebuilt at every electric time step.
         """
+        if self.build_electric_topology_flag:
+            self.__build_electric_topology()
+            if self.mesh.mesh_type not in {MeshType.ADAPTED, MeshType.FROM_FILE}:
+                # Discretization grid does not change at each time step, so
+                # all topology structures stay valid for the whole transient.
+                self.build_electric_topology_flag = False
+
+        # Build electric resistance matrix: changes with temperature (thermal
+        # time step) and with current (electric time step, since the
+        # superconductor resistivity is current dependent).
+        self.__build_electric_resistance_matrix()
+
+        # Build electric stiffness matrix from the fresh resistance matrix
+        # and the cached incidence and conductance blocks.
+        self.__build_electric_stiffness_matrix()
+
+    def __build_electric_topology(self):
+        """Private method that builds all the geometry/topology dependent electric structures."""
 
         nn = 0
 
@@ -895,15 +922,6 @@ class Conductor:
         #     f"After call method {self.__build_incidence_matrix.__name__}.\n"
         # )
 
-        # Build electric resistance matrix (for the first time)
-        # conductorlogger.debug(
-        #     f"Before call method {self.__build_electric_resistance_matrix.__name__}.\n"
-        # )
-        self.__build_electric_resistance_matrix()
-        # conductorlogger.debug(
-        #     f"After call method {self.__build_electric_resistance_matrix.__name__}.\n"
-        # )
-
         if self.inventory.strands.number > 1:
             # There are more than 1 StrandComponent objects, therefore there
             # are contacts between StrandComponent objects and matrices
@@ -941,52 +959,19 @@ class Conductor:
             #     f"After call method {self.__build_electric_conductance_matrix.__name__}.\n"
             # )
 
-        # Build electric stiffness matrix (for the first time)
-        # conductorlogger.debug(
-        #     f"Before call method {self.__build_electric_stiffness_matrix.__name__}.\n"
-        # )
-        self.__build_electric_stiffness_matrix()
-        # conductorlogger.debug(
-        #     f"After call method {self.__build_electric_stiffness_matrix.__name__}.\n"
-        # )
-
-        if self.build_electric_mass_matrix_flag == True:
-            # Build electric mass matrix (for the first time)
-            # conductorlogger.debug(
-            #     f"Before call method {self.__build_electric_mass_matrix.__name__}.\n"
-            # )
-            self.__build_electric_mass_matrix()
-            # conductorlogger.debug(
-            #     f"After call method {self.__build_electric_mass_matrix.__name__}.\n"
-            # )
-
-        if (
-            self.mesh.mesh_type not in {MeshType.ADAPTED, MeshType.FROM_FILE}
-            and self.build_electric_mass_matrix_flag
-        ):
-            # Discretization grid does not change at each time step so there is
-            # no need to build electric mass matrix at each thermal time step
-            # because inductances will not change since they are evaluated
-            # from constant coordinates.
-            self.build_electric_mass_matrix_flag = False
+        # Build electric mass matrix (inductances only depend on the
+        # geometry, so they belong to the topology structures).
+        self.__build_electric_mass_matrix()
 
         # Assign equivalue surfaces
-        # conductorlogger.debug(
-        #     f"Before call method {self.__assign_equivalue_surfaces.__name__}.\n"
-        # )
         self.__assign_equivalue_surfaces()
-        # conductorlogger.debug(
-        #     f"After call method {self.__assign_equivalue_surfaces.__name__}.\n"
-        # )
 
         # Assign fixed potential
-        # conductorlogger.debug(
-        #     f"Before call method {self.__assign_fix_potential.__name__}.\n"
-        # )
         self.__assign_fix_potential()
-        # conductorlogger.debug(
-        #     f"After call method {self.__assign_fix_potential.__name__}.\n"
-        # )
+
+        # Build the boundary-condition reduction operator used by
+        # reduce_system at every electric time step.
+        build_reduction_operator(self)
 
     def __build_electric_stiffness_matrix(self):
         build_stiffness_matrix(self)
@@ -1011,9 +996,12 @@ class Conductor:
     def __get_electric_time_step(self):
         """Private method that evaluates the electric time step according to user definition.
 
+        A user-defined electric time step larger than the thermal time step
+        is clamped to the thermal time step (a single electric sub-step per
+        thermal step).
+
         Raises:
             ValueError: if electric time step is negative.
-            ValueError: if electric time step is larger than thermal time step.
         """
 
         electric_step = self.inputs.electric_time_step
@@ -1026,11 +1014,7 @@ class Conductor:
                 raise ValueError(
                     f"Electric time step must be > 0.0 s; current value is: {electric_step=} s\n"
                 )
-            if electric_step >= self.time_step:
-                raise ValueError(
-                    f"Electric time step must be < thermal time step; current values are: {self.time_step=} s; {electric_step=} s\n"
-                )
-            self.electric_time_step = electric_step
+            self.electric_time_step = min(electric_step, self.time_step)
 
         self.electric_time_end = self.time_step
 

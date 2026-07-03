@@ -25,7 +25,7 @@ Ported from the private methods of the Conductor class:
 """
 
 import numpy as np
-from scipy.sparse import lil_matrix
+from scipy.sparse import bmat
 
 from electromagnetics.inductance import build_inductance_matrix
 
@@ -47,25 +47,25 @@ def build_stiffness_matrix(conductor: object) -> None:
     The assembled matrix is stored in ``conductor.electric_stiffness_matrix``
     as a CSR sparse matrix.
 
-    Note: The matrix is re-created from scratch at every call because the
-    resistance matrix changes at each thermal time step as material properties
-    evolve with temperature.
+    Note: The matrix is re-created at every call because the resistance
+    matrix changes at each electric time step as material properties evolve
+    with temperature and current.
 
     Args:
         conductor: Conductor object with resistance, incidence, and
             conductance matrices already built.
     """
-    n_el = conductor.total_elements_current_carriers
-    n_nd = conductor.total_nodes_current_carriers
-    size = n_el + n_nd
-
-    K = lil_matrix((size, size), dtype=float)
-    K[:n_el, :n_el] = conductor.electric_resistance_matrix
-    K[:n_el, n_el:] = conductor.incidence_matrix
-    K[n_el:, :n_el] = -conductor.incidence_matrix_transposed
-    K[n_el:, n_el:] = conductor.electric_conductance_matrix
-
-    conductor.electric_stiffness_matrix = K.tocsr(copy=True)
+    conductor.electric_stiffness_matrix = bmat(
+        [
+            [conductor.electric_resistance_matrix, conductor.incidence_matrix],
+            [
+                -conductor.incidence_matrix_transposed,
+                conductor.electric_conductance_matrix,
+            ],
+        ],
+        format="csr",
+        dtype=float,
+    )
 
 
 def build_mass_matrix(conductor: object) -> None:

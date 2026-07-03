@@ -322,6 +322,12 @@ def critical_current_density_nbti(
     Returns:
         _type_: _description_
     """
+    temperature = np.asarray(temperature, dtype=float)
+    magnetic_field = np.asarray(magnetic_field, dtype=float)
+    scalar_input = temperature.ndim == 0 and magnetic_field.ndim == 0
+    temperature, magnetic_field = np.broadcast_arrays(
+        np.atleast_1d(temperature), np.atleast_1d(magnetic_field)
+    )
     magnetic_field = np.maximum(magnetic_field, b_low)
 
     # Compute critical current density:
@@ -344,6 +350,8 @@ def critical_current_density_nbti(
                 * bb**alpha[1] * (1.0 - bb)**beta[1] / g_func(alpha[1], beta[1])
             )
         )
+    if scalar_input:
+        return jc.item()
     return jc
 
 

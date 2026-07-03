@@ -186,15 +186,15 @@ class Coolant():
 
     def _eval_properties(self, fields: FieldContainer, aliases: dict) -> FieldContainer:
         """Evaluate the coolant transport properties at the pressure and
-        temperature stored in fields, exploiting the CoolProp library."""
-        for prop_name, alias in aliases.items():
-            setattr(
-                fields,
-                prop_name,
-                cpi.compute_property(
-                    self.fluid_type, alias, fields.temperature, fields.pressure
-                ),
-            )
+        temperature stored in fields, exploiting the CoolProp library.
+
+        All properties are evaluated with a single equation-of-state flash
+        per point (see coolprop_interface.compute_properties)."""
+        properties = cpi.compute_properties(
+            self.fluid_type, aliases, fields.temperature, fields.pressure
+        )
+        for prop_name, values in properties.items():
+            setattr(fields, prop_name, values)
         # Compute Reynolds and Gruneisen dimensionless numbers.
         return self.eval_dimensionless_numbers(fields)
 

@@ -141,7 +141,14 @@ def solve_transient(conductor: object) -> None:
         conductor.electric_known_term_vector.copy()
     )
 
-    for nn in range(1, ELECTRIC_TIME_STEP_NUMBER + 1):
+    # Number of electric sub-steps needed to cover the thermal time step
+    # (the loop was previously hardcoded to ELECTRIC_TIME_STEP_NUMBER
+    # iterations regardless of the user-defined electric time step).
+    number_of_substeps = max(
+        1, round(conductor.electric_time_end / conductor.electric_time_step)
+    )
+
+    for nn in range(1, number_of_substeps + 1):
         conductor.electric_time += conductor.electric_time_step
         conductor.cond_el_num_step = nn
 
