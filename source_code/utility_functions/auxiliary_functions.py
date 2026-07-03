@@ -1,5 +1,8 @@
 import bisect
 import numpy as np
+
+from thermal.thermal_flags import HeatExcitation
+from conductor.conductor_flags import InterpolationType
 from openpyxl import load_workbook
 import pandas as pd
 from collections import namedtuple
@@ -8,113 +11,20 @@ from scipy import interpolate
 from typing import Union
 import warnings
 
-
-
-def check_repeated_headings(input_file, sheet):
-    """[summary]
+def check_costheta(cos_theta: float, input_file_path: str, sheet_name: str):
+    """Checks that cos(theta) is in the range (0, 1] for a strand component.
 
     Args:
-        input_file ([type]): [description]
-        sheet ([type]): [description]
+        cos_theta (float): the cos(theta) value to validate.
+        input_file_path (str): path to the input file, used in the error message.
+        sheet_name (str): sheet name in the input file, used in the error message.
 
     Raises:
-        ValueError: [description]
+        ValueError: if cos_theta is 0.0 or |cos_theta| > 1.0
     """
-
-    # Get the columns names that user can define (except the first four ones that are fixed). The variable columns is a tuple.
-    columns = list(
-        sheet.iter_rows(
-            min_row=3,
-            max_row=3,
-            min_col=sheet.min_column,
-            max_col=sheet.max_column,
-            values_only=True,
-        )
-    )[0][4:]
-    # Buil dictionay exploiting dict comprehension: each key as the numer of repetitions of the column as the corresponding value.
-    dict_colum = {column: columns.count(column) for column in columns}
-    # Raise error message
-    if max(list(dict_colum.values())) > 1:
+    if np.isclose(cos_theta, 0.0) or abs(cos_theta) > 1.0:
         raise ValueError(
-            f"ERROR! Different objects of the same kind ({sheet['A1'].value}) can not have the same identifier.\nUser defines the following:\n{dict_colum.items()}.\nPlease check the headers in sheet {sheet.title} of file {input_file}"
-        )
-
-
-# End fuction check_repeated_headings.
-
-
-def check_headers(cond, path_input, path_operation, sheet_input, sheet_operation):
-    """[summary]
-
-    Args:
-        cond ([type]): [description]
-        path_input ([type]): [description]
-        path_operation ([type]): [description]
-        sheet_input ([type]): [description]
-        sheet_operation ([type]): [description]
-
-    Raises:
-        SyntaxError: [description]
-    """
-    header_input = list(
-        pd.read_excel(
-            path_input, sheet_name=sheet_input.title, skiprows=2, header=0, index_col=0
-        ).columns
-    )
-    header_operation = list(
-        pd.read_excel(
-            path_operation,
-            sheet_name=sheet_operation.title,
-            skiprows=2,
-            header=0,
-            index_col=0,
-        ).columns
-    )
-
-    for ii in range(len(header_input)):
-        if header_input[ii] != header_operation[ii]:
-            raise SyntaxError(
-                f"ERROR in method {cond.__init__.__name__} of class {cond.__class__.__name__}: object headers in {sheet_input} of file {cond.file_input['STRUCTURE_ELEMENTS']} and in {sheet_operation} of file {cond.file_input['OPERATION']} should be the same!\nCompare the third row, column {ii+1} of those sheets.\n"
-            )
-
-
-# End function check_headers
-
-
-def check_object_number(object, path_1, path_2, sheet_1, sheet_2):
-    """[summary]
-
-    Raises:
-        ValueError: [description]
-    """
-    dict_method = dict(
-        Simulation="conductor_instance", Conductor="conductor_components_instance"
-    )
-    if int(sheet_1.cell(row=1, column=2).value) != int(
-        sheet_2.cell(row=1, column=2).value
-    ):
-        raise ValueError(
-            f"ERROR in class {object.__class__.__name__} method {dict_method[object.__class__.__name__]}: number of objects defined in file {path_1} sheet {sheet_1.title} and in file {path_2} sheet {sheet_2.title} must be the same.\nPlease compare cell B1 of those sheets.\n"
-        )
-
-
-# End function check_object_number.
-
-def check_costheta(object,path:str,sheet):
-    """Function that checks COSTHETA value in sheet conductor_input.xlsx for instances of class StrandComponent.
-
-    Args:
-        object (StrandComponent): instance of class StrandComponent.
-        path (str): path to the input file with information on the value of COSTHETA.
-        sheet (_type_): workbook sheet.
-
-    Raises:
-        ValueError: if object.inputs["COSTETA"] = 0.0 or if abs(object.inputs["COSTETA"]) > 1.0
-    """
-    
-    if np.isclose(object.inputs["COSTETA"], 0.0) or abs(object.inputs["COSTETA"]) > 1.0:
-        raise ValueError(
-            f"ERROR in class {object.__class__.__name__} method __init__: cos(theta) must be in the range (0,1]. Current value is {object.inputs['COSTETA']}.\nPlease, check sheet {sheet.title} in file {path}.\n"
+            f"ERROR: cos(theta) must be in the range (0,1]. Current value is {cos_theta}.\nPlease, check sheet {sheet_name} in file {input_file_path}.\n"
         )
 
 def set_diagnostic(vv, **kwargs):
@@ -168,7 +78,11 @@ def build_interpolator(df, interpolation_kind="linear"):
     Returns:
         _type_: _description_
     """
-    # The first column of the dataframe stores the space points used in the 
+    # Normalize the enum to the string expected by scipy's interp1d (an
+    # InterpolationType would silently be read as a spline order otherwise).
+    if isinstance(interpolation_kind, InterpolationType):
+        interpolation_kind = interpolation_kind.name.lower()
+    # The first column of the dataframe stores the space points used in the
     # interpolation function starting from the second row.
     strand_space_points = df.iloc[1:,0].to_numpy(dtype=float)
 
@@ -428,16 +342,16 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
             # Check that time @ which I perform interpolation is within tvec values, \
             # if not yy is given by spatial interpolation @ time = tvec[0] or \
             # time = tvec[-1] (cdp, 07/2020)
-            yy = np.zeros(conductor.grid_features["N_nod"], dtype=float)
+            yy = np.zeros(conductor.mesh.number_of_nodes, dtype=float)
             lower_bound = np.min(
-                np.nonzero(conductor.grid_features["zcoord"] >= xvec[0])
+                np.nonzero(conductor.mesh.node_coordinates >= xvec[0])
             )
             upper_bound = np.max(
-                np.nonzero(conductor.grid_features["zcoord"] <= xvec[-1])
+                np.nonzero(conductor.mesh.node_coordinates <= xvec[-1])
             )
             if options["Flag_name"] == "IQFUN":
                 # Interpolation to get external flux (cdp, 11/2020)
-                if comp.operations["IQFUN"] == -1:
+                if comp.operations.heat_flux_mode == HeatExcitation.FROM_FILE:
                     # square wave in time and space (cdp, 11/2020)
                     if (
                         conductor.cond_time[-1] >= tvec[0]
@@ -467,16 +381,16 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                     ) / (tvec[ii + 1] - tvec[ii]) * (MM[0, ii + 1] - MM[0, ii])
                     for kk in range(len(xvec) - 1):
                         lb = np.min(
-                            np.nonzero(conductor.grid_features["zcoord"] >= xvec[kk])
+                            np.nonzero(conductor.mesh.node_coordinates >= xvec[kk])
                         )
                         ub = np.max(
                             np.nonzero(
-                                conductor.grid_features["zcoord"] <= xvec[kk + 1]
+                                conductor.mesh.node_coordinates <= xvec[kk + 1]
                             )
                         )
                         if (ii < tvec.shape[0] - 1) and (ub <= upper_bound):
                             fx = (
-                                conductor.grid_features["zcoord"][lb : ub + 1]
+                                conductor.mesh.node_coordinates[lb : ub + 1]
                                 - xvec[kk]
                             ) / (xvec[kk + 1] - xvec[kk])
                             # interpolation in time (cdp)
@@ -500,7 +414,7 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                                 )
                         elif (ii == tvec.shape[0] - 1) and (ub <= upper_bound):
                             fx = (
-                                conductor.grid_features["zcoord"][lb : ub + 1]
+                                conductor.mesh.node_coordinates[lb : ub + 1]
                                 - xvec[kk]
                             ) / (xvec[kk + 1] - xvec[kk])
                             yy[lb : ub + 1] = (
@@ -518,15 +432,15 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                     yy[0:lower_bound] = MM[0, 0]
                     for kk in range(len(xvec) - 1):
                         lb = np.min(
-                            np.nonzero(conductor.grid_features["zcoord"] >= xvec[kk])
+                            np.nonzero(conductor.mesh.node_coordinates >= xvec[kk])
                         )
                         ub = np.max(
                             np.nonzero(
-                                conductor.grid_features["zcoord"] <= xvec[kk + 1]
+                                conductor.mesh.node_coordinates <= xvec[kk + 1]
                             )
                         )
                         fx = (
-                            conductor.grid_features["zcoord"][lb : ub + 1] - xvec[kk]
+                            conductor.mesh.node_coordinates[lb : ub + 1] - xvec[kk]
                         ) / (xvec[kk + 1] - xvec[kk])
                         # spatial interpolation @ time = tvec[0] (cdp, 07/2020)
                         yy[lb : ub + 1] = MM[kk, 0] + (MM[kk + 1, 0] - MM[kk, 0]) * fx
@@ -536,15 +450,15 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                     yy[0:lower_bound] = MM[0, -1]
                     for kk in range(len(xvec) - 1):
                         lb = np.min(
-                            np.nonzero(conductor.grid_features["zcoord"] >= xvec[kk])
+                            np.nonzero(conductor.mesh.node_coordinates >= xvec[kk])
                         )
                         ub = np.max(
                             np.nonzero(
-                                conductor.grid_features["zcoord"] <= xvec[kk + 1]
+                                conductor.mesh.node_coordinates <= xvec[kk + 1]
                             )
                         )
                         fx = (
-                            conductor.grid_features["zcoord"][lb : ub + 1] - xvec[kk]
+                            conductor.mesh.node_coordinates[lb : ub + 1] - xvec[kk]
                         ) / (xvec[kk + 1] - xvec[kk])
                         # spatial interpolation @ time = tvec[-1] (cdp, 07/2020)
                         yy[lb : ub + 1] = (

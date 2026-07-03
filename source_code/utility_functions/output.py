@@ -1,8 +1,11 @@
 import numpy as np
+
+from hydraulics.hydraulic_flags import FlowDirection
 import pandas as pd
 import os
 
 from collections import namedtuple
+from components.component_flags import ComponentType
 
 
 def save_properties(conductor, f_path):
@@ -10,10 +13,10 @@ def save_properties(conductor, f_path):
     """Functions that save .tsv files with suitable file names, FluidComponent and SolidComponent initialization and final solution, together with spatial coordinate discretization. Channels saved variables are: temperature, pressure, density, viscosity, specific heat at constant pressure, thermal conductivity, velocity, Reynolds number and Prandtl number. StrandComponent saved variables are: temperature, density, specific heat at constant pressure, thermal conductivity, magnetic field, electrical resistivity, current sharing temperature; jackets saved variables are temperature, specific heat at constant pressure, thermal conductivity, magnetic field, electrical resistivity."""
 
     # Check if FluidComponent collection is not empty.
-    if conductor.inventory["FluidComponent"].collection:
+    if conductor.inventory.fluids.collection:
         # FludiComponent collection is not empty.
         list_prop_chan = list(
-            conductor.inventory["FluidComponent"].collection[0].coolant.dict_node_pt.keys()
+            conductor.inventory.fluids.collection[0].coolant.node_fields.keys()
         )
         list_prop_chan.append("friction_factor")
         list_prop_chan.insert(0,"zcoord")
@@ -49,33 +52,33 @@ def save_properties(conductor, f_path):
     header_st = "zcoord (m)\ttemperature (K)\tB_field (T)\tT_cur_sharing (K)"
     header_stab = "zcoord (m)\ttemperature (K)\tB_field (T)"
     header_jk = "zcoord (m)\ttemperature (K)"
-    for fluid_comp in conductor.inventory["FluidComponent"].collection:
+    for fluid_comp in conductor.inventory.fluids.collection:
         A_chan = np.zeros(
             (
-                conductor.grid_features["N_nod"],
-                len(fluid_comp.coolant.dict_node_pt) + 2,
+                conductor.mesh.number_of_nodes,
+                len(fluid_comp.coolant.node_fields) + 2,
             )
         )
         file_path = os.path.join(f_path, f"{fluid_comp.identifier}.tsv")
-        A_chan[:, 0] = conductor.grid_features["zcoord"]
-        for ii, prop_value in enumerate(fluid_comp.coolant.dict_node_pt.values(), 1):
+        A_chan[:, 0] = conductor.mesh.node_coordinates
+        for ii, prop_value in enumerate(fluid_comp.coolant.node_fields.values(), 1):
             A_chan[:, ii] = prop_value
         # Save total friction factor
-        A_chan[:, -1] = fluid_comp.channel.dict_friction_factor[True]["total"]
+        A_chan[:, -1] = fluid_comp.channel.friction_factors[True].total
         with open(file_path, "w") as writer:
             np.savetxt(writer, A_chan, delimiter="\t", header=header_chan, comments="")
-    for strand in conductor.inventory["StrandComponent"].collection:
+    for strand in conductor.inventory.strands.collection:
         file_path = os.path.join(f_path, f"{strand.identifier}.tsv")
-        if strand.name != conductor.inventory["StrandStabilizerComponent"].name:
-            A_strand = np.zeros((conductor.grid_features["N_nod"], 4))
-            A_strand[:, 3] = strand.dict_node_pt["T_cur_sharing"]
+        if strand.name != ComponentType.STRAND_STABILIZER.value:
+            A_strand = np.zeros((conductor.mesh.number_of_nodes, 4))
+            A_strand[:, 3] = strand.node_fields.T_cur_sharing
         else:
-            A_strand = np.zeros((conductor.grid_features["N_nod"], 3))
-        A_strand[:, 0] = conductor.grid_features["zcoord"]
-        A_strand[:, 1] = strand.dict_node_pt["temperature"]
-        A_strand[:, 2] = strand.dict_node_pt["B_field"]
+            A_strand = np.zeros((conductor.mesh.number_of_nodes, 3))
+        A_strand[:, 0] = conductor.mesh.node_coordinates
+        A_strand[:, 1] = strand.node_fields.temperature
+        A_strand[:, 2] = strand.node_fields.B_field
         with open(file_path, "w") as writer:
-            if strand.name != conductor.inventory["StrandStabilizerComponent"].name:
+            if strand.name != ComponentType.STRAND_STABILIZER.value:
                 np.savetxt(
                     writer, A_strand, delimiter="\t", header=header_st, comments=""
                 )
@@ -83,11 +86,11 @@ def save_properties(conductor, f_path):
                 np.savetxt(
                     writer, A_strand, delimiter="\t", header=header_stab, comments=""
                 )
-    for jacket in conductor.inventory["JacketComponent"].collection:
+    for jacket in conductor.inventory.jackets.collection:
         file_path = os.path.join(f_path, f"{jacket.identifier}.tsv")
-        A_jacket = np.zeros((conductor.grid_features["N_nod"], 2))
-        A_jacket[:, 0] = conductor.grid_features["zcoord"]
-        A_jacket[:, 1] = jacket.dict_node_pt["temperature"]
+        A_jacket = np.zeros((conductor.mesh.number_of_nodes, 2))
+        A_jacket[:, 0] = conductor.mesh.node_coordinates
+        A_jacket[:, 1] = jacket.node_fields.temperature
         with open(file_path, "w") as writer:
             np.savetxt(writer, A_jacket, delimiter="\t", header=header_jk, comments="")
 
@@ -125,19 +128,19 @@ def save_simulation_space(conductor, f_path, n_digit_time):
         "friction_factor",
     )
     header_chan = "zcoord (m)\tvelocity (m/s)\tpressure (Pa)\ttemperature (K)\ttotal_density (kg/m^3)\tfriction_factor (~)"
-    for fluid_comp in conductor.inventory["FluidComponent"].collection:
+    for fluid_comp in conductor.inventory.fluids.collection:
         file_path = os.path.join(
             f_path, f"{fluid_comp.identifier}_({conductor.cond_num_step})_sd.tsv"
         )
-        A_chan = np.zeros((conductor.grid_features["N_nod"], len(prop_chan)))
+        A_chan = np.zeros((conductor.mesh.number_of_nodes, len(prop_chan)))
         for prop_idx, prop_name in enumerate(prop_chan):
             if prop_name == "zcoord":
-                A_chan[:, prop_idx] = conductor.grid_features[prop_name]
+                A_chan[:, prop_idx] = conductor.mesh.node_coordinates
             elif prop_name != "friction_factor":
-                A_chan[:, prop_idx] = fluid_comp.coolant.dict_node_pt[prop_name]
+                A_chan[:, prop_idx] = getattr(fluid_comp.coolant.node_fields, prop_name)
             else:
                 # Save friction factor
-                A_chan[:, prop_idx] = fluid_comp.channel.dict_friction_factor[True]["total"]
+                A_chan[:, prop_idx] = fluid_comp.channel.friction_factors[True].total
             # end if prop_name
         # end for ii
         with open(file_path, "w") as writer:
@@ -164,14 +167,14 @@ def save_simulation_space(conductor, f_path, n_digit_time):
         ),
         stab=("zcoord", "temperature"),
     )
-    for strand in conductor.inventory["StrandComponent"].collection:
+    for strand in conductor.inventory.strands.collection:
         file_path = os.path.join(
             f_path, f"{strand.identifier}_({conductor.cond_num_step})_sd.tsv"
         )
         if strand.KIND != "StrandStabilizerComponent":
             # Check if current sharing temperature is evaluated at each
             # thermal time step.
-            if strand.operations["TCS_EVALUATION"]:
+            if strand.operations.tcs_evaluation:
                 headers_strand = headers["sc"].full
                 prop_strand = prop["sc"].full
             else:
@@ -182,13 +185,13 @@ def save_simulation_space(conductor, f_path, n_digit_time):
             prop_strand = prop["stab"]
 
         A_strand = np.zeros(
-            (conductor.grid_features["N_nod"], len(prop_strand))
+            (conductor.mesh.number_of_nodes, len(prop_strand))
         )
         for prop_idx, prop_name in enumerate(prop_strand):
             if prop_name == "zcoord":
-                A_strand[:, prop_idx] = conductor.grid_features[prop_name]
+                A_strand[:, prop_idx] = conductor.mesh.node_coordinates
             else:
-                A_strand[:, prop_idx] = strand.dict_node_pt[prop_name]
+                A_strand[:, prop_idx] = getattr(strand.node_fields, prop_name)
             # end if prop_name
         # end for ii
         with open(file_path, "w") as writer:
@@ -199,16 +202,16 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     headers_jk = "zcoord (m)\ttemperature (K)"
     prop_jk = ("zcoord", "temperature")
     # Loop to save jacket properties spatial distribution.
-    for jk in conductor.inventory["JacketComponent"].collection:
+    for jk in conductor.inventory.jackets.collection:
         file_path = os.path.join(
             f_path, f"{jk.identifier}_({conductor.cond_num_step})_sd.tsv"
         )
-        A_jk = np.zeros((conductor.grid_features["N_nod"], len(prop_jk)))
+        A_jk = np.zeros((conductor.mesh.number_of_nodes, len(prop_jk)))
         for prop_idx, prop_name in enumerate(prop_jk):
             if prop_name == "zcoord":
-                A_jk[:, prop_idx] = conductor.grid_features[prop_name]
+                A_jk[:, prop_idx] = conductor.mesh.node_coordinates
             else:
-                A_jk[:, prop_idx] = jk.dict_node_pt[prop_name]
+                A_jk[:, prop_idx] = getattr(jk.node_fields, prop_name)
             # end if prop_name
         # end for ii
         with open(file_path, "w") as writer:
@@ -225,19 +228,19 @@ def save_simulation_space(conductor, f_path, n_digit_time):
         "delta_voltage_along",
         "linear_power_el_resistance",
     )
-    for s_comp in conductor.inventory["SolidComponent"].collection:
+    for s_comp in conductor.inventory.solids.collection:
         file_path = os.path.join(
             f_path, f"{s_comp.identifier}_({conductor.cond_num_step})_gauss_sd.tsv"
         )
-        A_s_comp = np.zeros((conductor.grid_input["NELEMS"], len(prop_s_comp)))
+        A_s_comp = np.zeros((conductor.mesh.number_of_elements, len(prop_s_comp)))
         for prop_idx, prop_name in enumerate(prop_s_comp):
             if prop_name == "zcoord_gauss":
-                A_s_comp[:, prop_idx] = conductor.grid_features[prop_name]
+                A_s_comp[:, prop_idx] = conductor.mesh.gauss_point_coordinates
             else:
                 if prop_name == "linear_power_el_resistance":
-                    A_s_comp[:, prop_idx] = s_comp.dict_Gauss_pt[prop_name][:, 0]
+                    A_s_comp[:, prop_idx] = getattr(s_comp.gauss_fields, prop_name)[:, 0]
                 else:
-                    A_s_comp[:, prop_idx] = s_comp.dict_Gauss_pt[prop_name]
+                    A_s_comp[:, prop_idx] = getattr(s_comp.gauss_fields, prop_name)
             # end if prop_name
         # end for ii
         with open(file_path, "w") as writer:
@@ -266,57 +269,57 @@ def save_simulation_space(conductor, f_path, n_digit_time):
             f_path_ex_jk_env, sep="\t", index=False, header=True
         )
 
-    if bool(conductor.dict_node_pt["HTC"]["ch_ch"]["Open"]):
+    if bool(conductor.node_fields.HTC["ch_ch"]["Open"]):
         # Path to save temporary file with the open heat transfer coefficients between fluid components.
         f_path_htc_ch_ch_o = os.path.join(
             f_path, f"HTC_ch_ch_o_({conductor.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
-            conductor.dict_node_pt["HTC"]["ch_ch"]["Open"],
+            conductor.node_fields.HTC["ch_ch"]["Open"],
             dtype=float,
         ).to_csv(f_path_htc_ch_ch_o, sep="\t", index=False, header=True)
 
-    if conductor.dict_node_pt["HTC"]["ch_ch"]["Close"]:
+    if conductor.node_fields.HTC["ch_ch"]["Close"]:
         # Path to save temporary file with the close heat transfer coefficients between fluid components.
         f_path_htc_ch_ch_c = os.path.join(
             f_path, f"HTC_ch_ch_c_({conductor.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
-            conductor.dict_node_pt["HTC"]["ch_ch"]["Close"],
+            conductor.node_fields.HTC["ch_ch"]["Close"],
             dtype=float,
         ).to_csv(f_path_htc_ch_ch_c, sep="\t", index=False, header=True)
 
-    if conductor.dict_node_pt["HTC"]["ch_sol"]:
+    if conductor.node_fields.HTC["ch_sol"]:
         # Path to save temporary file with the heat transfer coefficients between fluid and solid components.
         f_path_htc_ch_sol = os.path.join(
             f_path, f"HTC_ch_sol_({conductor.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
-            conductor.dict_node_pt["HTC"]["ch_sol"],
+            conductor.node_fields.HTC["ch_sol"],
             dtype=float,
         ).to_csv(f_path_htc_ch_sol, sep="\t", index=False, header=True)
 
-    if conductor.dict_node_pt["HTC"]["sol_sol"]["cond"]:
+    if conductor.node_fields.HTC["sol_sol"]["cond"]:
         # Path to save temporary file with the conductive heat transfer coefficients between solid components.
         f_path_htc_sol_sol_cond = os.path.join(
             f_path, f"HTC_sol_sol_cond_({conductor.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
-            conductor.dict_node_pt["HTC"]["sol_sol"]["cond"],
+            conductor.node_fields.HTC["sol_sol"]["cond"],
             dtype=float,
         ).to_csv(f_path_htc_sol_sol_cond, sep="\t", index=False, header=True)
-    if conductor.dict_node_pt["HTC"]["sol_sol"]["rad"]:
+    if conductor.node_fields.HTC["sol_sol"]["rad"]:
         # Path to save temporary file with the radiative heat transfer coefficients between solid components.
         f_path_htc_sol_sol_rad = os.path.join(
             f_path, f"HTC_sol_sol_rad_({conductor.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
-            conductor.dict_node_pt["HTC"]["sol_sol"]["rad"],
+            conductor.node_fields.HTC["sol_sol"]["rad"],
             dtype=float,
         ).to_csv(f_path_htc_sol_sol_rad, sep="\t", index=False, header=True)
 
@@ -380,13 +383,13 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     # Loop to save spatial coordinates.
     for ii,_ in enumerate(cond.Space_save):
         # Check if FluidComponent collection is not empty.
-        if cond.inventory["FluidComponent"].collection:
+        if cond.inventory.fluids.collection:
             # FluidComponent collection is not empty.
-            comp = cond.inventory["FluidComponent"].collection[0]
+            comp = cond.inventory.fluids.collection[0]
         else:
             # FluidComponent collection is empty: use first item in 
             # SolidComponent collection.
-            comp = cond.inventory["SolidComponent"].collection[0]
+            comp = cond.inventory.solids.collection[0]
 
         file_name = f"{comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
         file_load = os.path.join(f_path, file_name)
@@ -404,7 +407,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     df_zcoord.to_csv(path_save, sep="\t", index=False)
 
     # loop on FluidComponent (cdp, 11/2020)
-    for fluid_comp in cond.inventory["FluidComponent"].collection:
+    for fluid_comp in cond.inventory.fluids.collection:
         # create a list of files that have the fluid_comp.identifier and User in the name \
         # exploiting list compreension: these files are the ones that will be \
         # reorganized by this function (cdp, 11/2020)
@@ -462,7 +465,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         # end for prop (cdp, 11/2020)
     # end for fluid_comp (cdp, 11/2020)
     # loop on SolidComponent (cdp, 11/2020)
-    for s_comp in cond.inventory["SolidComponent"].collection:
+    for s_comp in cond.inventory.solids.collection:
         # declare the dictionary of data frame (cdp, 11/2020)
         dict_df = dict()
         dict_df_new = dict()
@@ -490,7 +493,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
                 if s_comp.KIND == "Mixed_sc_stab" or s_comp.KIND == "Stack":
                     # Check if current sharing temperature is evaluated at each
                     # thermal time step.
-                    if s_comp.operations["TCS_EVALUATION"]:
+                    if s_comp.operations.tcs_evaluation:
                         list_sol_key = sol_key["sc"].full
                     else:
                         list_sol_key = sol_key["sc"].reduced
@@ -660,8 +663,8 @@ def save_simulation_time(simulation, conductor):
     ind_zcoord = {
         f"zcoord = {conductor.Time_save[ii]} (m)": np.max(
             np.nonzero(
-                conductor.grid_features["zcoord"]
-                <= round(conductor.Time_save[ii], conductor.n_digit_z)
+                conductor.mesh.node_coordinates
+                <= round(conductor.Time_save[ii], conductor.mesh.position_precision)
             )
         )
         for ii in range(conductor.Time_save.size)
@@ -671,8 +674,8 @@ def save_simulation_time(simulation, conductor):
         {
             f"zcoord_g = {conductor.Time_save[ii]} (m)": np.max(
                 np.nonzero(
-                    conductor.grid_features["zcoord_gauss"]
-                    <= round(conductor.Time_save[ii], conductor.n_digit_z)
+                    conductor.mesh.gauss_point_coordinates
+                    <= round(conductor.Time_save[ii], conductor.mesh.position_precision)
                 )
             )
             for ii in range(1, conductor.Time_save.size)
@@ -697,30 +700,28 @@ def save_simulation_time(simulation, conductor):
             "total_density_out (kg/m^3)",
             "mass_flow_rate_out (kg/s)",
         ]
-        for f_comp in conductor.inventory["FluidComponent"].collection:
+        for f_comp in conductor.inventory.fluids.collection:
             # Loop on velocity, pressure, temperature and total density.
-            for key, value in f_comp.coolant.time_evol.items():
-                # Inizialize dictionary corresponding to key to a dictionary of empty lists for the first time.
-                f_comp.coolant.time_evol[key] = initialize_dictionaty_te(
-                    value, ind_zcoord
-                )
+            for field_name in f_comp.coolant.TIME_EVOLUTION_FIELDS:
+                # Initialize the field's time-evolution record for the first time.
+                f_comp.coolant.node_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord)
                 # Save the headings only ones.
                 pd.DataFrame(columns=headers).to_csv(
                     os.path.join(
                         simulation.dict_path[
                             f"Output_Time_evolution_{conductor.identifier}_dir"
                         ],
-                        f"{f_comp.identifier}_{key}_te.tsv",
+                        f"{f_comp.identifier}_{field_name}_te.tsv",
                     ),
                     sep="\t",
                     index=False,
                     header=True,
                 )
-            # End for key.
-            # Inizialize dictionary corresponding to key to a dictionary of empty lists for the first time.
-            f_comp.channel.time_evol["friction_factor"] = initialize_dictionaty_te(
-                f_comp.channel.time_evol["friction_factor"], ind_zcoord
-            )
+            # End for field_name.
+            # Initialize the friction factor time-evolution record for the first time.
+            f_comp.channel.friction_factor_time_evolution.initialize(ind_zcoord)
             # Save the headings only ones.
             pd.DataFrame(columns=headers).to_csv(
                 os.path.join(
@@ -746,42 +747,43 @@ def save_simulation_time(simulation, conductor):
                 header=True,
             )
         # End for f_comp.
-        for s_comp in conductor.inventory["SolidComponent"].collection:
-            # Loop on velocity, pressure, temperature and total density.
-            for key, value in s_comp.time_evol.items():
-                # Inizialize dictionary corresponding to key to a dictionary of empty lists for the first time.
-                s_comp.time_evol[key] = initialize_dictionaty_te(value, ind_zcoord)
+        for s_comp in conductor.inventory.solids.collection:
+            for field_name in s_comp.TIME_EVOLUTION_FIELDS:
+                # Initialize the field's time-evolution record for the first time.
+                s_comp.node_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord)
                 # Save the headings only ones.
                 pd.DataFrame(columns=headers).to_csv(
                     os.path.join(
                         simulation.dict_path[
                             f"Output_Time_evolution_{conductor.identifier}_dir"
                         ],
-                        f"{s_comp.identifier}_{key}_te.tsv",
+                        f"{s_comp.identifier}_{field_name}_te.tsv",
                     ),
                     sep="\t",
                     index=False,
                     header=True,
                 )
-            # End for key.
-            for key, value in s_comp.time_evol_gauss.items():
-                # Inizialize dictionary corresponding to key to a dictionary of empty lists for the first time.
-                s_comp.time_evol_gauss[key] = initialize_dictionaty_te(
-                    value, ind_zcoord_gauss
-                )
+            # End for field_name.
+            for field_name in s_comp.TIME_EVOLUTION_GAUSS_FIELDS:
+                # Initialize the field's time-evolution record for the first time.
+                s_comp.gauss_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord_gauss)
                 # Save the headings only ones.
                 pd.DataFrame(columns=headers_gauss).to_csv(
                     os.path.join(
                         simulation.dict_path[
                             f"Output_Time_evolution_{conductor.identifier}_dir"
                         ],
-                        f"{s_comp.identifier}_{key}_te.tsv",
+                        f"{s_comp.identifier}_{field_name}_te.tsv",
                     ),
                     sep="\t",
                     index=False,
                     header=True,
                 )
-            # End for key.
+            # End for field_name.
         # End for s_comp.
     # End if simulation.num_step (cdp, 10/2020)
 
@@ -789,40 +791,37 @@ def save_simulation_time(simulation, conductor):
     time = np.array(conductor.cond_time[-1])
 
     # FluidComponent objects (cdp, 08/2020)
-    for fluid_comp in conductor.inventory["FluidComponent"].collection:
+    for fluid_comp in conductor.inventory.fluids.collection:
         # Loop on velocity, pressure, temperature and total density.
-        for key, value in fluid_comp.coolant.time_evol.items():
-            # Update the contend of the dictionary of lists with propertiy values at selected zcoord and current time.
-            fluid_comp.coolant.time_evol[key] = update_values(
-                value, fluid_comp.coolant.dict_node_pt[key], time, ind_zcoord
-            )
-            # Write the content of the dictionary to file, if conditions are satisfied.
-            fluid_comp.coolant.time_evol[key] = save_te_on_file(
+        for field_name in fluid_comp.coolant.TIME_EVOLUTION_FIELDS:
+            field = fluid_comp.coolant.node_fields.field(field_name)
+            # Record the field values at the selected zcoord and current time.
+            field.time_evolution.record(time, field.values, ind_zcoord)
+            # Write the content of the record to file, if conditions are satisfied.
+            save_time_evolution_on_file(
                 conductor,
-                fluid_comp.coolant.time_evol[key],
+                field.time_evolution,
                 os.path.join(
                     simulation.dict_path[
                         f"Output_Time_evolution_{conductor.identifier}_dir"
                     ],
-                    f"{fluid_comp.identifier}_{key}_te.tsv",
+                    f"{fluid_comp.identifier}_{field_name}_te.tsv",
                 ),
                 simulation.transient_input["TEND"],
                 ind_zcoord,
             )
-        # End for key.
+        # End for field_name.
 
         # Save friction factor time evolution.
-        # Update the contend of the dictionary of lists with propertiy values at selected zcoord and current time.
-        fluid_comp.channel.time_evol["friction_factor"] = update_values(
-            fluid_comp.channel.time_evol["friction_factor"],
-            fluid_comp.channel.dict_friction_factor[True]["total"],
+        fluid_comp.channel.friction_factor_time_evolution.record(
             time,
+            fluid_comp.channel.friction_factors[True].total,
             ind_zcoord,
         )
-        # Write the content of the dictionary to file, if conditions are satisfied.
-        fluid_comp.channel.time_evol["friction_factor"] = save_te_on_file(
+        # Write the content of the record to file, if conditions are satisfied.
+        save_time_evolution_on_file(
             conductor,
-            fluid_comp.channel.time_evol["friction_factor"],
+            fluid_comp.channel.friction_factor_time_evolution,
             os.path.join(
                 simulation.dict_path[
                     f"Output_Time_evolution_{conductor.identifier}_dir"
@@ -833,10 +832,10 @@ def save_simulation_time(simulation, conductor):
             ind_zcoord,
         )
 
-        if fluid_comp.channel.flow_dir[0] == "forward":
+        if fluid_comp.coolant.operations.flow_direction is FlowDirection.FORWARD:
             index_inl = 0
             index_out = -1
-        elif fluid_comp.channel.flow_dir[0] == "backward":
+        elif fluid_comp.coolant.operations.flow_direction is FlowDirection.BACKWARD:
             index_inl = -1
             index_out = 0
 
@@ -850,7 +849,7 @@ def save_simulation_time(simulation, conductor):
         dict.update(
             {
                 key: value.append(
-                    fluid_comp.coolant.dict_node_pt[key.split("_inl")[0]][index_inl]
+                    getattr(fluid_comp.coolant.node_fields, key.split("_inl")[0])[index_inl]
                 )
                 for key, value in fluid_comp.coolant.time_evol_io.items()
                 if "inl" in key
@@ -860,7 +859,7 @@ def save_simulation_time(simulation, conductor):
         dict.update(
             {
                 key: value.append(
-                    fluid_comp.coolant.dict_node_pt[key.split("_out")[0]][index_out]
+                    getattr(fluid_comp.coolant.node_fields, key.split("_out")[0])[index_out]
                 )
                 for key, value in fluid_comp.coolant.time_evol_io.items()
                 if "out" in key
@@ -905,52 +904,49 @@ def save_simulation_time(simulation, conductor):
     # End for fluid_comp.
 
     # SolidComponent objects (cdp, 08/2020)
-    for s_comp in conductor.inventory["SolidComponent"].collection:
-        for key, value in s_comp.time_evol.items():
-            # Update the contend of the dictionary of lists with propertiy values at selected zcoord and current time.
-            s_comp.time_evol[key] = update_values(
-                value, s_comp.dict_node_pt[key], time, ind_zcoord
-            )
-            # Write the content of the dictionary to file, if conditions are satisfied.
-            s_comp.time_evol[key] = save_te_on_file(
+    for s_comp in conductor.inventory.solids.collection:
+        for field_name in s_comp.TIME_EVOLUTION_FIELDS:
+            field = s_comp.node_fields.field(field_name)
+            # Record the field values at the selected zcoord and current time.
+            field.time_evolution.record(time, field.values, ind_zcoord)
+            # Write the content of the record to file, if conditions are satisfied.
+            save_time_evolution_on_file(
                 conductor,
-                s_comp.time_evol[key],
+                field.time_evolution,
                 os.path.join(
                     simulation.dict_path[
                         f"Output_Time_evolution_{conductor.identifier}_dir"
                     ],
-                    f"{s_comp.identifier}_{key}_te.tsv",
+                    f"{s_comp.identifier}_{field_name}_te.tsv",
                 ),
                 simulation.transient_input["TEND"],
                 ind_zcoord,
             )
-        # End for key.
-        for key, value in s_comp.time_evol_gauss.items():
-            # Update the contend of the dictionary of lists with propertiy
-            # values at selected zcoord and current time.
-            if key == "linear_power_el_resistance":
-                s_comp.time_evol_gauss[key] = update_values(
-                    value, s_comp.dict_Gauss_pt[key][:, 0], time, ind_zcoord_gauss
+        # End for field_name.
+        for field_name in s_comp.TIME_EVOLUTION_GAUSS_FIELDS:
+            field = s_comp.gauss_fields.field(field_name)
+            # Record the field values at the selected zcoord and current time.
+            if field_name == "linear_power_el_resistance":
+                field.time_evolution.record(
+                    time, field.values[:, 0], ind_zcoord_gauss
                 )
             else:
-                s_comp.time_evol_gauss[key] = update_values(
-                    value, s_comp.dict_Gauss_pt[key], time, ind_zcoord_gauss
-                )
-            # Write the content of the dictionary to file, if conditions are
+                field.time_evolution.record(time, field.values, ind_zcoord_gauss)
+            # Write the content of the record to file, if conditions are
             # satisfied.
-            s_comp.time_evol_gauss[key] = save_te_on_file(
+            save_time_evolution_on_file(
                 conductor,
-                s_comp.time_evol_gauss[key],
+                field.time_evolution,
                 os.path.join(
                     simulation.dict_path[
                         f"Output_Time_evolution_{conductor.identifier}_dir"
                     ],
-                    f"{s_comp.identifier}_{key}_te.tsv",
+                    f"{s_comp.identifier}_{field_name}_te.tsv",
                 ),
                 simulation.transient_input["TEND"],
                 ind_zcoord_gauss,
             )
-        # End for key.
+        # End for field_name.
     # End for s_comp.
 
     if (
@@ -976,47 +972,22 @@ def save_simulation_time(simulation, conductor):
 # end function Save_simulation_time (cdp, 08/2020)
 
 
-def initialize_dictionaty_te(val, ind_zcoord):
-
-    val = {"time (s)": list()}
-    val.update({key: list() for key in ind_zcoord.keys()})
-    return val
-
-
-# End function initialize_dictionaty_te.
-
-
-def update_values(val, prop, time, ind_zcoord):
-
-    val["time (s)"].append(time)
-    # Use dict.update to avoid error (do not understood why with val.update does not work).
-    dict.update(
-        {
-            key: value.append(prop[ind_zcoord[key]])
-            for key, value in val.items()
-            if "zcoord" in key
-        }
-    )
-    return val
-
-
-# End function update_values.
-
-
-def save_te_on_file(conductor, val, file_name, tend, ind_zcoord):
-    """Function that saves the time evolution of selectet variables at given saptial coordinates.
+def save_time_evolution_on_file(conductor, time_evolution, file_name, tend, ind_zcoord):
+    """Flush a field's time-evolution record to file, if conditions are
+    satisfied: either the record buffer is full (Conductor.CHUNCK_SIZE
+    recorded times, after which the record is re-initialized) or the end time
+    of the simulation is reached.
 
     Args:
-        conductor ([type]): [description]
-        df ([type]): [description]
-        file_name ([type]): [description]
-        tend ([type]): [description]
-
-    Returns:
-        [type]: [description]
+        conductor (Conductor): conductor object (provides CHUNCK_SIZE and cond_time).
+        time_evolution (TimeEvolution): the record of the field's time evolution.
+        file_name (str): path of the output file to append to.
+        tend (float): end time of the simulation.
+        ind_zcoord (dict): column label -> spatial index mapping of the saved coordinates.
     """
-    if len(val["time (s)"]) == conductor.CHUNCK_SIZE:
-        pd.DataFrame(val, columns=list(val.keys()), dtype=float).to_csv(
+    if len(time_evolution) == conductor.CHUNCK_SIZE:
+        columns = time_evolution.columns()
+        pd.DataFrame(columns, columns=list(columns.keys()), dtype=float).to_csv(
             file_name,
             sep="\t",
             mode="a",
@@ -1024,9 +995,10 @@ def save_te_on_file(conductor, val, file_name, tend, ind_zcoord):
             index=False,
             header=False,
         )
-        val = initialize_dictionaty_te(val, ind_zcoord)
+        time_evolution.initialize(ind_zcoord)
     elif abs(conductor.cond_time[-1] - tend) / tend <= 1e-6:
-        pd.DataFrame(val, columns=list(val.keys()), dtype=float).to_csv(
+        columns = time_evolution.columns()
+        pd.DataFrame(columns, columns=list(columns.keys()), dtype=float).to_csv(
             file_name,
             sep="\t",
             mode="a",
@@ -1034,11 +1006,10 @@ def save_te_on_file(conductor, val, file_name, tend, ind_zcoord):
             index=False,
             header=False,
         )
-    # End if len(df.index).
-    return val
+    # End if len(time_evolution).
 
 
-# End function save_te_on_file.
+# End function save_time_evolution_on_file.
 
 
 def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
@@ -1052,7 +1023,7 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
     if space_conv:
         # Save data for the Space convergence analysis (cdp, 12/2020)
         # compute spatial discretization pitch (cdp, 12/2020)
-        discr = cond.inputs["ZLENGTH"] / cond.grid_input["NELEMS"]
+        discr = cond.inputs.zlength / cond.mesh.number_of_elements
         folder_path = os.path.join(f_path, cond.identifier)
         # Create the path of the file {cond.identifier}_delta_x.tsv (cdp, 11/2020)
         file_path_name = os.path.join(folder_path, f"{cond.identifier}_delta_x.tsv")
@@ -1060,16 +1031,16 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
         # desinence to sictinguisch among space and time convergence (cdp, 12/2020)
         des = "sc"
         # the content of the round brackets in the file name (cdp, 12/2020)
-        brackets = cond.grid_input["NELEMS"]
+        brackets = cond.mesh.number_of_elements
         # convergence on mass and energy balance (cdp, 12/2020)
         AA = np.zeros((1, 4))
-        AA[0, 0] = cond.grid_input["NELEMS"]
+        AA[0, 0] = cond.mesh.number_of_elements
         AA[0, 1] = discr
         AA[0, 2] = cond.mass_balance
         AA[0, 3] = cond.energy_balance
         # discretization values for file CONDUCTOR_ID_delta_x.tsv
         val = np.zeros((1, 2))
-        val[0, 0] = cond.grid_input["NELEMS"]
+        val[0, 0] = cond.mesh.number_of_elements
         val[0, 1] = discr
     elif space_conv == False:
         # Save data for the Time convergence analysis (cdp, 12/2020)
@@ -1150,7 +1121,7 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
             np.savetxt(writer, AA, delimiter="\t")
     # end if not (cdp, 12/2020)
     # Loop on FluidComponent (cdp, 12/2020)
-    for fluid_comp in cond.inventory["FluidComponent"].collection:
+    for fluid_comp in cond.inventory.fluids.collection:
         # save FluidComponent solution spatial distribution at TEND: velocity, \
         # pressure and temperature only (cdp, 11/2020)
         folder_path = os.path.join(f_path, cond.identifier, fluid_comp.identifier)
@@ -1160,22 +1131,22 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
         )
         A_chan = np.zeros(
             (
-                cond.grid_features["N_nod"],
+                cond.mesh.number_of_nodes,
                 int(
                     cond.dict_N_equation["FluidComponent"]
-                    / cond.inventory["FluidComponent"].number
+                    / cond.inventory.fluids.number
                 ),
             )
         )
         header_chan = "velocity (m/s)\tpressure (Pa)\ttemperature (K)"
-        A_chan[:, 0] = fluid_comp.coolant.dict_node_pt["velocity"]
-        A_chan[:, 1] = fluid_comp.coolant.dict_node_pt["pressure"]
-        A_chan[:, 2] = fluid_comp.coolant.dict_node_pt["temperature"]
+        A_chan[:, 0] = fluid_comp.coolant.node_fields.velocity
+        A_chan[:, 1] = fluid_comp.coolant.node_fields.pressure
+        A_chan[:, 2] = fluid_comp.coolant.node_fields.temperature
         with open(file_path, "w") as writer:
             np.savetxt(writer, A_chan, delimiter="\t", header=header_chan, comments="")
     # end for fluid_comp (cdp, 11/2020)
     # Loop on SolidComponent (cdp, 12/2020)
-    for s_comp in cond.inventory["SolidComponent"].collection:
+    for s_comp in cond.inventory.solids.collection:
         # save SolidComponent solution spatial distribution at TEND: temperature \
         # only (cdp, 11/2020)
         folder_path = os.path.join(f_path, cond.identifier, s_comp.identifier)
@@ -1185,7 +1156,7 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
         with open(file_path, "w") as writer:
             np.savetxt(
                 writer,
-                s_comp.dict_node_pt["temperature"],
+                s_comp.node_fields.temperature,
                 delimiter="\t",
                 header=headers_s_comp,
                 comments="",

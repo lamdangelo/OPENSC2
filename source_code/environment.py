@@ -19,8 +19,8 @@ class Environment:
         """
         # Dictionary declaration (cdp, 11/2020)
         self.inputs = dict()
-        # self.dict_node_pt = dict()
-        # self.dict_Gauss_pt = dict()
+        # self.node_fields = FieldContainer(GridLocation.NODE)
+        # self.gauss_fields = FieldContainer(GridLocation.GAUSS)
         # Dictionary initialization: inputs.
         self.inputs = pd.read_excel(
             f_path,
@@ -77,15 +77,11 @@ class Environment:
 
         # Declare dictionary with the characterisctic length.
         dict_characterisctic_length = dict(
-            vertical_plate=conductor.grid_features["delta_z"],  # to be checked
-            vertical_plate_churchill_chu=conductor.grid_features[
-                "delta_z"
-            ],  # to be checked
-            vertical_plate_churchill_chu_accurate=conductor.grid_features[
-                "delta_z"
-            ],  # to be checked
-            long_horziontal_cylinder_morgan=conductor.inputs["Diameter"],
-            long_horziontal_cylinder_churchill_chu=conductor.inputs["Diameter"],
+            vertical_plate=conductor.mesh.element_lengths,  # to be checked
+            vertical_plate_churchill_chu=conductor.mesh.element_lengths,  # to be checked
+            vertical_plate_churchill_chu_accurate=conductor.mesh.element_lengths,  # to be checked
+            long_horziontal_cylinder_morgan=conductor.inputs.diameter,
+            long_horziontal_cylinder_churchill_chu=conductor.inputs.diameter,
         )
 
         # Define the film temperature.
@@ -93,10 +89,10 @@ class Environment:
         # Evaluate air propreties.
         dict_air_properties = self.eval_prop(film_temperature)
         # Evaluate Nusselt dimensionless number.
-        if conductor.inputs["Is_rectangular"]:
+        if conductor.inputs.is_rectangular:
             # Evaluate Grashof dimensionless number for vertical side.
             grashof_side = self.grashof_number(
-                dict_air_properties, T_s, conductor.inputs["Height"]
+                dict_air_properties, T_s, conductor.inputs.height
             )
             # Evaluate Rayleigh dimensionless number for vertical side.
             rayleigh_side = self.rayleigh_number(
@@ -108,9 +104,9 @@ class Environment:
             )
             # L = A_s/P
             characteristic_length = (
-                conductor.inputs["XLENGHT"]
-                * conductor.inputs["Width"]
-                / (2 * (conductor.inputs["XLENGHT"] + conductor.inputs["Width"]))
+                conductor.inputs.zlength
+                * conductor.inputs.width
+                / (2 * (conductor.inputs.zlength + conductor.inputs.width))
             )
             # Evaluate Grashof dimensionless number lower/upper cold plate.
             grashof_lu = self.grashof_number(
@@ -132,7 +128,7 @@ class Environment:
             return (
                 nusselt_side
                 * dict_air_properties["thermal_conductivity"]
-                / conductor.inputs["Height"],
+                / conductor.inputs.height,
                 nusselt_bottom
                 * dict_air_properties["thermal_conductivity"]
                 / characteristic_length,
@@ -144,7 +140,7 @@ class Environment:
             # Non rectangular duct (cylinder).
             # Get the characterisctic length needed to evaluare Grashof and Rayleigh dimensionless numbers according to the selected external free convection correlation.
             characteristic_length = dict_characterisctic_length[
-                conductor.inputs["external_free_convection_correlation"]
+                conductor.inputs.external_free_convection_correlation
             ]
             # Evaluate Grashof dimensionless numbers.
             grashof = self.grashof_number(
@@ -153,7 +149,7 @@ class Environment:
             # Evaluate Rayleigh number.
             rayleigh = self.rayleigh_number(grashof, dict_air_properties["prandtl"])
             nusselt = self.dict_nusselt_correlations[
-                conductor.inputs["external_free_convection_correlation"]
+                conductor.inputs.external_free_convection_correlation
             ](rayleigh, dict_air_properties["prandtl"], grashof, conductor)
             # Evaluate external free convection heat transfer coefficient.
             return (
@@ -161,7 +157,7 @@ class Environment:
                 * dict_air_properties["thermal_conductivity"]
                 / characteristic_length
             )
-        # End if conductor.inputs["Is_rectangular"]
+        # End if conductor.inputs.is_rectangular
 
     # End method eval_heat_transfer_coefficient.
 
@@ -363,11 +359,11 @@ class Environment:
         """
         dict_check = {True: self._do_nothing, False: warnings.warn}
         check = any(
-            conductor.inputs["Diameter"] / conductor.grid_features["delta_z"]
+            conductor.inputs.diameter / conductor.mesh.element_lengths
             > 35.0 / grashof ** (1.0 / 4.0)
         )
         dict_check[check](
-            f"External free convection heat transfer coefficient may be inaccurate since the selected correlation for its evaluation {conductor.inputs['external_free_convection_correlation']} can not be applied to the case of a vertical cylinder!\n"
+            f"External free convection heat transfer coefficient may be inaccurate since the selected correlation for its evaluation {conductor.inputs.external_free_convection_correlation} can not be applied to the case of a vertical cylinder!\n"
         )
 
     # End method check_validity_vertical_cylinder.
