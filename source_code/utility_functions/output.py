@@ -1133,7 +1133,7 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
             (
                 cond.mesh.number_of_nodes,
                 int(
-                    cond.dict_N_equation["FluidComponent"]
+                    cond.equation_counts.fluid_equations
                     / cond.inventory.fluids.number
                 ),
             )

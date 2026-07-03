@@ -147,11 +147,12 @@ class Coolant():
                 [0.0, conductor.inputs.zlength],
                 [self.operations.outlet_pressure, self.operations.inlet_pressure],
             )
-        # Compute temperature from inlet and outlet values by linear interpolation.
+        # Compute the initial temperature profile by linear interpolation
+        # (TEMINI/TEMINI_OUT when given, otherwise the boundary values).
         self.node_fields.temperature = np.interp(
             conductor.mesh.node_coordinates,
             [0.0, conductor.inputs.zlength],
-            [self.operations.inlet_temperature, self.operations.outlet_temperature],
+            self.operations.initial_temperature_profile_bounds(),
         )
         # Compute density (needed to compute the velocity from mass flow rate).
         self.node_fields.total_density = cpi.compute_mass_density(

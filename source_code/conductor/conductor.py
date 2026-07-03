@@ -22,6 +22,12 @@ from components.component_collection import ComponentInventory
 from electromagnetics.electromagnetic_flags import CurrentMode
 from conductor.conductor_mesh import MeshType
 from conductor.conductor_flags import MethodFlag
+from conductor.solver_structures import (
+    BandStructure,
+    EquationCounts,
+    SolutionNorms,
+    TimeIntegrationState,
+)
 import conductor.conductor_mesh as conductor_mesh
 from components.fluid.fluid_component import FluidComponent
 from components.component_factory import ComponentFactory, ComponentBuildContext
@@ -249,9 +255,7 @@ class Conductor:
         # dictionary comprehension and dictionary method update.
         self.equation_index.update(
             {
-                scomp.identifier: scomp_idx + self.dict_N_equation[
-                    "FluidComponent"
-                ]
+                scomp.identifier: scomp_idx + self.equation_counts.fluid_equations
                 for scomp_idx,scomp in enumerate(
                     self.inventory.solids.collection
                 )
@@ -305,50 +309,26 @@ class Conductor:
         conductorlogger.debug(f"Defined electric_theta\n")
         ## Evaluate parameters useful in function \
         # Transient_solution_functions.py\STEP (cdp, 07/2020)
-        # dict_N_equation keys meaning:
-        # ["FluidComponent"]: total number of equations for FluidComponent \
-        # objects (cdp, 07/2020);
-        # ["StrandComponent"]: total number of equations for StrandComponent objects (cdp, 07/2020);
-        # ["JacketComponent"]: total number of equations for JacketComponent objects (cdp, 07/2020);
-        # ["SolidComponent"]: total number of equations for SolidComponent \
-        # objects (cdp, 07/2020);
-        # ["NODOFS"]: total number of equations for for each node, i.e. Number Of \
-        # Degrees Of Freedom, given by: \
-        # 3*(number of channels) + (number of strands) + (number of jackets) \
-        # (cdp, 07/2020);
-        self.dict_N_equation = dict(
-            FluidComponent=3 * self.inventory.fluids.number,
-            StrandComponent=self.inventory.strands.number,
-            JacketComponent=self.inventory.jackets.number,
-            SolidComponent=self.inventory.solids.number,
+        fluid_equations = 3 * self.inventory.fluids.number
+        solid_equations = self.inventory.solids.number
+        degrees_of_freedom_per_node = fluid_equations + solid_equations
+        self.equation_counts = EquationCounts(
+            fluid_equations=fluid_equations,
+            strand_equations=self.inventory.strands.number,
+            jacket_equations=self.inventory.jackets.number,
+            solid_equations=solid_equations,
+            degrees_of_freedom_per_node=degrees_of_freedom_per_node,
+            degrees_of_freedom_per_element=2 * degrees_of_freedom_per_node,
         )
-        # necessary since it is not allowed to use the value of a dictionary key \
-        # before that the dictionary is fully defined (cdp, 09/2020)
-        self.dict_N_equation.update(
-            NODOFS=self.dict_N_equation["FluidComponent"]
-            + self.dict_N_equation["SolidComponent"]
+        self.band = BandStructure(
+            half_bandwidth=2 * degrees_of_freedom_per_node,
+            number_of_subdiagonals=2 * degrees_of_freedom_per_node - 1,
+            full_bandwidth=4 * degrees_of_freedom_per_node - 1,
         )
-        # Exploit left binary shift, equivalent to:
-        # self.dict_N_equation["NODOFS2"] = 2 * self.dict_N_equation["NODOFS"]
-        self.dict_N_equation["NODOFS2"] = self.dict_N_equation["NODOFS"] << 1
-        # dict_band keys meaning:
-        # ["Half"]: half band width, including main diagonal (IEDOFS) (cdp, 09/2020)
-        # ["Main_diag"]: main diagonal index within the band (IHBAND) (cdp, 09/2020)
-        # ["Full"]: full band width, including main diagonal (IBWIDT) (cdp, 09/2020)
-        self.dict_band = dict(
-            Half=2 * self.dict_N_equation["NODOFS"],
-            Main_diag=2 * self.dict_N_equation["NODOFS"] - 1,
-            Full=4 * self.dict_N_equation["NODOFS"] - 1,
-        )
-        # self.MAXDOF = self.dict_N_equation["NODOFS"]*MAXNOD
-        self.EQTEIG = np.zeros(self.dict_N_equation["NODOFS"])
-        # dict_norm keys meaning:
-        # ["Solution"]: norm of the solution (cdp, 09/2020)
-        # ["Change"]: norm of the solution variation wrt the previous time step \
-        # (cdp, 09/2020)
-        self.dict_norm = dict(
-            Solution=np.zeros(self.dict_N_equation["NODOFS"]),
-            Change=np.zeros(self.dict_N_equation["NODOFS"]),
+        self.equation_eigenvalues = np.zeros(degrees_of_freedom_per_node)
+        self.solution_norms = SolutionNorms(
+            solution=np.zeros(degrees_of_freedom_per_node),
+            change=np.zeros(degrees_of_freedom_per_node),
         )
         
         # Call method __build_equation_idx to build attribute equation_index;
@@ -359,7 +339,7 @@ class Conductor:
         # hydraulic problem.
         self.__build_equation_idx()
 
-        # evaluate attribute EIGTIM exploiting function
+        # evaluate attribute time_accuracy_eigenvalue exploiting function
         # evaluate_time_accuracy_eigenvalue (cdp, 08/2020)
         # Deferred import: utility_functions.transient_solution_functions
         # imports Conductor from this module, so importing it at module
@@ -542,8 +522,8 @@ class Conductor:
         time_simulation = simulation.simulation_time[-1]
         sim_name = simulation.transient_input["SIMULATION"]
         # Total number of equations for each conductor (cdp, 09/2020)
-        self.dict_N_equation["Total"] = (
-            self.dict_N_equation["NODOFS"] * self.mesh.number_of_nodes
+        self.equation_counts.total_equations = (
+            self.equation_counts.degrees_of_freedom_per_node * self.mesh.number_of_nodes
         )
         # initialize conductor time values, it can be different for different \
         # conductors since the conductor time step can be different (cdp, 10/202)
@@ -720,72 +700,67 @@ class Conductor:
                 )
         # end for s_comp (cdp, 12/2020)
 
-        # Construct and initialize dictionary dict_Step to correctly apply the \
-        # method that solves the transient (cdp, 10/2020)
+        # Construct and initialize the time integration state (load vector
+        # and solution) to correctly apply the method that solves the
+        # transient.
         if self.inputs.thermohydraulic_method in (
             MethodFlag.BACKWARD_EULER,
             MethodFlag.CRANK_NICOLSON,
         ):
             # Backward Euler or Crank-Nicolson (cdp, 10/2020)
-            self.dict_Step = dict(
-                SYSLOD=np.zeros((self.dict_N_equation["Total"], 2)),
-                SYSVAR=np.zeros((self.dict_N_equation["Total"], 1)),
+            self.time_integration = TimeIntegrationState(
+                load_vector=np.zeros((self.equation_counts.total_equations, 2)),
+                solution=np.zeros((self.equation_counts.total_equations, 1)),
             )
         elif self.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton order 4 (cdp, 10/2020)
-            self.dict_Step = dict(
-                SYSLOD=np.zeros((self.dict_N_equation["Total"], 4)),
-                SYSVAR=np.zeros((self.dict_N_equation["Total"], 3)),
-                # AM4_AA: four matrices of size Full * Total
-                AM4_AA=np.zeros(
-                    (4,self.dict_band["Full"],self.dict_N_equation["Total"])
+            self.time_integration = TimeIntegrationState(
+                load_vector=np.zeros((self.equation_counts.total_equations, 4)),
+                solution=np.zeros((self.equation_counts.total_equations, 3)),
+                # Four matrices of size full_bandwidth * total_equations.
+                adams_moulton_matrices=np.zeros(
+                    (4,self.band.full_bandwidth,self.equation_counts.total_equations)
                 ),
             )
         # end if self.inputs
 
-        # Assign initial values to key SYSVAR (cdp, 10/2020)
+        # Assign initial values to the time integration solution (cdp, 10/2020)
         for jj, fluid_comp in enumerate(self.inventory.fluids.collection):
             # velocity (cdp, 10/2020)
-            self.dict_Step["SYSVAR"][
-                jj : self.dict_N_equation["Total"] : self.dict_N_equation["NODOFS"], 0
+            self.time_integration.solution[
+                jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
             ] = fluid_comp.coolant.node_fields.velocity
             # pressure (cdp, 10/2020)
-            self.dict_Step["SYSVAR"][
+            self.time_integration.solution[
                 jj
-                + self.inventory.fluids.number : self.dict_N_equation[
-                    "Total"
-                ] : self.dict_N_equation["NODOFS"],
+                + self.inventory.fluids.number : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node,
                 0,
             ] = fluid_comp.coolant.node_fields.pressure
             # temperature (cdp, 10/2020)
-            self.dict_Step["SYSVAR"][
+            self.time_integration.solution[
                 jj
                 + 2
-                * self.inventory.fluids.number : self.dict_N_equation[
-                    "Total"
-                ] : self.dict_N_equation["NODOFS"],
+                * self.inventory.fluids.number : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node,
                 0,
             ] = fluid_comp.coolant.node_fields.temperature
         # end for jj (cdp, 10/2020)
         for ll, comp in enumerate(self.inventory.solids.collection):
             # solid components temperature (cdp, 10/2020)
-            self.dict_Step["SYSVAR"][
+            self.time_integration.solution[
                 ll
-                + self.dict_N_equation["FluidComponent"] : self.dict_N_equation[
-                    "Total"
-                ] : self.dict_N_equation["NODOFS"],
+                + self.equation_counts.fluid_equations : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node,
                 0,
             ] = comp.node_fields.temperature
         # end for ll (cdp, 10/2020)
-        if self.dict_Step["SYSVAR"].shape[-1] > 1:
+        if self.time_integration.solution.shape[-1] > 1:
             # if this is true, it means that an higher order method than \
             # Crank-Nicolson is applied to solve the transient (cdp, 10/2020)
-            for cc in range(1, self.dict_Step["SYSVAR"].shape[-1]):
+            for cc in range(1, self.time_integration.solution.shape[-1]):
                 # Copy the values of the first colum in all the other columns, like \
                 # they are the results of a dummy initial steady state (cdp, 10/2020)
-                self.dict_Step["SYSVAR"][:, cc] = self.dict_Step["SYSVAR"][:, 0].copy()
+                self.time_integration.solution[:, cc] = self.time_integration.solution[:, 0].copy()
             # end for cc (cdp, 10/2020)
-        # end if self.dict_Step["SYSVAR"].shape[-1] (cdp, 10/2020)
+        # end if self.time_integration.solution.shape[-1] (cdp, 10/2020)
 
         conductorlogger.debug(
             f"Before call function {save_geometry_discretization.__name__}.\n"

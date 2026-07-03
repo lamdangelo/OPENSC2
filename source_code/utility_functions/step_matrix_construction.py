@@ -11,76 +11,88 @@ from conductor.conductor_flags import MethodFlag
 
 @dataclass
 class SystemMatrices:
-    """Typed bundle of the four assembled system matrices (mass/capacity,
-    convection/flux, diffusion, source) that used to be passed around as a
-    MASMAT/FLXMAT/DIFMAT/SORMAT dict. Iterating yields the matrices
-    themselves (not copies), so in-place mutation by callers such as
-    :func:`assemble_matrix` is preserved.
+    """Typed bundle of the four assembled (banded) system matrices that used
+    to be passed around as a MASMAT/FLXMAT/DIFMAT/SORMAT dict. Iterating
+    yields the matrices themselves (not copies), so in-place mutation by
+    callers such as :func:`assemble_system_matrices` is preserved.
     """
-    masmat: np.ndarray
-    flxmat: np.ndarray
-    difmat: np.ndarray
-    sormat: np.ndarray
+    mass_capacity: np.ndarray   # was MASMAT
+    flux_jacobian: np.ndarray   # was FLXMAT (convection)
+    diffusion: np.ndarray       # was DIFMAT
+    source_jacobian: np.ndarray # was SORMAT
 
     def __iter__(self) -> Iterator[np.ndarray]:
-        return iter((self.masmat, self.flxmat, self.difmat, self.sormat))
+        return iter(
+            (
+                self.mass_capacity,
+                self.flux_jacobian,
+                self.diffusion,
+                self.source_jacobian,
+            )
+        )
 
-def matrix_initialization(row:int,col:int,matrix_names:tuple)->dict:
-    """Wrapper of function np.zeros that inizializes five identical rectangular matrices and collects them in a dictionary.
 
-    Args:
-        row (int): number of rows of the matrix.
-        col (int): number of columns of the matrix.
-        matrix_names (tuple): collection of valid keywords to build the dictionary of initialized matrices.
-
-    Returns:
-        dict: collection of initialized matrices.
+@dataclass
+class GaussPointMatrices:
+    """Typed bundle of the Gauss-point matrices of all elements (was the
+    MMAT/AMAT/KMAT/SMAT dict); each array has shape
+    (number_of_elements, degrees_of_freedom_per_node, degrees_of_freedom_per_node).
     """
-    
-    return {name:np.zeros((row,col)) for name in matrix_names}
+    mass_capacity: np.ndarray   # was MMAT
+    flux_jacobian: np.ndarray   # was AMAT
+    diffusion: np.ndarray       # was KMAT
+    source_jacobian: np.ndarray # was SMAT
 
-def array_initialization(dimension:int, num_step:int, col:int=0)-> Union[NamedTuple,np.ndarray]:
-    """Wrapper of function np.zeros that initializes array of shape (dimension, col) according to the time step number.
+
+@dataclass
+class ElementMatrices:
+    """Typed bundle of the element matrices of all elements (was the
+    ELMMAT/ELAMAT/ELKMAT/ELSMAT dict); each array has shape
+    (number_of_elements, degrees_of_freedom_per_element, degrees_of_freedom_per_element).
+    """
+    mass_capacity: np.ndarray   # was ELMMAT
+    flux_jacobian: np.ndarray   # was ELAMAT
+    diffusion: np.ndarray       # was ELKMAT
+    source_jacobian: np.ndarray # was ELSMAT
+
+    def __iter__(self) -> Iterator[np.ndarray]:
+        return iter(
+            (
+                self.mass_capacity,
+                self.flux_jacobian,
+                self.diffusion,
+                self.source_jacobian,
+            )
+        )
+
+def array_initialization(shape:tuple, num_step:int)-> Union[NamedTuple,np.ndarray]:
+    """Wrapper of function np.zeros that initializes an array of the given shape according to the time step number.
     N.B. the application of the theta method should be completely rivisited in the whole code.
 
     Args:
-        dimension (int): number of elements (rows) of the array to be initialized.
+        shape (tuple): shape of the array to be initialized.
         num_step (int): time step number.
-        col (int, optional): number of columns to be assigned to the array. If col is 0, the array shape is (dimension,), else array shape is (dimension,col). Defaults to 0.
 
     Returns:
-        Union[NamedTuple,np.ndarray]: namedtuple with array if num_step is 1; np.ndarray in all other cases.
+        Union[NamedTuple,np.ndarray]: namedtuple with arrays (previous, present) if num_step is 1; np.ndarray in all other cases.
     """
 
     if num_step == 1:
         Array = namedtuple("Array",("previous","present"))
-        # To correctly apply the theta method (to be rivisited in the whole 
+        # To correctly apply the theta method (to be rivisited in the whole
         # code!).
         # previous is for the initialization (time step number is 0);
         # present is for the first time step after the initialization
-        
-        # Check on col to assign the correct shape to the array.
-        if col: # used to define SVEC.
-            return Array(
-                previous=np.zeros((dimension, col)),
-                present=np.zeros((dimension, col)),
-            )
-        else: # used to define ELSLOD.
-            return Array(
-                previous=np.zeros(dimension),
-                present=np.zeros(dimension),
-            )
+        return Array(
+            previous=np.zeros(shape),
+            present=np.zeros(shape),
+        )
     else:
-        # Check on col to assign the correct shape to the array.
-        if col: # used to define SVEC.
-            return np.zeros((dimension, col))
-        else: # used to define ELSLOD.
-            return np.zeros(dimension)
+        return np.zeros(shape)
 
 def build_amat(
     matrix:np.ndarray,
     f_comp:FluidComponent,
-    elem_idx:int,
     eq_idx:NamedTuple,
     )->np.ndarray:
     """Function that builds the A matrix (AMAT) at the Gauss point (flux Jacobian).
@@ -88,32 +100,33 @@ def build_amat(
     Args:
         matrix (np.ndarray): initialized A matrix (np.zeros)
         f_comp (FluidComponent): fluid component object from which get all info to buld the coefficients.
-        elem_idx (int): index of the i-th element of the spatial discretization.
         eq_idx (NamedTuple): collection of fluid equation index (velocity, pressure and temperaure equations).
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
-    density = f_comp.coolant.gauss_fields.total_density[elem_idx]
-    
+    density = f_comp.coolant.gauss_fields.total_density
+
     # Build array to assign diagonal coefficients.
     diag_idx = np.array(eq_idx)
-    
-    # Set diagonal elements (exploit broadcasting).
-    matrix[diag_idx,diag_idx] = f_comp.coolant.gauss_fields.velocity[elem_idx]
+
+    # Set diagonal elements at every Gauss point (exploit broadcasting).
+    matrix[:, diag_idx, diag_idx] = f_comp.coolant.gauss_fields.velocity[
+        :, None
+    ]
 
     # Set off diagonal coefficients.
     # from velocity equation.
-    matrix[eq_idx.velocity, eq_idx.pressure] = 1. / density
+    matrix[:, eq_idx.velocity, eq_idx.pressure] = 1. / density
     # from pressure equation.
-    matrix[eq_idx.pressure, eq_idx.velocity] = (
+    matrix[:, eq_idx.pressure, eq_idx.velocity] = (
         density
-        * f_comp.coolant.gauss_fields.total_speed_of_sound[elem_idx] ** 2.
+        * f_comp.coolant.gauss_fields.total_speed_of_sound ** 2.
     )
     # from temperature equation.
-    matrix[eq_idx.temperature, eq_idx.velocity] = (
-        f_comp.coolant.gauss_fields.Gruneisen[elem_idx]
-        * f_comp.coolant.gauss_fields.temperature[elem_idx]
+    matrix[:, eq_idx.temperature, eq_idx.velocity] = (
+        f_comp.coolant.gauss_fields.Gruneisen
+        * f_comp.coolant.gauss_fields.temperature
     )
 
     return matrix
@@ -123,7 +136,6 @@ def build_kmat_fluid(
     upweqt:np.ndarray,
     f_comp:FluidComponent,
     conductor:Conductor,
-    elem_idx:int,
     )->np.ndarray:
 
     """Function that builds the K matrix (KMAT) at the Gauss point, UPWIND is included.
@@ -134,29 +146,30 @@ def build_kmat_fluid(
         upweqt (np.ndarray): array with the upwind numerical scheme.
         f_comp (FluidComponent): fluid component object from which get all info to buld the coefficients.
         conductor (Conductor): object with all the information of the conductor.
-        elem_idx (int): index of the i-th element of the spatial discretization.
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
 
     # Alias
-    # Fluid velocity at present gauss point index.
-    velocity = np.abs(f_comp.coolant.gauss_fields.velocity[elem_idx])
-    # Length of the interval that includes the present gauss points.
-    delta_z = conductor.mesh.element_lengths[elem_idx]
-    # Collection of fluid equation index (velocity, pressure and temperaure 
+    # Fluid velocity at every Gauss point.
+    velocity = np.abs(f_comp.coolant.gauss_fields.velocity)
+    # Length of every element of the spatial discretization.
+    delta_z = conductor.mesh.element_lengths
+    # Collection of fluid equation index (velocity, pressure and temperaure
     # equations).
     eq_idx = conductor.equation_index[f_comp.identifier]
 
     # Build array to assign diagonal coefficients.
     diag_idx = np.array(eq_idx)
 
-    # For the fluid equation this matrix has only the diagonal elements in the 
+    # For the fluid equation this matrix has only the diagonal elements in the
     # velocity, pressure and temperature equations.
     # Diagonal therms definition: dz * upweqt * v / 2
-    # Set diagonal elements (exploit broadcasting).
-    matrix[diag_idx,diag_idx] = delta_z * upweqt[diag_idx] * velocity / 2.0
+    # Set diagonal elements at every Gauss point (exploit broadcasting).
+    matrix[:, diag_idx, diag_idx] = (
+        (delta_z * velocity / 2.0)[:, None] * upweqt[diag_idx][None, :]
+    )
 
     return matrix
 
@@ -164,7 +177,6 @@ def build_elmmat(
     matrix:np.ndarray,
     mmat:np.ndarray,
     conductor:Conductor,
-    elem_idx:int,
     alpha:float=0,
     )->np.ndarray:
     """Function that builds the mass and capacity matrix (ELMMAT) at the Gauss point exploiting slicing.
@@ -173,7 +185,6 @@ def build_elmmat(
         matrix (np.ndarray): Initialized ELM matrix
         mmat (np.ndarray): mass and capacity matrix MMAT after call to function build_mmat_solid.
         conductor (Conductor): object with all the information of the conductor.
-        elem_idx (int): index of the i-th element of the spatial discretization.
         alpha (float, optional): Lumped/consistent mass parameter. Defaults to 0.
 
     Returns:
@@ -181,24 +192,25 @@ def build_elmmat(
     """
     
     # Alias
-    # Length of the present element of the spatial discretization.
-    dz = conductor.mesh.element_lengths[elem_idx]
+    # Length of every element of the spatial discretization, broadcastable
+    # against the (element, row, column) batch layout.
+    dz = conductor.mesh.element_lengths[:, None, None]
     # Number of degrees of freedom, used to slice ELMMAT matrix.
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     # Twice the number of degrees of freedom, used to slice ELMMAT matrix.
-    ndf2 = conductor.dict_N_equation["NODOFS2"]
+    ndf2 = conductor.equation_counts.degrees_of_freedom_per_element
 
     # Build diagonal block of the matrix.
     diag_block = dz * (1. / 3. + alpha) * mmat
     # Build off diagonal block of the matrix.
     off_diag_block = dz * (1. / 6. - alpha) * mmat
-    
+
     # COMPUTE THE MASS AND CAPACITY MATRIX
     # array smart
-    matrix[:ndf,:ndf] = diag_block
-    matrix[:ndf,ndf:ndf2] = off_diag_block
-    matrix[ndf:ndf2,:ndf] = off_diag_block
-    matrix[ndf:ndf2,ndf:ndf2] = diag_block
+    matrix[:, :ndf, :ndf] = diag_block
+    matrix[:, :ndf, ndf:ndf2] = off_diag_block
+    matrix[:, ndf:ndf2, :ndf] = off_diag_block
+    matrix[:, ndf:ndf2, ndf:ndf2] = diag_block
 
     return matrix
 
@@ -220,16 +232,16 @@ def build_elamat(
 
     # Alias
     # Number of degrees of freedom, used to slice ELAMAT matrix.
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     # Twice the number of degrees of freedom, used to slice ELAMAT matrix.
-    ndf2 = conductor.dict_N_equation["NODOFS2"]
+    ndf2 = conductor.equation_counts.degrees_of_freedom_per_element
 
     block = amat / 2.
 
-    matrix[:ndf,:ndf] = -block
-    matrix[:ndf,ndf:ndf2] = block
-    matrix[ndf:ndf2,:ndf] = -block
-    matrix[ndf:ndf2,ndf:ndf2] = block
+    matrix[:, :ndf, :ndf] = -block
+    matrix[:, :ndf, ndf:ndf2] = block
+    matrix[:, ndf:ndf2, :ndf] = -block
+    matrix[:, ndf:ndf2, ndf:ndf2] = block
 
     return matrix
 
@@ -237,7 +249,6 @@ def build_elkmat(
     matrix:np.ndarray,
     kmat:np.ndarray,
     conductor:Conductor,
-    elem_idx:int,
     )->np.ndarray:
     """
     Function that builds the diffusion matrix (ELKMAT) at the Gauss point exploiting slicing.
@@ -246,28 +257,28 @@ def build_elkmat(
         matrix (np.ndarray): Initialized ELK matrix.
         kmat (np.ndarray): mass and capacity matrix KMAT after call to function build_kmat_solid.
         conductor (Conductor): object with all the information of the conductor.
-        elem_idx (int): index of the i-th element of the spatial discretization.
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
 
     # Alias
-    # Length of the present element of the spatial discretization.
-    dz = conductor.mesh.element_lengths[elem_idx]
+    # Length of every element of the spatial discretization, broadcastable
+    # against the (element, row, column) batch layout.
+    dz = conductor.mesh.element_lengths[:, None, None]
     # Number of degrees of freedom, used to slice ELKMAT matrix.
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     # Twice the number of degrees of freedom, used to slice ELKMAT matrix.
-    ndf2 = conductor.dict_N_equation["NODOFS2"]
+    ndf2 = conductor.equation_counts.degrees_of_freedom_per_element
 
     block = kmat / dz
-    
+
     # COMPUTE THE DIFFUSION MATRIX
     # array smart
-    matrix[:ndf,:ndf] = block
-    matrix[:ndf,ndf:ndf2] = - block
-    matrix[ndf:ndf2,:ndf] = - block
-    matrix[ndf:ndf2,ndf:ndf2] = block
+    matrix[:, :ndf, :ndf] = block
+    matrix[:, :ndf, ndf:ndf2] = - block
+    matrix[:, ndf:ndf2, :ndf] = - block
+    matrix[:, ndf:ndf2, ndf:ndf2] = block
 
     return matrix
 
@@ -275,7 +286,6 @@ def build_elsmat(
     matrix:np.ndarray,
     smat:np.ndarray,
     conductor:Conductor,
-    elem_idx:int,
     )->np.ndarray:
     """
     Function that builds the source matrix (ELSMAT) at the Gauss point exploiting slicing.
@@ -284,36 +294,35 @@ def build_elsmat(
         matrix (np.ndarray): Initialized ELS matrix.
         smat (np.ndarray): source matrix SMAT after call to function build_smat_env_solid_interface.
         conductor (Conductor): object with all the information of the conductor.
-        elem_idx (int): index of the i-th element of the spatial discretization.
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
 
     # Alias
-    # Length of the present element of the spatial discretization.
-    dz = conductor.mesh.element_lengths[elem_idx]
+    # Length of every element of the spatial discretization, broadcastable
+    # against the (element, row, column) batch layout.
+    dz = conductor.mesh.element_lengths[:, None, None]
     # Number of degrees of freedom, used to slice ELSMAT matrix.
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     # Twice the number of degrees of freedom, used to slice ELSMAT matrix.
-    ndf2 = conductor.dict_N_equation["NODOFS2"]
+    ndf2 = conductor.equation_counts.degrees_of_freedom_per_element
 
     diag_block = smat * dz / 3.
     off_diag_block = diag_block / 2.
 
     # COMPUTE THE SOURCE MATRIX
     # array smart
-    matrix[:ndf,:ndf] = diag_block
-    matrix[:ndf,ndf:ndf2] = off_diag_block
-    matrix[ndf:ndf2,:ndf] = off_diag_block
-    matrix[ndf:ndf2,ndf:ndf2] = diag_block
+    matrix[:, :ndf, :ndf] = diag_block
+    matrix[:, :ndf, ndf:ndf2] = off_diag_block
+    matrix[:, ndf:ndf2, :ndf] = off_diag_block
+    matrix[:, ndf:ndf2, ndf:ndf2] = diag_block
 
     return matrix
 
 def build_elslod(array:np.ndarray,
     svec:np.ndarray,
     conductor:Conductor,
-    elem_idx:int,
     )->np.ndarray:
     """
     Function that builds the source matrix (ELSLOD) at the Gauss point exploiting slicing.
@@ -322,148 +331,148 @@ def build_elslod(array:np.ndarray,
         array (np.ndarray): Initialized ELSLOD array.
         svec (np.ndarray): source array SVEC after call to function build_svec_env_jacket_interface.
         conductor (Conductor): object with all the information of the conductor.
-        elem_idx (int): index of the i-th element of the spatial discretization.
 
     Returns:
         np.ndarray: array with updated elements.
     """
 
     # Alias
-    # Length of the present element of the spatial discretization.
-    dz = conductor.mesh.element_lengths[elem_idx]
-    # Number of degrees of freedom, used to slice ELSMAT matrix.
-    ndf = conductor.dict_N_equation["NODOFS"]
-    # Twice the number of degrees of freedom, used to slice ELSMAT matrix.
-    ndf2 = conductor.dict_N_equation["NODOFS2"]
-
-    dz_6 = dz / 6.
+    # Length of every element of the spatial discretization, broadcastable
+    # against the (element, degree-of-freedom) batch layout.
+    dz_6 = conductor.mesh.element_lengths[:, None] / 6.
+    # Number of degrees of freedom, used to slice ELSLOD array.
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
+    # Twice the number of degrees of freedom, used to slice ELSLOD array.
+    ndf2 = conductor.equation_counts.degrees_of_freedom_per_element
 
     # COMPUTE THE SOURCE VECTOR (ANALYTIC INTEGRATION)
     # array smart
     # This is independent from the solution method thanks to the escamotage of
     # the dummy steady state corresponding to the initialization.
     if conductor.cond_num_step == 1:
-        # To correctly apply the theta method (to be rivisited in the whole 
+        # To correctly apply the theta method (to be rivisited in the whole
         # code!).
         # Current time step
-        array.present[:ndf] = 2. * svec.present[:,0] + svec.present[:,1]
-        array.present[ndf:ndf2] = svec.present[:,0] + 2. * svec.present[:,1]
+        array.present[:, :ndf] = 2. * svec.present[:,:,0] + svec.present[:,:,1]
+        array.present[:, ndf:ndf2] = svec.present[:,:,0] + 2. * svec.present[:,:,1]
         # Not use simply array.present: raises AttributeError
         array.present[:] *= dz_6
         # Previous time step
-        array.previous[:ndf] = 2. * svec.previous[:,0] + svec.previous[:,1]
-        array.previous[ndf:ndf2] = svec.previous[:,0] + 2. * svec.previous[:,1]
+        array.previous[:, :ndf] = 2. * svec.previous[:,:,0] + svec.previous[:,:,1]
+        array.previous[:, ndf:ndf2] = svec.previous[:,:,0] + 2. * svec.previous[:,:,1]
         # Not use simply array.previous: raises AttributeError
         array.previous[:] *= dz_6
     else:
         # Compute only at the current time step
-        array[:ndf] = 2. * svec[:,0] + svec[:,1]
-        array[ndf:ndf2] = svec[:,0] + 2. * svec[:,1]
+        array[:, :ndf] = 2. * svec[:,:,0] + svec[:,:,1]
+        array[:, ndf:ndf2] = svec[:,:,0] + 2. * svec[:,:,1]
         array *= dz_6
-    
+
     return array
 
-def assemble_matrix(
+def assemble_system_matrices(
     fin_mat:SystemMatrices,
-    el_mat:dict,
+    element_matrices:"ElementMatrices",
     conductor:Conductor,
-    jump_idx:int,
     )->SystemMatrices:
-    """Function that assembles matrices MASMAT, FLXMAT, DIFMAT and SORMAT starting from the values of matrices ELMMAT, ELAMAT, ELKMAT and ELSMAT respectively. The matrices match is as follows:
-        * ELMMAT builds MATMAT
+    """Function that assembles matrices MASMAT, FLXMAT, DIFMAT and SORMAT from the per-element matrices ELMMAT, ELAMAT, ELKMAT and ELSMAT of all elements at once. The matrices match is as follows:
+        * ELMMAT builds MASMAT
         * ELAMAT builds FLXMAT
         * ELKMAT builds DIFMAT
         * ELSMAT builds SORMAT
 
+    Element entry (local_row, local_col) of element e goes to band storage
+    entry (half - 1 - local_row + local_col, NODOFS*e + local_row). For a
+    fixed pair of local indices the destination columns are distinct across
+    elements, so the addition is collision free and can be done for all
+    elements with a single vectorized statement per local index pair (the
+    overlap between consecutive elements only mixes different local pairs,
+    which are separate statements).
+
     Args:
         fin_mat (SystemMatrices): collection of matrices MASMAT, FLXMAT, DIFMAT and SORMAT.
-        el_mat (dict): collection of matrices ELMMAT, ELAMAT, ELKMAT and ELSMAT.
+        element_matrices (ElementMatrices): per-element matrices of all elements.
         conductor (Conductor): object with all the information of the conductor.
-        jump_idx (int): index to jump over NODOFS * elem_idx position in the big matrices.
 
     Returns:
         SystemMatrices: collection of matrices MASMAT, FLXMAT, DIFMAT and SORMAT with updated elements.
     """
-    
-    # Alias
-    half = conductor.dict_band["Half"]
-    full = conductor.dict_band["Full"]
 
-    # ASSEMBLE THE MATRICES AND THE LOAD VECTOR
-    # array smart
-    for hbw_idx in range(half):
-        # hbw_idx: half band widht index.
-        # Lower bound for row slicing.
-        row_lb = half - hbw_idx - 1
-        # Upper bound for row slicing.
-        row_ub = full - hbw_idx
-        # Column index.
-        col = jump_idx + hbw_idx
-        # Loop to update matrices masmat, flxmat, difmat and sormat stored in 
-        # dict fin_mat exploiting matrices elmmat, elamat, elkmat and 
-        # elsmat respectively, stored in dict el_mat.
-        for fmat, elmat in zip(fin_mat,el_mat.values()):
-            # Sum elements from row_lb to row_ub of column col in big_matrix 
-            # with all the elements in the row hbw_idx of small_matrix.
-            fmat[row_lb:row_ub,col] += elmat[hbw_idx,:]
-    
+    # Alias
+    half = conductor.band.half_bandwidth
+
+    first_columns = conductor.equation_counts.degrees_of_freedom_per_node * np.arange(
+        conductor.mesh.number_of_elements
+    )
+
+    for fmat, batch in zip(fin_mat, element_matrices):
+        for local_row in range(half):
+            columns = first_columns + local_row
+            for local_col in range(half):
+                fmat[half - 1 - local_row + local_col, columns] += batch[
+                    :, local_row, local_col
+                ]
+
     return fin_mat
 
 def assemble_syslod(
     array:np.ndarray,
     conductor:Conductor,
-    jump_idx:int,
 )->np.ndarray:
-    """Function that assembles the source term vector syslod exploiting the information stored in array ELSLOD.
+    """Function that assembles the source term vector load_vector from the per-element load vectors of all elements at once.
 
     Args:
-        array (np.ndarray): ELSLOD array after call to funciton build_elslod.
+        array (np.ndarray): per-element load vectors of shape (number_of_elements, NODOFS2) after call to function build_elslod (namedtuple of two such arrays at the first time step).
         conductor (Conductor): object with all the information of the conductor.
-        jump_idx (int): index to jump over NODOFS * elem_idx position in syslod array, used to slice syslod.
 
     Returns:
-        np.ndarray: array with updated elements (the sliced updated part f syslod).
+        np.ndarray: the updated load_vector array.
     """
 
     # Alias
     method = conductor.inputs.thermohydraulic_method
     num_step = conductor.cond_num_step
-    half = conductor.dict_band["Half"]
-    syslod = conductor.dict_Step["SYSLOD"][jump_idx:jump_idx + half,:]
-    
+    half = conductor.band.half_bandwidth
+    load_vector = conductor.time_integration.load_vector
+
+    # Scatter the per-element load vectors of all elements at once: entry
+    # local_dof of element e goes to system row NODOFS*e + local_dof. For a
+    # fixed local_dof the destination rows are distinct across elements, so
+    # the addition is collision free (the overlap between consecutive
+    # elements only mixes different local dofs, which are separate
+    # statements).
+    first_rows = conductor.equation_counts.degrees_of_freedom_per_node * np.arange(
+        conductor.mesh.number_of_elements
+    )
+
     if method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
         # Backward Euler or Crank-Nicolson
         if num_step == 1:
-            # Construct key SYSLOD of dictionary dict_Step
-            # Current time step
-            syslod[:,0] += array.present
-            # Previous time step
-            syslod[:,1] += array.previous
+            # Construct the load vector columns
+            for local_dof in range(half):
+                rows = first_rows + local_dof
+                # Current time step
+                load_vector[rows, 0] += array.present[:, local_dof]
+                # Previous time step
+                load_vector[rows, 1] += array.previous[:, local_dof]
         else:
             # Update only the first column, that correspond to the current time
             # step
-            syslod[:,0] += array
+            for local_dof in range(half):
+                load_vector[first_rows + local_dof, 0] += array[:, local_dof]
     elif method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
         # Adams-Moulton order 4
-        # The implementation of higher order numerical schemes for time 
+        # The implementation of higher order numerical schemes for time
         # integration should be completely reviewed!
-        if num_step == 1:
-            # Construct key SYSLOD of dictionary dict_Step
-            # Current time step
-            syslod[:,0] += array.present
-            # This loop should be checked carefully!
-            for cc in range(syslod.shape[1]):
-                # Dummy initial steady state
-                syslod[:,cc] += array.previous
-        else:
-            # Shift the colums by one towards right and compute the new first 
-            # column at the current time step
-            syslod[:,1:] = syslod[:,:3].copy()
-            syslod[:,0] += array
-        # end if conductor.cond_num_step
+        raise NotImplementedError(
+            "The Adams-Moulton 4 load-vector assembly must be reviewed "
+            "before it can be vectorized: the legacy per-element "
+            "implementation shifted the columns of overlapping element "
+            "slices more than once."
+        )
     # end conductor.inputs["METHOD"]
 
-    return syslod
+    return load_vector
 
 def eval_system_matrix(
     matrix:np.ndarray,
@@ -474,7 +483,7 @@ def eval_system_matrix(
 
     Args:
         matrix (np.ndarray): initialized SYSMAT matrix
-        aux_matrices (SystemMatrices): collection of matrix MASMAT, FLXMAT, DIFMAT and SORMAT after call to function assemble_matrix.
+        aux_matrices (SystemMatrices): collection of matrix MASMAT, FLXMAT, DIFMAT and SORMAT after call to function assemble_system_matrices.
         conductor (Conductor): object with all the information of the conductor.
 
     Returns:
@@ -483,30 +492,31 @@ def eval_system_matrix(
 
     # Alias
     method = conductor.inputs.thermohydraulic_method
-    # Unpack auxiliary matrices (MASMAT,FLXMAT,DIFMAT,SORMAT)
-    masmat,flxmat,difmat,sormat = aux_matrices
+    # Unpack auxiliary matrices (mass capacity, flux Jacobian, diffusion,
+    # source Jacobian).
+    mass_capacity, flux_jacobian, diffusion, source_jacobian = aux_matrices
     # ** COMPUTE SYSTEM MATRIX **
     if method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
         # Backward Euler or Crank-Nicolson
         matrix = (
-            masmat / conductor.time_step
-            + conductor.theta_method * (flxmat + difmat + sormat)
+            mass_capacity / conductor.time_step
+            + conductor.theta_method * (flux_jacobian + diffusion + source_jacobian)
         )
         
     elif method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
         # Adams-Moulton order 4
         # Alias
-        am4_aa = conductor.dict_Step["AM4_AA"] # shallow copy
+        am4_aa = conductor.time_integration.adams_moulton_matrices # shallow copy
         if conductor.cond_num_step == 1:
             # This is due to the dummy initial steady state
             for cc in range(am4_aa.shape[2]):
-                am4_aa[cc,:,:] = flxmat + difmat + sormat
+                am4_aa[cc,:,:] = flux_jacobian + diffusion + source_jacobian
         else:
             # Shift the matrices by one towards right and compute the new first
             # matrix at the current time step.
             am4_aa[1:4,:,:] = am4_aa[0:3,:,:]
-            am4_aa[0,:,:] = flxmat + difmat + sormat
+            am4_aa[0,:,:] = flux_jacobian + diffusion + source_jacobian
         # compute SYSMAT
-        matrix = masmat / conductor.time_step + 9. / 24. * am4_aa[0,:,:]
+        matrix = mass_capacity / conductor.time_step + 9. / 24. * am4_aa[0,:,:]
     
     return matrix

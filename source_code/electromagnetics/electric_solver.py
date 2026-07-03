@@ -86,10 +86,11 @@ def solve_steady_state(conductor: object) -> None:
 
     # Use the known-term vector as the RHS (steady-state has no mass-matrix term)
     conductor.electric_right_hand_side = conductor.electric_known_term_vector
+    # The default fill-reducing column ordering (COLAMD) is orders of
+    # magnitude faster than the legacy permc_spec="NATURAL" on this system.
     electric_solution_reduced = spsolve(
         conductor.electric_stiffness_matrix,
         conductor.electric_right_hand_side,
-        permc_spec="NATURAL",
     )
 
     assemble_solution(conductor, idx, electric_solution_reduced)
@@ -187,7 +188,6 @@ def solve_transient(conductor: object) -> None:
         electric_solution_reduced = spsolve(
             conductor.electric_stiffness_matrix,
             conductor.electric_right_hand_side,
-            permc_spec="NATURAL",
         )
 
         conductor.electric_known_term_vector_old = (

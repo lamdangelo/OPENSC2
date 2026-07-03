@@ -22,7 +22,6 @@ from conductor.conductor import Conductor
 def build_smat_fluid_momentum(
     matrix:np.ndarray,
     f_comp:FluidComponent,
-    elem_idx:int,
     eq_idx:NamedTuple,
     )->np.ndarray:
 
@@ -35,32 +34,30 @@ def build_smat_fluid_momentum(
     Args:
         matrix (np.ndarray): initialized S matrix (np.zeros)
         f_comp (FluidComponent): fluid component object from which get all info to build the coefficients.
-        elem_idx (int): index of the i-th element of the spatial discretization.
         eq_idx (NamedTuple): collection of fluid equation index (velocity, pressure and temperaure equations).
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
 
-    # Reference value for f_comp.coolant.gauss_fields.velocity[elem_idx]
-    # (shallow copy).
-    velocity = f_comp.coolant.gauss_fields.velocity[elem_idx]
+    # Fluid velocity at every Gauss point (shallow copy).
+    velocity = f_comp.coolant.gauss_fields.velocity
     # velocity equation: main diagonal elements construction
     # (j,j) [vel_j]
-    matrix[eq_idx.velocity,eq_idx.velocity] = (
+    matrix[:, eq_idx.velocity, eq_idx.velocity] = (
         2.0
-        # dict_friction_factor[False]["total"]: total friction factor in Gauss
+        # friction_factors[False].total: total friction factor in Gauss
         # points (see __init__ of class Channel for details).
-        * f_comp.channel.friction_factors[False].total[elem_idx]
+        * f_comp.channel.friction_factors[False].total
         * np.abs(velocity) / f_comp.channel.inputs.hydraulic_diameter
     )
 
     # pressure equation: elements below main diagonal construction
     # (j+num_fluid_components,0:num_fluid_components) [Pres]
-    matrix[eq_idx.pressure,eq_idx.velocity] = (
-        - matrix[eq_idx.velocity,eq_idx.velocity]
-        * f_comp.coolant.gauss_fields.Gruneisen[elem_idx]
-        * f_comp.coolant.gauss_fields.total_density[elem_idx]
+    matrix[:, eq_idx.pressure, eq_idx.velocity] = (
+        - matrix[:, eq_idx.velocity, eq_idx.velocity]
+        * f_comp.coolant.gauss_fields.Gruneisen
+        * f_comp.coolant.gauss_fields.total_density
         * velocity
     )
 
@@ -69,7 +66,6 @@ def build_smat_fluid_momentum(
 def build_smat_fluid_interface_momentum(
     matrix:np.ndarray,
     conductor:Conductor,
-    elem_idx:int,
     )->np.ndarray:
 
     """Function that builds the velocity and pressure rows of the S matrix (SMAT) therms due to fluid component interfaces at the Gauss point (SOURCE JACOBIAN).
@@ -77,7 +73,6 @@ def build_smat_fluid_interface_momentum(
     Args:
         matrix (np.ndarray): S matrix after call to function build_smat_fluid_momentum.
         conductor (Conductor): object with all the information of the conductor.
-        elem_idx (int): index of the i-th element of the spatial discretization.
 
     Returns:
         np.ndarray: matrix with updated elements.
@@ -95,18 +90,18 @@ def build_smat_fluid_interface_momentum(
     for interface in conductor.interface.fluid_fluid:
 
         # Aliases
-        K1 = conductor.gauss_fields.K1[interface.interf_name][elem_idx]
-        K2 = conductor.gauss_fields.K2[interface.interf_name][elem_idx]
-        K3 = conductor.gauss_fields.K3[interface.interf_name][elem_idx]
+        K1 = conductor.gauss_fields.K1[interface.interf_name]
+        K2 = conductor.gauss_fields.K2[interface.interf_name]
+        K3 = conductor.gauss_fields.K3[interface.interf_name]
         interf_peri = conductor.dict_interf_peri["ch_ch"]
         htc_gauss = conductor.gauss_fields.HTC["ch_ch"]
 
         # coef_htc = P_o * h_o + P_c * h_c
         coef_htc = (
-            interf_peri["Open"]["Gauss"][interface.interf_name][elem_idx]
-            * htc_gauss["Open"][interface.interf_name][elem_idx]
-            + interf_peri["Close"]["Gauss"][interface.interf_name][elem_idx]
-            * htc_gauss["Close"][interface.interf_name][elem_idx]
+            interf_peri["Open"]["Gauss"][interface.interf_name]
+            * htc_gauss["Open"][interface.interf_name]
+            + interf_peri["Close"]["Gauss"][interface.interf_name]
+            * htc_gauss["Close"][interface.interf_name]
         )
 
         # Fill rows of comp_1, columns involving comp_1 and comp_2.
@@ -114,7 +109,6 @@ def build_smat_fluid_interface_momentum(
             matrix,
             interface.comp_1,
             interface.comp_2,
-            elem_idx,
             eq_idx,
             K1=K1,
             K2=K2,
@@ -126,7 +120,6 @@ def build_smat_fluid_interface_momentum(
             matrix,
             interface.comp_2,
             interface.comp_1,
-            elem_idx,
             eq_idx,
             K1=K1,
             K2=K2,
@@ -140,7 +133,6 @@ def __smat_fluid_interface_momentum(
     matrix:np.ndarray,
     comp_1:FluidComponent,
     comp_2:FluidComponent,
-    elem_idx:int,
     eq_idx:dict,
     **kwargs
     )->np.ndarray:
@@ -150,7 +142,6 @@ def __smat_fluid_interface_momentum(
         matrix (np.ndarray): S matrix after call to function build_smat_fluid_momentum.
         comp_1 (FluidComponent): fluid component object from which get all info to build the coefficients.
         comp_2 (FluidComponent): fluid component object from which get all info to build the coefficients.
-        elem_idx (int): index of the i-th element of the spatial discretization.
         eq_idx (dict): collection of NamedTuple with fluid equation index (velocity, pressure and temperaure equations).
 
     Kwargs:
@@ -177,11 +168,11 @@ def __smat_fluid_interface_momentum(
     # c_v: isochoric specific heat
 
     # Alias
-    comp_1_v = comp_1.coolant.gauss_fields.velocity[elem_idx]
-    comp_1_rho = comp_1.coolant.gauss_fields.total_density[elem_idx]
+    comp_1_v = comp_1.coolant.gauss_fields.velocity
+    comp_1_rho = comp_1.coolant.gauss_fields.total_density
     comp_1_A = comp_1.channel.inputs.cross_section
-    comp_1_phi = comp_1.coolant.gauss_fields.Gruneisen[elem_idx]
-    comp_1_enthalpy = comp_1.coolant.gauss_fields.total_enthalpy[elem_idx]
+    comp_1_phi = comp_1.coolant.gauss_fields.Gruneisen
+    comp_1_enthalpy = comp_1.coolant.gauss_fields.total_enthalpy
     K1 = kwargs["K1"]
     K2 = kwargs["K2"]
     K3 = kwargs["K3"]
@@ -195,6 +186,7 @@ def __smat_fluid_interface_momentum(
     s_vj_pj = (K1 * comp_1_v - K2) / (comp_1_A * comp_1_rho)
 
     matrix[
+        :,
         eq_idx[comp_1.identifier].velocity,
         eq_idx[comp_1.identifier].pressure,
     ] -= s_vj_pj
@@ -202,6 +194,7 @@ def __smat_fluid_interface_momentum(
     # (j,k + num_fluid_components:2*num_fluid_components)
     # [Pres_k]
     matrix[
+        :,
         eq_idx[comp_1.identifier].velocity,
         eq_idx[comp_2.identifier].pressure,
     ] = s_vj_pj
@@ -217,11 +210,12 @@ def __smat_fluid_interface_momentum(
     s_pj_pj = (
         coef_grun_area
         * (K3 - comp_1_v * K2 - (comp_1_enthalpy - comp_1_v ** 2. / 2.
-        - comp_1.coolant.gauss_fields.total_speed_of_sound[elem_idx] ** 2. / comp_1_phi) * K1
+        - comp_1.coolant.gauss_fields.total_speed_of_sound ** 2. / comp_1_phi) * K1
         )
     )
 
     matrix[
+        :,
         eq_idx[comp_1.identifier].pressure,
         eq_idx[comp_1.identifier].pressure,
     ] += s_pj_pj
@@ -230,6 +224,7 @@ def __smat_fluid_interface_momentum(
     # (j+num_fluid_components,\
     # k + num_fluid_components:2*num_fluid_components) [Pres_k]
     matrix[
+        :,
         eq_idx[comp_1.identifier].pressure,
         eq_idx[comp_2.identifier].pressure,
     ] = - s_pj_pj
@@ -241,6 +236,7 @@ def __smat_fluid_interface_momentum(
     s_pj_tj = coef_grun_area * coef_htc
 
     matrix[
+        :,
         eq_idx[comp_1.identifier].pressure,
         eq_idx[comp_1.identifier].temperature,
     ] += s_pj_tj
@@ -249,6 +245,7 @@ def __smat_fluid_interface_momentum(
     # k + 2*num_fluid_components:dict_N_equation
     # ["FluidComponent"]) [Temp_j]
     matrix[
+        :,
         eq_idx[comp_1.identifier].pressure,
         eq_idx[comp_2.identifier].temperature,
     ] = - s_pj_tj

@@ -43,7 +43,7 @@ class MaximumModel(TotalFrictionFactor):
         laminar: np.ndarray,
         turbulent: np.ndarray,
     ) -> np.ndarray:
-        return np.ndarray.maximum(laminar, turbulent)
+        return np.maximum(laminar, turbulent)
 
 
 class TransitionalInterpolation(TotalFrictionFactor):
@@ -72,7 +72,7 @@ class TransitionalInterpolation(TotalFrictionFactor):
         turbulent: np.ndarray,
     ) -> np.ndarray:
 
-        result = np.ndarray.empty_like(reynolds)
+        result = np.empty_like(reynolds)
 
         re = reynolds
 
@@ -87,7 +87,7 @@ class TransitionalInterpolation(TotalFrictionFactor):
 
         result[laminar_region] = laminar[laminar_region]
 
-        if np.ndarray.any(transition_region):
+        if np.any(transition_region):
 
             weight = (
                 re[transition_region]

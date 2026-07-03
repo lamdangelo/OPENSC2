@@ -15,7 +15,6 @@ from components.solid.solid_component import SolidComponent
 def build_mmat_solid(
     matrix:np.ndarray,
     s_comp:SolidComponent,
-    elem_idx:int,
     eq_idx:int,
     )->np.ndarray:
 
@@ -24,20 +23,19 @@ def build_mmat_solid(
     Args:
         matrix (np.ndarray): M matrix with the element from the fluid equations.
         s_comp (SolidComponent): solid component object from which get all info to build the coefficients.
-        elem_idx (int): index of the i-th element of the spatial discretization.
         eq_idx (int): solid component equation index.
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
 
-    # FORM THE M MATRIX AT THE GAUSS POINT (MASS AND CAPACITY)
+    # FORM THE M MATRIX AT EVERY GAUSS POINT (MASS AND CAPACITY)
     # SolidComponent (homogenized) equation.
     # A * rho *cp / cos(theta)
-    matrix[eq_idx, eq_idx] = (
+    matrix[:, eq_idx, eq_idx] = (
         s_comp.inputs.cross_section
-        * s_comp.gauss_fields.total_density[elem_idx]
-        * s_comp.gauss_fields.total_isobaric_specific_heat[elem_idx]
+        * s_comp.gauss_fields.total_density
+        * s_comp.gauss_fields.total_isobaric_specific_heat
         / s_comp.inputs.cos_theta
     )
 
@@ -46,7 +44,6 @@ def build_mmat_solid(
 def build_kmat_solid(
     matrix:np.ndarray,
     s_comp:SolidComponent,
-    elem_idx:int,
     eq_idx:int,
     )->np.ndarray:
 
@@ -55,18 +52,17 @@ def build_kmat_solid(
     Args:
         matrix (np.ndarray): K matrix after call to build_kmat_fluid.
         s_comp (SolidComponent): solid component object from which get all info to build the coefficients.
-        elem_idx (int): index of the i-th element of the spatial discretization.
         eq_idx (int): solid component equation index.
 
     Returns:
         np.ndarray: matrix with updated elements.
     """
 
-    # FORM THE K MATRIX AT THE GAUSS POINT (INCLUDING UPWIND)
+    # FORM THE K MATRIX AT EVERY GAUSS POINT (INCLUDING UPWIND)
     # A_{s_comp}*k_{s_comp,homo}; homo = homogenized
-    matrix[eq_idx,eq_idx] = (
+    matrix[:, eq_idx, eq_idx] = (
         s_comp.inputs.cross_section
-        * s_comp.gauss_fields.total_thermal_conductivity[elem_idx]
+        * s_comp.gauss_fields.total_thermal_conductivity
         / s_comp.inputs.cos_theta
     )
 

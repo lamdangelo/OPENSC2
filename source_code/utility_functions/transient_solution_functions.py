@@ -11,8 +11,9 @@ from typing import Union
 from conductor.conductor import Conductor
 from conductor.conductor_flags import MethodFlag
 from utility_functions.step_matrix_construction import (
-    matrix_initialization,
     array_initialization,
+    GaussPointMatrices,
+    ElementMatrices,
     build_amat,
     build_kmat_fluid,
     build_elmmat,
@@ -20,7 +21,7 @@ from utility_functions.step_matrix_construction import (
     build_elkmat,
     build_elsmat,
     build_elslod,
-    assemble_matrix,
+    assemble_system_matrices,
     assemble_syslod,
     eval_system_matrix,
     SystemMatrices,
@@ -113,17 +114,17 @@ def get_time_step(conductor, transient_input, num_step):
             return
         
         # crb Differentiate the indexes depending on ischannel (December 16, 2015)
-        t_step_comp = np.zeros(conductor.dict_N_equation["NODOFS"])
+        t_step_comp = np.zeros(conductor.equation_counts.degrees_of_freedom_per_node)
         for ii in range(conductor.inventory.fluids.number):
             # FluidComponent objects (cdp, 08/2020)
             # C * THE FOLLOWING STATEMENTS WOULD CONTROL THE ACCURACY OF MOMENTUM...
             if abs(transient_input["IADAPTIME"]) == 1:  # crb (Jan 20, 2011)
                 # (cdp, 08/2020)
-                t_step_comp[ii] = conductor.EIGTIM / (conductor.EQTEIG[ii] + TINY)
+                t_step_comp[ii] = conductor.time_accuracy_eigenvalue / (conductor.equation_eigenvalues[ii] + TINY)
                 t_step_comp[
                     ii + conductor.inventory.fluids.number
-                ] = conductor.EIGTIM / (
-                    conductor.EQTEIG[
+                ] = conductor.time_accuracy_eigenvalue / (
+                    conductor.equation_eigenvalues[
                         ii + conductor.inventory.fluids.number
                     ]
                     + TINY
@@ -137,8 +138,8 @@ def get_time_step(conductor, transient_input, num_step):
             # endif (iadaptime)
             t_step_comp[
                 ii + 2 * conductor.inventory.fluids.number
-            ] = conductor.EIGTIM / (
-                conductor.EQTEIG[
+            ] = conductor.time_accuracy_eigenvalue / (
+                conductor.equation_eigenvalues[
                     ii + 2 * conductor.inventory.fluids.number
                 ]
                 + TINY
@@ -150,9 +151,9 @@ def get_time_step(conductor, transient_input, num_step):
         for ii in range(conductor.inventory.solids.number):
             # SolidComponent objects (cdp, 08/2020)
             t_step_comp[
-                ii + conductor.dict_N_equation["FluidComponent"]
-            ] = conductor.EIGTIM / (
-                conductor.EQTEIG[ii + conductor.dict_N_equation["FluidComponent"]]
+                ii + conductor.equation_counts.fluid_equations
+            ] = conductor.time_accuracy_eigenvalue / (
+                conductor.equation_eigenvalues[ii + conductor.equation_counts.fluid_equations]
                 + TINY
             )
 
@@ -165,7 +166,7 @@ def get_time_step(conductor, transient_input, num_step):
         # è associata almodulo elettrico,ignorare per ora
         ##if FFLAG_IOP > 0:
         ##	TSTEP_VOLT = EFIELD_INCR(ICOND)/conductor.time_step
-        ##	TSTEP_VOLT = DBLE(EIGTIM(ICOND)/TSTEP_VOLT)
+        ##	TSTEP_VOLT = DBLE(time_accuracy_eigenvalue(ICOND)/TSTEP_VOLT)
         ##	OPTSTP=min(TSTPVB,TSTPVH1,TSTPVH2,TSTPPH1,TSTPPH2,TSTPPB,&# cod (July 23, 2015)
         ##	 &             TSTPTH1,TSTPTH2,TSTPTB,TSTPCO,TSTPJK,TSTEP_VOLT)
 
@@ -193,7 +194,7 @@ def get_time_step(conductor, transient_input, num_step):
 def evaluate_time_accuracy_eigenvalue(conductor):
     """Compute by bisection the product lambda * delta t that achieves the
     desired relative accuracy of the time-integration scheme (theta method),
-    updating ``conductor.EIGTIM``.
+    updating ``conductor.time_accuracy_eigenvalue``.
     """
 
     TIMACC = 1e-3
@@ -201,16 +202,16 @@ def evaluate_time_accuracy_eigenvalue(conductor):
     X2 = 0.0
     RES = 1.0
     while abs(RES) > 1.0e-2 * TIMACC:
-        conductor.EIGTIM = 0.5 * (X1 + X2)
-        Y1 = (1.0 - (1.0 - conductor.theta_method) * conductor.EIGTIM) / (
-            1.0 + conductor.theta_method * conductor.EIGTIM
+        conductor.time_accuracy_eigenvalue = 0.5 * (X1 + X2)
+        Y1 = (1.0 - (1.0 - conductor.theta_method) * conductor.time_accuracy_eigenvalue) / (
+            1.0 + conductor.theta_method * conductor.time_accuracy_eigenvalue
         )
-        Y2 = np.exp(-conductor.EIGTIM)
+        Y2 = np.exp(-conductor.time_accuracy_eigenvalue)
         RES = abs((Y1 / Y2) - 1.0) - TIMACC
         if RES >= 0.0:
-            X1 = conductor.EIGTIM
+            X1 = conductor.time_accuracy_eigenvalue
         elif RES < 0.0:
-            X2 = conductor.EIGTIM
+            X2 = conductor.time_accuracy_eigenvalue
 
 def step(conductor, environment, qsource, num_step):
 
@@ -238,38 +239,33 @@ def step(conductor, environment, qsource, num_step):
 
     # CLUCA ADDNOD = MAXNOD*(ICOND-1)
 
-    # Collection of valid dictionary keys
-    basic_mat_names = ("MMAT","AMAT","KMAT","SMAT")
-    element_mat_names = ("ELMMAT","ELAMAT","ELKMAT","ELSMAT")
-
     # Final matrices (MASMAT, FLXMAT, DIFMAT, SORMAT) initialization.
-    final_mat = SystemMatrices(
+    system_matrices = SystemMatrices(
         *(
-            np.zeros((conductor.dict_band["Full"], conductor.dict_N_equation["Total"]))
+            np.zeros((conductor.band.full_bandwidth, conductor.equation_counts.total_equations))
             for _ in range(4)
         )
     )
 
-    # Stiffness matrix initialization. Not included in dictionary final_mat to 
+    # Stiffness matrix initialization. Not included in dictionary system_matrices to 
     # simplify the code below, make it explicit and clear to read and maintain.
-    SYSMAT = np.zeros(
-        (conductor.dict_band["Full"],conductor.dict_N_equation["Total"])
+    system_matrix = np.zeros(
+        (conductor.band.full_bandwidth,conductor.equation_counts.total_equations)
     )
-    # SYSVAR = np.zeros(conductor.dict_N_equation["Total"])
-    ASCALING = np.zeros(conductor.dict_N_equation["Total"])
-    UPWEQT = np.zeros(conductor.dict_N_equation["NODOFS"])
-    # Known terms vector initilaization
-    Known = np.zeros_like(ASCALING)
+    row_scaling_factors = np.zeros(conductor.equation_counts.total_equations)
+    upwind_weights = np.zeros(conductor.equation_counts.degrees_of_freedom_per_node)
+    # known_term_vector terms vector initilaization
+    known_term_vector = np.zeros_like(row_scaling_factors)
     
     if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
         # Backward Euler or Crank-Nicolson (cdp, 10/2020)
         if conductor.cond_num_step > 1:
             # Copy the load vector at the previous time step in the second column to \
             # correctly apply the theta method (cdp, 10/2020)
-            conductor.dict_Step["SYSLOD"][:, 1] = conductor.dict_Step["SYSLOD"][
+            conductor.time_integration.load_vector[:, 1] = conductor.time_integration.load_vector[
                 :, 0
             ].copy()
-            conductor.dict_Step["SYSLOD"][:, 0] = 0.0
+            conductor.time_integration.load_vector[:, 0] = 0.0
 
     # qsource initialization to zeros (cdp, 07/2020)
     # questa inizializzazione è provvisoria, da capire cosa succede quando ci \
@@ -277,11 +273,11 @@ def step(conductor, environment, qsource, num_step):
     # if numObj == 1:
     # 	qsource = dict_qsource["single_conductor"]
 
-    UPWEQT[:conductor.dict_N_equation["FluidComponent"]] = 1.0
+    upwind_weights[:conductor.equation_counts.fluid_equations] = 1.0
     # if conductor.inputs["METHOD"] == "CN":
-    # 		UPWEQT[2*conductor.inventory.fluids.number:conductor.dict_N_equation["FluidComponent"]] = 0.0
+    # 		upwind_weights[2*conductor.inventory.fluids.number:conductor.equation_counts.fluid_equations] = 0.0
     # else it is 1.0 by initialization; as far as SolidComponent are \
-    # concerned UPWEQT is always 0 by initialization. (cdp, 08/2020)
+    # concerned upwind_weights is always 0 by initialization. (cdp, 08/2020)
 
     # LUMPED/CONSISTENT MASS PARAMETER
     # if LMPMAS:
@@ -305,252 +301,221 @@ def step(conductor, environment, qsource, num_step):
     # cl* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
     # ** MATRICES CONSTRUCTION **
+    # All Gauss-point (basic) and element matrices are built for every
+    # element at once with vectorized builders; the legacy per-element loop
+    # is gone.
 
-    # riscrivere in forma array smart una volta risolti tutti i dubbi, se possibile (cdp, 07/2020)
-    for elem_index in range(conductor.mesh.number_of_elements):
-        
-        # Basic matrices initialization to zeros at each Gauss point, collected 
-        # in dictionary basic_mat.
-        basic_mat = matrix_initialization(
-            conductor.dict_N_equation["NODOFS"],
-            conductor.dict_N_equation["NODOFS"],
-            basic_mat_names,
+    number_of_elements = conductor.mesh.number_of_elements
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
+    ndf2 = conductor.equation_counts.degrees_of_freedom_per_element
+
+    # Gauss-point matrices initialization to zeros for every element;
+    # shape (number_of_elements, ndf, ndf).
+    gauss_point_matrices = GaussPointMatrices(
+        *(np.zeros((number_of_elements, ndf, ndf)) for _ in range(4))
+    )
+    # Basic source term vector initialization to zeros at every Gauss point.
+    source_vector = array_initialization(
+        (number_of_elements, ndf, 2), conductor.cond_num_step
+    )
+    # Element matrices initialization to zeros for every element;
+    # shape (number_of_elements, ndf2, ndf2).
+    element_matrices = ElementMatrices(
+        *(np.zeros((number_of_elements, ndf2, ndf2)) for _ in range(4))
+    )
+    # Element source term vector initialization to zeros for every element.
+    element_load_vector = array_initialization(
+        (number_of_elements, ndf2), conductor.cond_num_step
+    )
+
+    # ** FORM THE M, A, K, S MATRICES AND S VECTOR AT EVERY GAUSS POINT,
+    # FLUID COMPONENTS EQUATIONS **
+
+    # FORM THE M MATRIX AT EVERY GAUSS POINT (MASS AND CAPACITY)
+    # FluidComponent equation: array smart
+    gauss_point_matrices.mass_capacity[
+        :,
+        :conductor.equation_counts.fluid_equations,
+        :conductor.equation_counts.fluid_equations,
+    ] = np.eye(conductor.equation_counts.fluid_equations)
+    # END M MATRIX: fluid components equations
+
+    for fluid_comp_j in conductor.inventory.fluids.collection:
+
+        # FORM THE A MATRIX AT EVERY GAUSS POINT (FLUX JACOBIAN)
+        gauss_point_matrices.flux_jacobian = build_amat(
+            gauss_point_matrices.flux_jacobian,
+            fluid_comp_j,
+            conductor.equation_index[fluid_comp_j.identifier]
         )
-        # Basic source term vector initialization to zeros at each Gauss point. 
-        # Not included in dictionary base_mat to simplify the code, make it 
-        # explicit and easy to read and maintain.
-        SVEC = array_initialization(
-            conductor.dict_N_equation["NODOFS"],
-            conductor.cond_num_step,
-            col=2,
-        )
 
-        # Element matrices initialization to zeros at each Gauss point, 
-        # collected in dictionary element_mat.
-        element_mat = matrix_initialization(
-            conductor.dict_N_equation["NODOFS2"],
-            conductor.dict_N_equation["NODOFS2"],
-            element_mat_names,
-        )
-        # Element source term vector initialization to zeros at each Gauss 
-        # point. Not included in dictionary element_mat to simplify the code, 
-        # make it explicit and easy to read and maintain.
-        ELSLOD = array_initialization(
-            conductor.dict_N_equation["NODOFS2"],
-            conductor.cond_num_step,
-        )
-        
-        # ** FORM THE M, A, K, S MATRICES AND S VECTOR AT THE GAUSS POINT, 
-        # FLUID COMPONENTS EQUATIONS **
-
-        # FORM THE M MATRIX AT THE GAUSS POINT (MASS AND CAPACITY)
-        # FluidComponent equation: array smart
-        basic_mat["MMAT"][
-            :conductor.dict_N_equation["FluidComponent"],
-            :conductor.dict_N_equation["FluidComponent"],
-        ] = np.eye(conductor.dict_N_equation["FluidComponent"])
-        # END M MATRIX: fluid components equations
-        
-        for fluid_comp_j in conductor.inventory.fluids.collection:
-
-            # FORM THE A MATRIX AT THE GAUSS POINT (FLUX JACOBIAN)
-            basic_mat["AMAT"] = build_amat(
-                basic_mat["AMAT"],
-                fluid_comp_j,
-                elem_index,
-                conductor.equation_index[fluid_comp_j.identifier]
-            )
-
-            # FORM THE K MATRIX AT THE GAUSS POINT (INCLUDING UPWIND)
-            basic_mat["KMAT"] = build_kmat_fluid(
-                basic_mat["KMAT"],
-                UPWEQT,
-                fluid_comp_j,
-                conductor,
-                elem_index,
-            )
-
-            # FORM THE S MATRIX AT THE GAUSS POINT (SOURCE JACOBIAN)
-            # Velocity and pressure rows (momentum equation), must be built
-            # before the temperature row since the latter reuses the
-            # friction-factor diagonal term computed here.
-            basic_mat["SMAT"] = build_smat_fluid_momentum(
-                basic_mat["SMAT"],
-                fluid_comp_j,
-                elem_index,
-                conductor.equation_index[fluid_comp_j.identifier]
-            )
-            # Temperature row (energy equation).
-            basic_mat["SMAT"] = build_smat_fluid_energy(
-                basic_mat["SMAT"],
-                fluid_comp_j,
-                elem_index,
-                conductor.equation_index[fluid_comp_j.identifier]
-            )
-
-        # FORM THE S MATRIX AT THE GAUSS POINT (SOURCE JACOBIAN)
-        # Therms associated to fluid-fluid interfaces.
-        # Velocity and pressure rows (momentum equation).
-        basic_mat["SMAT"] = build_smat_fluid_interface_momentum(
-            basic_mat["SMAT"],
+        # FORM THE K MATRIX AT EVERY GAUSS POINT (INCLUDING UPWIND)
+        gauss_point_matrices.diffusion = build_kmat_fluid(
+            gauss_point_matrices.diffusion,
+            upwind_weights,
+            fluid_comp_j,
             conductor,
-            elem_index
+        )
+
+        # FORM THE S MATRIX AT EVERY GAUSS POINT (SOURCE JACOBIAN)
+        # Velocity and pressure rows (momentum equation), must be built
+        # before the temperature row since the latter reuses the
+        # friction-factor diagonal term computed here.
+        gauss_point_matrices.source_jacobian = build_smat_fluid_momentum(
+            gauss_point_matrices.source_jacobian,
+            fluid_comp_j,
+            conductor.equation_index[fluid_comp_j.identifier]
         )
         # Temperature row (energy equation).
-        basic_mat["SMAT"] = build_smat_fluid_interface_energy(
-            basic_mat["SMAT"],
-            conductor,
-            elem_index
-        )
-        # Therms associated to fluid-solid interfaces.
-        basic_mat["SMAT"] = build_smat_fluid_solid_interface(
-            basic_mat["SMAT"],
-            conductor,
-            elem_index,
-        )
-        # END S MATRIX: fluid components equations
-
-        # * FORM THE M, A, K, S MATRICES AND S VECTOR AT THE GAUSS POINT, SOLID
-        # COMPONENTS EQUATIONS *
-        for s_comp_idx, s_comp in enumerate(
-            conductor.inventory.solids.collection
-        ):
-            # FORM THE M MATRIX AT THE GAUSS POINT (MASS AND CAPACITY)
-            # SolidComponent equation.
-            basic_mat["MMAT"] = build_mmat_solid(
-                basic_mat["MMAT"],
-                s_comp,
-                elem_index,
-                conductor.equation_index[s_comp.identifier]
-            )
-            # END M MATRIX: SolidComponent equation.
-
-            # FORM THE A MATRIX AT THE GAUSS POINT (FLUX JACOBIAN)
-            # No elements here.
-            # END A MATRIX: SolidComponent equation.
-
-            # FORM THE K MATRIX AT THE GAUSS POINT (INCLUDING UPWIND)
-            basic_mat["KMAT"] = build_kmat_solid(
-                basic_mat["KMAT"],
-                s_comp,
-                elem_index,
-                conductor.equation_index[s_comp.identifier]
-            )
-            # END K MATRIX: SolidComponent equation.
-
-            # FORM THE S VECTOR AT THE NODAL POINTS (SOURCE)
-            SVEC = build_svec(
-                SVEC,
-                s_comp,
-                elem_index,
-                conductor.equation_index[s_comp.identifier],
-                num_step=conductor.cond_num_step,
-                qsource=qsource,
-                comp_idx=s_comp_idx,
-            )
-
-        # FORM THE S MATRIX AT THE GAUSS POINT (SOURCE JACOBIAN)
-        basic_mat["SMAT"] = build_smat_solid_interface(
-            basic_mat["SMAT"],
-            conductor,
-            elem_index,
+        gauss_point_matrices.source_jacobian = build_smat_fluid_energy(
+            gauss_point_matrices.source_jacobian,
+            fluid_comp_j,
+            conductor.equation_index[fluid_comp_j.identifier]
         )
 
-        for interface in conductor.interface.env_solid:
-            # Convective heating with the external environment (implicit 
-            # treatment).
-            basic_mat["SMAT"] = build_smat_env_solid_interface(
-                basic_mat["SMAT"],
-                conductor,
-                interface,
-                elem_index,
-            )
-            # END S MATRIX: solid components equation.
+    # FORM THE S MATRIX AT EVERY GAUSS POINT (SOURCE JACOBIAN)
+    # Therms associated to fluid-fluid interfaces.
+    # Velocity and pressure rows (momentum equation).
+    gauss_point_matrices.source_jacobian = build_smat_fluid_interface_momentum(
+        gauss_point_matrices.source_jacobian,
+        conductor,
+    )
+    # Temperature row (energy equation).
+    gauss_point_matrices.source_jacobian = build_smat_fluid_interface_energy(
+        gauss_point_matrices.source_jacobian,
+        conductor,
+    )
+    # Therms associated to fluid-solid interfaces.
+    gauss_point_matrices.source_jacobian = build_smat_fluid_solid_interface(
+        gauss_point_matrices.source_jacobian,
+        conductor,
+    )
+    # END S MATRIX: fluid components equations
 
-            SVEC = build_svec_env_jacket_interface(
-                SVEC,
-                conductor,
-                interface,
-                elem_index,
-            )
-            # END S VECTOR: solid components equation.
+    # * FORM THE M, A, K, S MATRICES AND S VECTOR AT EVERY GAUSS POINT, SOLID
+    # COMPONENTS EQUATIONS *
+    for s_comp_idx, s_comp in enumerate(
+        conductor.inventory.solids.collection
+    ):
+        # FORM THE M MATRIX AT EVERY GAUSS POINT (MASS AND CAPACITY)
+        # SolidComponent equation.
+        gauss_point_matrices.mass_capacity = build_mmat_solid(
+            gauss_point_matrices.mass_capacity,
+            s_comp,
+            conductor.equation_index[s_comp.identifier]
+        )
+        # END M MATRIX: SolidComponent equation.
 
-        # COMPUTE THE MASS AND CAPACITY MATRIX
-        # array smart
-        element_mat["ELMMAT"] = build_elmmat(
-            element_mat["ELMMAT"],
-            basic_mat["MMAT"],
-            conductor,
-            elem_index,
-            ALFA,
+        # FORM THE A MATRIX AT EVERY GAUSS POINT (FLUX JACOBIAN)
+        # No elements here.
+        # END A MATRIX: SolidComponent equation.
+
+        # FORM THE K MATRIX AT EVERY GAUSS POINT (INCLUDING UPWIND)
+        gauss_point_matrices.diffusion = build_kmat_solid(
+            gauss_point_matrices.diffusion,
+            s_comp,
+            conductor.equation_index[s_comp.identifier]
+        )
+        # END K MATRIX: SolidComponent equation.
+
+        # FORM THE S VECTOR AT THE NODAL POINTS (SOURCE)
+        source_vector = build_svec(
+            source_vector,
+            s_comp,
+            conductor.equation_index[s_comp.identifier],
+            num_step=conductor.cond_num_step,
+            qsource=qsource,
+            comp_idx=s_comp_idx,
         )
 
-        # COMPUTE THE CONVECTION MATRIX
-        # array smart
-        element_mat["ELAMAT"] = build_elamat(
-            element_mat["ELAMAT"],
-            basic_mat["AMAT"],
-            conductor,
-        )
+    # FORM THE S MATRIX AT EVERY GAUSS POINT (SOURCE JACOBIAN)
+    gauss_point_matrices.source_jacobian = build_smat_solid_interface(
+        gauss_point_matrices.source_jacobian,
+        conductor,
+    )
 
-        # COMPUTE THE DIFFUSION MATRIX
-        # array smart
-        element_mat["ELKMAT"] = build_elkmat(
-            element_mat["ELKMAT"],
-            basic_mat["KMAT"],
+    for interface in conductor.interface.env_solid:
+        # Convective heating with the external environment (implicit
+        # treatment).
+        gauss_point_matrices.source_jacobian = build_smat_env_solid_interface(
+            gauss_point_matrices.source_jacobian,
             conductor,
-            elem_index,
+            interface,
         )
+        # END S MATRIX: solid components equation.
 
-        # COMPUTE THE SOURCE MATRIX
-        # array smart
-        element_mat["ELSMAT"] = build_elsmat(
-            element_mat["ELSMAT"],
-            basic_mat["SMAT"],
+        source_vector = build_svec_env_jacket_interface(
+            source_vector,
             conductor,
-            elem_index,
+            interface,
         )
+        # END S VECTOR: solid components equation.
 
-        # COMPUTE THE SOURCE VECTOR (ANALYTIC INTEGRATION)
-        # array smart
-        ELSLOD = build_elslod(
-            ELSLOD,
-            SVEC,
-            conductor,
-            elem_index,
-        )
-        
-        # ASSEMBLE THE MATRICES AND THE LOAD VECTOR
-        
-        jump = conductor.dict_N_equation["NODOFS"] * elem_index
-        
-        # array smart
-        final_mat = assemble_matrix(
-            final_mat,
-            element_mat,
-            conductor,
-            jump,
-        )
+    # COMPUTE THE MASS AND CAPACITY MATRIX
+    # array smart
+    element_matrices.mass_capacity = build_elmmat(
+        element_matrices.mass_capacity,
+        gauss_point_matrices.mass_capacity,
+        conductor,
+        ALFA,
+    )
 
-        conductor.dict_Step["SYSLOD"][
-            jump:jump + conductor.dict_band["Half"],:
-        ] = assemble_syslod(ELSLOD,conductor,jump)
+    # COMPUTE THE CONVECTION MATRIX
+    # array smart
+    element_matrices.flux_jacobian = build_elamat(
+        element_matrices.flux_jacobian,
+        gauss_point_matrices.flux_jacobian,
+        conductor,
+    )
 
-    # end for elem_index
+    # COMPUTE THE DIFFUSION MATRIX
+    # array smart
+    element_matrices.diffusion = build_elkmat(
+        element_matrices.diffusion,
+        gauss_point_matrices.diffusion,
+        conductor,
+    )
+
+    # COMPUTE THE SOURCE MATRIX
+    # array smart
+    element_matrices.source_jacobian = build_elsmat(
+        element_matrices.source_jacobian,
+        gauss_point_matrices.source_jacobian,
+        conductor,
+    )
+
+    # COMPUTE THE SOURCE VECTOR (ANALYTIC INTEGRATION)
+    # array smart
+    element_load_vector = build_elslod(
+        element_load_vector,
+        source_vector,
+        conductor,
+    )
+
+    # ASSEMBLE THE MATRICES (all elements at once)
+    system_matrices = assemble_system_matrices(
+        system_matrices,
+        element_matrices,
+        conductor,
+    )
+
+    # ASSEMBLE THE LOAD VECTOR (all elements at once)
+    assemble_syslod(element_load_vector, conductor)
+
     # ** END MATRICES CONSTRUCTION **
 
     # ** COMPUTE SYSTEM MATRIX **
-    SYSMAT = eval_system_matrix(
-        SYSMAT,
-        final_mat,
+    system_matrix = eval_system_matrix(
+        system_matrix,
+        system_matrices,
         conductor,
     )
 
     # ADD THE LOAD CONTRIBUTION FROM PREVIOUS STEP
     # array smart
-    Known = build_known_therm_vector(
-        Known,
-        final_mat,
+    known_term_vector = build_known_therm_vector(
+        known_term_vector,
+        system_matrices,
         conductor,
     )
 
@@ -560,9 +525,9 @@ def step(conductor, environment, qsource, num_step):
     # save_ndarray(
     #     conductor,
     #     (
-    #         final_mat.masmat,final_mat.flxmat,final_mat.difmat,
-    #         final_mat.sormat,SYSMAT,conductor.dict_Step["SYSVAR"],
-    #         conductor.dict_Step["SYSLOD"]
+    #         system_matrices.masmat,system_matrices.flxmat,system_matrices.difmat,
+    #         system_matrices.sormat,system_matrix,conductor.time_integration.solution,
+    #         conductor.time_integration.load_vector
     #     )
     # )
 
@@ -572,8 +537,8 @@ def step(conductor, environment, qsource, num_step):
         intial = int(f_comp.coolant.operations.hydraulic_bc_type)
         # Apply boundary conditions according to the absloute value of flag
         # INTIAL.
-        Known,SYSMAT = f_comp.apply_th_bc[intial](
-            (Known,SYSMAT),
+        known_term_vector,system_matrix = f_comp.apply_th_bc[intial](
+            (known_term_vector,system_matrix),
             conductor,
             path,
         )
@@ -581,20 +546,20 @@ def step(conductor, environment, qsource, num_step):
     # DIAGONAL ROW SCALING
 
     # SELECT THE MAX FOR EACH ROW
-    ASCALING = abs(SYSMAT).max(0)
-    ind_ASCALING = np.nonzero(ASCALING == 0.0)
-    # ind_ASCALING = np.nonzero(ASCALING <= 1e-6)
+    row_scaling_factors = abs(system_matrix).max(0)
+    ind_ASCALING = np.nonzero(row_scaling_factors == 0.0)
+    # ind_ASCALING = np.nonzero(row_scaling_factors <= 1e-6)
     if ind_ASCALING[0].shape == 0:
         raise ValueError(
-            f"""ERROR: ASCALING[ind_ASCALING[0]] = 
-           {ASCALING[ind_ASCALING[0]]}!\n"""
+            f"""ERROR: row_scaling_factors[ind_ASCALING[0]] = 
+           {row_scaling_factors[ind_ASCALING[0]]}!\n"""
         )
 
     # SCALE THE SYSTEM MATRIX
-    SYSMAT = SYSMAT / ASCALING
+    system_matrix = system_matrix / row_scaling_factors
 
     # SCALE THE LOAD VECTOR
-    Known = Known / ASCALING
+    known_term_vector = known_term_vector / row_scaling_factors
 
     old_temperature_gauss = {
         obj.identifier: obj.coolant.gauss_fields.temperature
@@ -607,33 +572,33 @@ def step(conductor, environment, qsource, num_step):
         }
     )
 
-    # Compute the solution at current time step and overwrite key SYSVAR of
-    # dict_Step
-    conductor.dict_Step["SYSVAR"][:, 0] = solve_thermal_banded_system(
-        conductor, SYSMAT, Known
+    # Compute the solution at the current time step and overwrite the time
+    # integration solution
+    conductor.time_integration.solution[:, 0] = solve_thermal_banded_system(
+        conductor, system_matrix, known_term_vector
     )
 
     # COMPUTE THE NORM OF THE SOLUTION AND OF THE SOLUTION CHANGE (START)
     # array smart optimization
 
-    CHG = np.zeros(conductor.dict_N_equation["Total"])
-    EIG = np.zeros(conductor.dict_N_equation["Total"])
+    CHG = np.zeros(conductor.equation_counts.total_equations)
+    EIG = np.zeros(conductor.equation_counts.total_equations)
 
     # Evaluate the norm of the solution.
-    conductor.dict_norm["Solution"] = eval_sub_array_norm(Known,conductor)
+    conductor.solution_norms.solution = eval_sub_array_norm(known_term_vector,conductor)
 
     # COMPUTE THE NORM OF THE SOLUTION CHANGE, THE EIGENVALUES AND RECOVER THE \
     # VARIABLES FROM THE SYSTEM SOLUTION (START)
 
     # Those are arrays
     # Solution change
-    CHG = Known - conductor.dict_Step["SYSVAR"][:, 0]
+    CHG = known_term_vector - conductor.time_integration.solution[:, 0]
     # Eigenvalues (sort of??)
-    EIG = abs(CHG / conductor.time_step) / (abs(Known) + TINY)
+    EIG = abs(CHG / conductor.time_step) / (abs(known_term_vector) + TINY)
     # Evaluate the norm of the solution change.
-    conductor.dict_norm["Change"] = eval_sub_array_norm(CHG,conductor)
+    conductor.solution_norms.change = eval_sub_array_norm(CHG,conductor)
     # Evaluate the eigenvalues of the solution.
-    conductor.EQTEIG = eval_eigenvalues(EIG,conductor)
+    conductor.equation_eigenvalues = eval_eigenvalues(EIG,conductor)
     # Reorganize thermal hydraulic solution
     reorganize_th_solution(
         conductor,
@@ -660,7 +625,7 @@ def solve_thermal_banded_system(
     wants ``ab[half_band + i - j, j] = a[i, j]``, so each diagonal is
     remapped with a shifted slice copy before the solve.
     """
-    half_band = conductor.dict_band["Main_diag"]
+    half_band = conductor.band.number_of_subdiagonals
     number_of_equations = known_term.size
     lapack_band = np.zeros((2 * half_band + 1, number_of_equations))
     for diagonal in range(-half_band, half_band + 1):
@@ -688,7 +653,7 @@ def eval_sub_array_norm(
     """
 
     # Alias
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     sub_array_norm = np.zeros(ndf)
     # Collection of NamedTuple with fluid equation index (velocity, pressure 
     # and temperaure equations) and of integer for solid equation index.
@@ -736,7 +701,7 @@ def eval_eigenvalues(
     """
 
     # Alias
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     sub_array = np.zeros(ndf)
     # Collection of NamedTuple with fluid equation index (velocity, pressure 
     # and temperaure equations) and of integer for solid equation index.
@@ -787,7 +752,7 @@ def eval_array_by_fn(
         np.ndarray: array of eucliean norms with ndf elements if fn is np.sum; array of eigenvalues with ndf elements if fn is np.max.
     """
     # Alias
-    ndf = conductor.dict_N_equation["NODOFS"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
     sub_array = np.zeros(ndf)
     # Collection of NamedTuple with fluid equation index (velocity, pressure 
     # and temperaure equations) and of integer for solid equation index.
@@ -858,8 +823,8 @@ def reorganize_th_solution(
     """
 
     # Alias
-    ndf = conductor.dict_N_equation["NODOFS"]
-    sysvar = conductor.dict_Step["SYSVAR"]
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
+    sysvar = conductor.time_integration.solution
     # Collection of NamedTuple with fluid equation index (velocity, pressure 
     # and temperaure equations) and of integer for solid equation index.
     eq_idx = conductor.equation_index
@@ -899,7 +864,7 @@ def save_ndarray(conductor:Conductor,ndarrays:tuple):
 
     Args:
         conductor (Conductor): object with all the information of the conductor.
-        ndarrays (tuple): collection of ndarrays in the following order: MASMAT, FLXMAT, DIFMAT, SORMAT, SYSMAT, SYSVAR, SYSLOD
+        ndarrays (tuple): collection of ndarrays in the following order: mass_capacity, flux_jacobian, diffusion, source_jacobian, system_matrix, solution, load_vector
     """
     
     if conductor.cond_num_step == 1 or np.isclose(conductor.Space_save[conductor.i_save],conductor.cond_time[-1]):
@@ -913,7 +878,8 @@ def save_ndarray(conductor:Conductor,ndarrays:tuple):
             sfx = conductor.i_save
         # Collection of ndimensional array.
         nda_name = (
-            "MASMAT","FLXMAT","DIFMAT","SORMAT","SYSMAT","SYSVAR","SYSLOD"
+            "mass_capacity","flux_jacobian","diffusion","source_jacobian",
+            "system_matrix","solution","load_vector"
         )
         # Build path to save ndimensional array.
         paths = tuple(

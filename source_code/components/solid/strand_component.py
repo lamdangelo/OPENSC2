@@ -16,6 +16,13 @@ from properties_of_materials.niobium_titanium import (
     current_sharing_temperature_nbti,
 )
 
+# NbTi properties, W7-X parameterization (CryoSoft/THEA)
+from properties_of_materials.niobium_titanium_w7x import (
+    critical_temperature_nbti_w7x,
+    critical_current_density_nbti_w7x,
+    current_sharing_temperature_nbti_w7x,
+)
+
 # Nb3Sn properties
 from properties_of_materials.niobium3_tin import (
     critical_temperature_nb3sn,
@@ -202,6 +209,19 @@ class StrandComponent(SolidComponent):
                 self.inputs.critical_current_scaling_constant,
                 self.inputs.critical_temperature_at_0T,
             )
+        elif self.inputs.superconducting_material == "nbti-w7x":
+            dict_dummy.T_critical = critical_temperature_nbti_w7x(
+                dict_dummy.B_field,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_temperature_at_0T,
+            )
+            dict_dummy.J_critical = critical_current_density_nbti_w7x(
+                dict_dummy.temperature,
+                dict_dummy.B_field,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_current_scaling_constant,
+                self.inputs.critical_temperature_at_0T,
+            )
         elif self.inputs.superconducting_material == "nb3sn":
             dict_dummy.T_critical = critical_temperature_nb3sn(
                 dict_dummy.B_field,
@@ -291,6 +311,15 @@ class StrandComponent(SolidComponent):
             #     self.inputs.critical_current_scaling_constant,
             #     self.inputs.critical_temperature_at_0T,
             # )
+            dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
+        elif self.inputs.superconducting_material == "nbti-w7x":
+            dict_dummy.T_cur_sharing = current_sharing_temperature_nbti_w7x(
+                dict_dummy.B_field,
+                jop,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_current_scaling_constant,
+                self.inputs.critical_temperature_at_0T,
+            )
             dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
         elif self.inputs.superconducting_material == "nb3sn":
             dict_dummy.T_cur_sharing = current_sharing_temperature_nb3sn(

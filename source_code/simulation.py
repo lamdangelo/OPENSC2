@@ -202,7 +202,7 @@ class Simulation:
             self.dict_qsource[cond.identifier] = np.zeros(
                 (
                     cond.mesh.number_of_nodes,
-                    cond.dict_N_equation["SolidComponent"],
+                    cond.equation_counts.solid_equations,
                 )
             )
         else:
@@ -222,7 +222,7 @@ class Simulation:
                     self.dict_qsource[cond_r.identifier] = np.zeros(
                         (
                             cond_r.mesh.number_of_nodes,
-                            cond_r.dict_N_equation["SolidComponent"],
+                            cond_r.equation_counts.solid_equations,
                         )
                     )
                 else:
@@ -253,7 +253,7 @@ class Simulation:
                             ] = np.zeros(
                                 (
                                     cond_r.mesh.number_of_nodes,
-                                    cond_r.dict_N_equation["SolidComponent"],
+                                    cond_r.equation_counts.solid_equations,
                                 )
                             )
                             raise ValueError(

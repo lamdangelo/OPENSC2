@@ -328,6 +328,37 @@ class SolidComponent:
 
     # end Get_I
 
+    def _conductor_current_ratio(self, conductor) -> float:
+        """Ratio I(t)/I0 of the conductor transport current to its initial value.
+
+        Used by the proportional magnetic-field model
+        (``BFieldDefinitionType.LINEAR_WITH_TRANSIENT``). The strand
+        operating currents at the current electric time are already loaded
+        by ``get_current``, which runs before ``get_magnetic_field`` in
+        ``update_em_operating_conditions``.
+        """
+        if (
+            conductor.inputs.current_mode == CurrentMode.CURRENT_IS_CONSTANT
+            or conductor.inputs.initial_current == 0.0
+        ):
+            return 1.0
+
+        if conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FUNCTION:
+            from electromagnetics.operating_conditions import (
+                user_defined_current,
+            )
+
+            return (
+                user_defined_current(conductor.electric_time)
+                / conductor.inputs.initial_current
+            )
+
+        total_current = sum(
+            strand.node_fields.op_current[0]
+            for strand in conductor.inventory.strands.collection
+        )
+        return total_current / conductor.inputs.initial_current
+
     def get_magnetic_field(self, conductor, nodal=True):
         if nodal:
             # compute B_field in each node (cdp, 07/2020)
@@ -379,11 +410,15 @@ class SolidComponent:
                     conductor.mesh.number_of_nodes,
                 )
             elif self.operations.magnetic_field_bc_mode is BFieldDefinitionType.LINEAR_WITH_TRANSIENT:
+                # Proportional field model (THEA MagneticFieldModel
+                # "proportional"): the transient part scales with the actual
+                # conductor transport current, so the field collapses
+                # together with the current during a dump.
                 self.node_fields.B_field = np.linspace(
                     self.operations.magnetic_field_inlet_initial,
                     self.operations.magnetic_field_outlet_initial,
                     conductor.mesh.number_of_nodes,
-                ) + conductor.inputs.initial_current / conductor.inputs.initial_current * np.linspace(
+                ) + self._conductor_current_ratio(conductor) * np.linspace(
                     self.operations.magnetic_field_inlet_transient,
                     self.operations.magnetic_field_outlet_transient,
                     conductor.mesh.number_of_nodes,
@@ -477,7 +512,7 @@ class SolidComponent:
                 )
             elif conductor.cond_num_step > 0:
                 if conductor.cond_num_step == 1:
-                    # Store the old values only immediately after the initializzation, since after that the whole SYSLOD array is saved and there is no need to compute twice the same values.
+                    # Store the old values only immediately after the initializzation, since after that the whole system load vector is saved and there is no need to compute twice the same values.
                     self.node_fields.EXTFLX[:, 1] = self.node_fields.EXTFLX[
                         :, 0
                     ].copy()
@@ -496,7 +531,7 @@ class SolidComponent:
                 self.user_heat_function(conductor)
             elif conductor.cond_num_step > 0:
                 if conductor.cond_num_step == 1:
-                    # Store the old values only immediately after the initializzation, since after that the whole SYSLOD array is saved and there is no need to compute twice the same values.
+                    # Store the old values only immediately after the initializzation, since after that the whole system load vector is saved and there is no need to compute twice the same values.
                     self.node_fields.EXTFLX[:, 1] = self.node_fields.EXTFLX[
                         :, 0
                     ].copy()
@@ -530,7 +565,7 @@ class SolidComponent:
                 elif conductor.cond_num_step > 0:
                     if conductor.cond_num_step == 1:
                         # Store the old values only immediately after the initializzation, \
-                        # since after that the whole SYSLOD array is saved and there is no \
+                        # since after that the whole system load vector is saved and there is no \
                         # need to compute twice the same values (cdp, 10/2020)
                         self.node_fields.EXTFLX[:, 1] = self.node_fields.EXTFLX[
                             :, 0
@@ -613,7 +648,7 @@ class SolidComponent:
             elif conductor.cond_time[-1] > 0:
                 if conductor.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
-                    # since after that the whole SYSLOD array is saved and there is no \
+                    # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values (cdp, 10/2020)
                     self.node_fields.JHTFLX[:, 1] = self.node_fields.JHTFLX[
                         :, 0
@@ -676,7 +711,7 @@ class SolidComponent:
             elif conductor.cond_time[-1] > 0 and conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
                 if conductor.cond_num_step == 1:
                     # Store the old values only immediately after the
-                    # initializzation, since after that the whole SYSLOD array
+                    # initializzation, since after that the whole system load vector
                     # is saved and there is no need to compute twice the same
                     # values.
                     self.gauss_fields.linear_power_el_resistance[
@@ -729,7 +764,7 @@ class SolidComponent:
             elif conductor.cond_time[-1] > 0:
                 if conductor.cond_num_step == 1:
                     # Store the old values only immediately after the
-                    # initializzation, since after that the whole SYSLOD array
+                    # initializzation, since after that the whole system load vector
                     # is saved and there is no need to compute twice the same
                     # values.
                     self.node_fields.total_linear_power_el_cond[
@@ -816,7 +851,7 @@ class SolidComponent:
             elif conductor.cond_time[-1] > 0:
                 if conductor.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
-                    # since after that the whole SYSLOD array is saved and there is no \
+                    # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values (cdp, 10/2020)
                     self.node_fields.EEXT[:, 1] = self.node_fields.EEXT[
                         :, 0

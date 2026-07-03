@@ -49,6 +49,15 @@ class FrictionFactorFactory:
         if model is FrictionFactorModelType.USER_DEFINED:
             return lamf.UserDefinedLaminar()
 
+        if model is FrictionFactorModelType.DARCY_FORCHHEIMER_POROUS_MEDIUM:
+            # The Darcy (1/Re) term of the correlation already is the laminar
+            # contribution; pairing it with a smooth-tube laminar model would
+            # wrongly override the correlation at low Reynolds numbers via the
+            # MaximumModel combination. A zero laminar part makes the total
+            # friction factor equal to the correlation at every Reynolds
+            # number, as in the THEA user friction model (ZUT).
+            return lamf.UserDefinedLaminar()
+
         if model is FrictionFactorModelType.RECTANGULAR_DUCT_MEMO:
             return lamf.RectangularDuctLaminar(
                 side1=inputs.width,

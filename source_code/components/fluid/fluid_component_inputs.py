@@ -40,7 +40,7 @@ class FluidComponentInputs:
     show_figure: bool 
 
 
-@dataclass 
+@dataclass
 class FluidComponentOperations:
     """
     A class to store the data from the operations Excel file for the fluid component.
@@ -52,14 +52,30 @@ class FluidComponentOperations:
     outlet_temperature: float  # K
     initial_temperature: float  # K
 
-    inlet_pressure: float  # Pa 
-    outlet_pressure: float  # Pa 
-    initial_pressure: float  # Pa 
+    inlet_pressure: float  # Pa
+    outlet_pressure: float  # Pa
+    initial_pressure: float  # Pa
 
-    inlet_mass_rate: float  # kg/s 
+    inlet_mass_rate: float  # kg/s
     outlet_mass_rate: float  # kg/s
 
     flow_direction: hf.FlowDirection  # backward or forward
+
+    # Optional outlet value of the initial temperature profile (workbook row
+    # TEMINI_OUT). When set, the initial temperature runs linearly from
+    # initial_temperature (TEMINI) at the inlet to this value at the outlet,
+    # decoupled from the boundary-condition temperatures — the analogue of
+    # THEA's user-defined hydraulic initial condition. When absent, the
+    # initial profile falls back to inlet_temperature/outlet_temperature.
+    initial_temperature_outlet: float = None
+
+    def initial_temperature_profile_bounds(self) -> tuple:
+        """Inlet and outlet values of the initial temperature profile."""
+        if self.initial_temperature_outlet is not None and not pd.isna(
+            self.initial_temperature_outlet
+        ):
+            return self.initial_temperature, self.initial_temperature_outlet
+        return self.inlet_temperature, self.outlet_temperature
 
 
 class FluidComponentInputLoader:
@@ -135,5 +151,6 @@ class FluidComponentInputLoader:
             initial_pressure=workbook["PREINI"],
             inlet_mass_rate=workbook["MDTIN"],
             outlet_mass_rate=workbook["MDTOUT"],
-            flow_direction=hf.get_flow_direction(workbook["FLOWDIR"])
+            flow_direction=hf.get_flow_direction(workbook["FLOWDIR"]),
+            initial_temperature_outlet=workbook.get("TEMINI_OUT"),
         )

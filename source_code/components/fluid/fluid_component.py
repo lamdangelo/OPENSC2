@@ -78,10 +78,7 @@ class FluidComponent(Component):
         initial_temperature = np.interp(
             mesh_nodes,
             [0, mesh_nodes[-1]],
-            [
-                self.coolant.operations.inlet_temperature,
-                self.coolant.operations.outlet_temperature
-            ]
+            self.coolant.operations.initial_temperature_profile_bounds(),
         )
         self.coolant.temperature.initialize(initial_temperature)
 
@@ -110,7 +107,7 @@ class FluidComponent(Component):
         """
 
         # ALIAS
-        ndf = conductor.dict_N_equation["NODOFS"]
+        ndf = conductor.equation_counts.degrees_of_freedom_per_node
         # eq_idx (NamedTuple): collection of fluid equation index (velocity, 
         # pressure and temperaure equations).
         eq_idx = conductor.equation_index[self.identifier]
@@ -295,7 +292,7 @@ class FluidComponent(Component):
         # ALIAS
         inl_p_idx = self.inl_idx.pressure
         out_p_idx = self.out_idx.pressure
-        main_d_idx = conductor.dict_band["Main_diag"]
+        main_d_idx = conductor.band.number_of_subdiagonals
         flow_dir = self.coolant.operations.flow_direction
         
         # Assign BC
@@ -396,7 +393,7 @@ class FluidComponent(Component):
         # ALIAS
         inl_p_idx = self.inl_idx.pressure
         out_v_idx = self.out_idx.velocity
-        main_d_idx = conductor.dict_band["Main_diag"]
+        main_d_idx = conductor.band.number_of_subdiagonals
         flow_dir = self.coolant.operations.flow_direction
         density = self.coolant.node_fields.total_density
         cross_section = self.channel.inputs.cross_section
@@ -500,7 +497,7 @@ class FluidComponent(Component):
         # ALIAS
         inl_v_idx = self.inl_idx.velocity
         out_p_idx = self.out_idx.pressure
-        main_d_idx = conductor.dict_band["Main_diag"]
+        main_d_idx = conductor.band.number_of_subdiagonals
         flow_dir = self.coolant.operations.flow_direction
         density = self.coolant.node_fields.total_density
         cross_section = self.channel.inputs.cross_section

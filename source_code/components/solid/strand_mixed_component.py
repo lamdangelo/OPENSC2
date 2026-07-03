@@ -51,33 +51,43 @@ from properties_of_materials.magnesium_diboride import (
     density_mgb2,
 )
 
-
-DENSITY_FUNC = dict(
-    al=density_al,
-    cu=density_cu,
-    nb3sn=density_nb3sn,
-    nbti=density_nbti,
-    ybco=density_re123,
-    mgb2=density_mgb2,
+# NbTi properties, W7-X parameterization (CryoSoft/THEA)
+from properties_of_materials.niobium_titanium_w7x import (
+    thermal_conductivity_nbti_w7x,
+    isobaric_specific_heat_nbti_w7x,
+    density_nbti_w7x,
 )
 
-THERMAL_CONDUCTIVITY_FUNC = dict(
-    al=thermal_conductivity_al,
-    cu=thermal_conductivity_cu_nist,
-    nb3sn=thermal_conductivity_nb3sn,
-    nbti=thermal_conductivity_nbti,
-    ybco=thermal_conductivity_re123,
-    mgb2=thermal_conductivity_mgb2,
-)
 
-ISOBARIC_SPECIFIC_HEAT_FUNC = dict(
-    al=isobaric_specific_heat_al,
-    cu=isobaric_specific_heat_cu_nist,
-    nb3sn=isobaric_specific_heat_nb3sn,
-    nbti=isobaric_specific_heat_nbti,
-    ybco=isobaric_specific_heat_re123,
-    mgb2=isobaric_specific_heat_mgb2,
-)
+DENSITY_FUNC = {
+    "al": density_al,
+    "cu": density_cu,
+    "nb3sn": density_nb3sn,
+    "nbti": density_nbti,
+    "nbti-w7x": density_nbti_w7x,
+    "ybco": density_re123,
+    "mgb2": density_mgb2,
+}
+
+THERMAL_CONDUCTIVITY_FUNC = {
+    "al": thermal_conductivity_al,
+    "cu": thermal_conductivity_cu_nist,
+    "nb3sn": thermal_conductivity_nb3sn,
+    "nbti": thermal_conductivity_nbti,
+    "nbti-w7x": thermal_conductivity_nbti_w7x,
+    "ybco": thermal_conductivity_re123,
+    "mgb2": thermal_conductivity_mgb2,
+}
+
+ISOBARIC_SPECIFIC_HEAT_FUNC = {
+    "al": isobaric_specific_heat_al,
+    "cu": isobaric_specific_heat_cu_nist,
+    "nb3sn": isobaric_specific_heat_nb3sn,
+    "nbti": isobaric_specific_heat_nbti,
+    "nbti-w7x": isobaric_specific_heat_nbti_w7x,
+    "ybco": isobaric_specific_heat_re123,
+    "mgb2": isobaric_specific_heat_mgb2,
+}
 
 ELECTRICAL_RESISTIVITY_FUNC = dict(
     al=electrical_resistivity_al,
@@ -384,6 +394,12 @@ class StrandMixedComponent(StrandComponent):
                     property.B_field,
                     property.T_cur_sharing_min,
                     property.T_critical,
+                )
+            elif func.__name__ == "isobaric_specific_heat_nbti_w7x":
+                isobaric_specific_heat[:, ii] = func(
+                    property.temperature,
+                    property.T_critical,
+                    self.inputs.critical_temperature_at_0T,
                 )
             else:
                 isobaric_specific_heat[:, ii] = func(property.temperature)

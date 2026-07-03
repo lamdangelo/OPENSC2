@@ -253,7 +253,7 @@ class ConductorMesh:
                     length,
                     n_elem_right + 1 - coarsening_steps,
                 )
-                self._check_coarse_region_quality(
+                validator.check_coarse_region_quality(
                     last_pitch=last_pitch,
                     n_elem=n_elem_right - coarsening_steps,
                     region_length=length - node_coordinates[right_boundary_idx + coarsening_steps],

@@ -24,13 +24,29 @@ from properties_of_materials.glass_epoxy import (
     electrical_resistivity_ge,
 )
 
-DENSITY_FUNC = dict(ge=density_ge, ss=density_ss)
-ISOBARIC_SPECIFIC_HEAT_FUNC = dict(
-    ge=isobaric_specific_heat_ge, ss=isobaric_specific_heat_ss
+# Aluminium alloy 6063 properties (W7-X jacket)
+from properties_of_materials.aluminium_6063 import (
+    thermal_conductivity_al6063,
+    isobaric_specific_heat_al6063,
+    density_al6063,
+    electrical_resistivity_al6063,
 )
-THERMAL_CONDUCTIVITY_FUNC = dict(ge=thermal_conductivity_ge, ss=thermal_conductivity_ss)
+
+DENSITY_FUNC = dict(ge=density_ge, ss=density_ss, al6063=density_al6063)
+ISOBARIC_SPECIFIC_HEAT_FUNC = dict(
+    ge=isobaric_specific_heat_ge,
+    ss=isobaric_specific_heat_ss,
+    al6063=isobaric_specific_heat_al6063,
+)
+THERMAL_CONDUCTIVITY_FUNC = dict(
+    ge=thermal_conductivity_ge,
+    ss=thermal_conductivity_ss,
+    al6063=thermal_conductivity_al6063,
+)
 ELECTRICAL_RESISTIVITY_FUNC = dict(
-    ge=electrical_resistivity_ge, ss=electrical_resistivity_ss
+    ge=electrical_resistivity_ge,
+    ss=electrical_resistivity_ss,
+    al6063=electrical_resistivity_al6063,
 )
 
 
@@ -121,7 +137,7 @@ class JacketComponent(SolidComponent):
             elif conductor.cond_time[-1] > 0:
                 if conductor.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
-                    # since after that the whole SYSLOD array is saved and there is no \
+                    # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values.
                     self.radiative_heat_env[:, 1] = self.radiative_heat_env[:, 0].copy()
                 # Update value at the current time step.
@@ -179,7 +195,7 @@ class JacketComponent(SolidComponent):
             elif conductor.cond_time[-1] > 0:
                 if conductor.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
-                    # since after that the whole SYSLOD array is saved and there is no \
+                    # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values.
                     self.radiative_heat_inn[key][:, 1] = self.radiative_heat_inn[key][
                         :, 0
