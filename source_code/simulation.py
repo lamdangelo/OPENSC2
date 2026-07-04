@@ -1,5 +1,6 @@
 from decimal import Decimal
 from openpyxl import load_workbook
+import interfaces.yaml_input_registry as yaml_input_registry
 import numpy as np
 import pandas as pd
 import os
@@ -52,15 +53,23 @@ class Simulation:
         for f_name in input_files:
             if "transitory_input" in f_name:
                 self.starter_file = f_name
-        # Load input file transitory_input.xlsx and convert to a dictionary.
-        self.transient_input = pd.read_excel(
-            os.path.join(self.basePath, self.starter_file),
-            sheet_name="TRANSIENT",
-            skiprows=1,
-            header=0,
-            index_col=0,
-            usecols=["Variable name", "Value"],
-        )["Value"].to_dict()
+        # A directory containing simulation.yaml is YAML-driven: every
+        # configuration read is served by the registry instead of the Excel
+        # workbooks (see interfaces/yaml_input_registry.py).
+        self.yaml_registry = yaml_input_registry.get_registry(self.basePath)
+        if self.yaml_registry is not None:
+            self.starter_file = yaml_input_registry.SIMULATION_FILE_NAME
+            self.transient_input = self.yaml_registry.transient_settings()
+        else:
+            # Load input file transitory_input.xlsx and convert to a dictionary.
+            self.transient_input = pd.read_excel(
+                os.path.join(self.basePath, self.starter_file),
+                sheet_name="TRANSIENT",
+                skiprows=1,
+                header=0,
+                index_col=0,
+                usecols=["Variable name", "Value"],
+            )["Value"].to_dict()
         self.flag_start = False
         # get the order of maginitude of the minimum time step to make proper 
         # rounds to when saving data and figures of solution spatial 
@@ -124,10 +133,12 @@ class Simulation:
     def conductor_instance(self):
         # Load spread-sheet conductor_definition.xlsx
         conductor_definition_path = os.path.join(self.basePath, self.transient_input["MAGNET"])
-        list_conductor_sheet = ConductorInputLoader.load_conductor_definition_sheets(
-            conductor_definition_path)
-        
-        self.numObj = int(list_conductor_sheet[0].cell(row=1, column=2).value)
+        if self.yaml_registry is not None:
+            self.numObj = self.yaml_registry.conductor_count
+        else:
+            list_conductor_sheet = ConductorInputLoader.load_conductor_definition_sheets(
+                conductor_definition_path)
+            self.numObj = int(list_conductor_sheet[0].cell(row=1, column=2).value)
 
         # LOAD MAIN CONDUCTORS PARAMETERS
         for ii in range(1, 1 + self.numObj):
@@ -140,12 +151,17 @@ class Simulation:
             conductor.initialize_with_simulation(self)
             self.list_of_Conductors.append(conductor)
         # end for ii (cdp, 12/2020)
-        self.contactBetweenConductors = pd.read_excel(
-            conductor_definition_path,
-            sheet_name="CONDUCTOR_coupling",
-            header=0,
-            index_col=0,
-        )
+        if self.yaml_registry is not None:
+            self.contactBetweenConductors = (
+                self.yaml_registry.conductor_coupling_dataframe()
+            )
+        else:
+            self.contactBetweenConductors = pd.read_excel(
+                conductor_definition_path,
+                sheet_name="CONDUCTOR_coupling",
+                header=0,
+                index_col=0,
+            )
 
         # Loop to create the attributes required to make the real time plots (shortly rtp).
         for conductor in self.list_of_Conductors:

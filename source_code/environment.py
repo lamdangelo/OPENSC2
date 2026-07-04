@@ -5,6 +5,8 @@ import pandas as pd
 from scipy import constants
 from CoolProp.CoolProp import PropsSI
 
+import interfaces.yaml_input_registry as yaml_input_registry
+
 
 class Environment:
     """docstring for Environment."""
@@ -21,14 +23,19 @@ class Environment:
         self.inputs = dict()
         # self.node_fields = FieldContainer(GridLocation.NODE)
         # self.gauss_fields = FieldContainer(GridLocation.GAUSS)
-        # Dictionary initialization: inputs.
-        self.inputs = pd.read_excel(
-            f_path,
-            sheet_name="ENVIRONMENT",
-            header=0,
-            index_col=0,
-            usecols=["Variable name", "Value"],
-        )["Value"].to_dict()
+        # Dictionary initialization: inputs (from the YAML registry when
+        # the input directory is YAML-driven).
+        registry = yaml_input_registry.get_registry(f_path)
+        if registry is not None:
+            self.inputs = registry.environment_settings()
+        else:
+            self.inputs = pd.read_excel(
+                f_path,
+                sheet_name="ENVIRONMENT",
+                header=0,
+                index_col=0,
+                usecols=["Variable name", "Value"],
+            )["Value"].to_dict()
         self.type = self.inputs["Medium"].lower()
         # Declare the dictionary with methods used to evaluate nusselt number.
         self.dict_nusselt_correlations = dict(

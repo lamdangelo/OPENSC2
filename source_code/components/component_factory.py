@@ -53,8 +53,25 @@ class ComponentFactory:
             list of Component instances.
         """
         kind_obj: str = sheet.cell(row=1, column=1).value
-        component_type = get_component_type(kind_obj)
         sheet_name: str = sheet.title
+        identifiers = [
+            sheet.cell(row=3, column=4 + ii).value
+            for ii in range(1, num_components + 1)
+        ]
+        return self.create_components(
+            kind_obj, sheet_name, identifiers, dict_file_path
+        )
+
+    def create_components(
+        self,
+        kind_obj: str,
+        sheet_name: str,
+        identifiers: list[str],
+        dict_file_path: dict,
+    ) -> list[Component]:
+        """Construct component instances from their kind, legacy sheet name
+        and identifiers (format-agnostic core of :meth:`create`)."""
+        component_type = get_component_type(kind_obj)
         input_path = dict_file_path["input"]
         ops_path = dict_file_path["operation"]
         sim = self.context.simulation
@@ -62,8 +79,7 @@ class ComponentFactory:
 
         components = ComponentInventory.empty()
 
-        for ii in range(1, num_components + 1):
-            identifier: str = sheet.cell(row=3, column=4 + ii).value
+        for identifier in identifiers:
 
             if component_type is ComponentType.FLUID:
                 loader = FluidComponentInputLoader(input_path, ops_path, identifier)

@@ -1,0 +1,488 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Refactoring and Performance Optimization of OPENSC2:\\
+Modularization, Modernization and Computational Efficiency}
+\author{Laura D'Angelo}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document summarizes the restructuring of the OPENSC2 code base (a coupled
+thermal--hydraulic--electric solver for superconducting cables) carried out on the
+\code{develop} branch. The work comprises three threads: (i) a \emph{modularization}
+of the formerly monolithic source tree into physics-oriented packages with
+single-responsibility modules; (ii) a \emph{modernization} of the internal data model,
+replacing string-keyed dictionaries and Fortran-heritage identifiers with typed
+data classes, enumerations and descriptive naming; and (iii) a systematic
+\emph{computational-efficiency} campaign covering sparse-matrix assembly, vectorized
+finite-element construction, LAPACK-based linear algebra, tabulated fluid properties,
+and a new adaptive time-integration layer with second-order time steppers.
+The net effect on the W7-X quench benchmark (17\,000 linear elements) is a reduction
+of the wall time for the full \SI{25}{s} transient from roughly four hours to
+\textbf{19 minutes}, on par with the commercial reference code CryoSoft THEA
+($\approx$15 minutes for the equivalent configuration), while every individual
+optimization step was verified to be bit-compatible (relative deviations
+$\lesssim 10^{-12}$, i.e.\ floating-point summation-order noise) against a frozen
+solver state, and the physical results reproduce the THEA reference solution.
+\end{abstract}
+
+\tableofcontents
+
+%=====================================================================
+\section{Starting Point and Goals}
+%=====================================================================
+
+The refactoring lives on the \code{develop} branch, which branched off \code{main}
+(commit \code{dfeda15}) in June~2026. At that point OPENSC2 consisted of a flat
+\code{source\_code/} directory dominated by a few very large modules:
+\code{channel.py} (1\,281 lines), \code{conductor.py} (eventually 3\,457 lines,
+$\sim$60 methods mixing mesh geometry, topology discovery, electric preprocessing,
+heat-transfer physics and diagnostics), \code{simulation.py} (876 lines mixing the
+time-stepping loop with output-folder bookkeeping), and
+\code{step\_matrix\_construction.py} (1\,473 lines containing the entire
+finite-element assembler for all physics at once). State was passed around in
+string-keyed dictionaries (\code{dict\_node\_pt}, \code{dict\_Gauss\_pt},
+\code{dict\_band}, \code{dict\_Step}, \ldots), physical models were selected by
+comparing raw integer flags from the Excel input workbooks, and many identifiers
+retained the names of the original Fortran routines (\code{SYSMAT}, \code{ASCALING},
+\code{UPWEQT}, \code{gredub}/\code{gbacsb}).
+
+The refactoring pursued three goals, in this order of priority:
+\begin{enumerate}
+  \item \textbf{Modularization}: one package per physical or infrastructural concern;
+        one module per responsibility; orchestration separated from physics.
+  \item \textbf{Modernization}: typed data structures, explicit enumerations,
+        full descriptive naming (no abbreviations), removal of dead code.
+  \item \textbf{Efficiency}: profiling-driven elimination of the dominant costs,
+        with a strict non-regression gate at every step.
+\end{enumerate}
+
+%=====================================================================
+\section{Chronology}
+%=====================================================================
+
+The work proceeded in five phases, traceable in the git history of \code{develop}
+(Table~\ref{tab:chronology}).
+
+\begin{table}[ht]
+  \centering
+  \caption{Phases of the refactoring as recorded in the git history of
+           \code{develop}.}
+  \label{tab:chronology}
+  \begin{tabular}{llp{8.6cm}}
+    \toprule
+    Phase & Commits (period) & Content \\
+    \midrule
+    0 & \code{3a75265}\,\ldots\,\code{b0768a6} (Jun 2--3) &
+        Preparation: \code{pyproject.toml} packaging and package
+        \code{\_\_init\_\_} files; Linux/GUI compatibility; newer
+        pandas/numpy compatibility; robustness fixes; headless (no-GUI)
+        drivers for reproducible runs. \\
+    1 & \code{9346a68} (Jun 16) &
+        Channel decomposition: the 1\,281-line \code{channel.py} split into a
+        package of friction-factor and heat-transfer \emph{model classes} with
+        factories (strategy pattern). \\
+    2 & \code{4dfb626} ``part 1'' (Jul 3) &
+        The main modularization: 88 files, $+13\,447/-10\,458$ lines ---
+        package split (Sec.~\ref{sec:modularization}), typed data model
+        (Sec.~\ref{sec:modernization}), runtime migration to the point where the
+        modularized code executes end-to-end. \\
+    3 & \code{fe68476}, \code{fba79e3} ``parts 2--3'' (Jul 3) &
+        Performance campaign: factor 6.7 (electric module, LAPACK banded solver),
+        then another factor $\sim$2.8 with full assembler vectorization, plus
+        de-dictification and descriptive renaming
+        (Sec.~\ref{sec:efficiency}). \\
+    4 & \code{93fa4d8}, \code{9e0ec1e} ``part 4'' (Jul 4) &
+        Tabulated fluid properties; new time integrators (Galerkin $\theta=2/3$,
+        variable-step BDF2) and adaptive time stepping with local-truncation-error
+        control (Sec.~\ref{sec:timestepping}). \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+%=====================================================================
+\section{Modularization Strategy}
+\label{sec:modularization}
+%=====================================================================
+
+\subsection{Package structure}
+
+The flat layout was reorganized into physics-oriented packages
+(Table~\ref{tab:packages}). The guiding rule: a module belongs to the package that
+owns its \emph{physics}, not to the module that happens to call it.
+
+\begin{table}[ht]
+  \centering
+  \caption{Package layout of the modularized \code{source\_code/} tree.}
+  \label{tab:packages}
+  \begin{tabular}{ll}
+    \toprule
+    Package & Responsibility \\
+    \midrule
+    \code{components/}          & Component classes (fluid, strands, stacks, jackets) and factories \\
+    \code{conductor/}           & Conductor orchestration, mesh, topology, input loading/validation \\
+    \code{thermal/}             & Energy equation, conduction, heat sources, radiation, HTC models \\
+    \code{hydraulics/}          & Momentum equation, coolant state, channel/friction models \\
+    \code{electromagnetics/}    & Electric network model: topology, resistance, conductance, solver \\
+    \code{physical\_fields/}    & Typed field containers (nodal/Gauss fields, time evolutions) \\
+    \code{interfaces/}          & External-library interfaces (CoolProp fluid properties) \\
+    \code{properties\_of\_materials/} & Material property correlations \\
+    \code{utility\_functions/}  & Generic FEM assembly, transient driver functions, I/O, paths \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Physical models as classes: the channel decomposition}
+
+The first structural refactoring (phase 1) established the pattern for
+\emph{selectable physical models}: the monolithic \code{channel.py} --- friction
+factors and heat-transfer correlations interleaved with channel bookkeeping in
+1\,281 lines --- was decomposed into dedicated model classes (laminar, turbulent and
+total friction correlations; Nusselt correlations) instantiated through factory
+classes (\code{FrictionFactorFactory}, \code{HeatTransferFactory}) that translate the
+workbook flag once into a model object (strategy pattern). Adding a correlation is now
+a local change: one model class plus one factory branch --- exercised in practice when
+the bare Dittus--Boelter model and the Darcy--Forchheimer porous-medium friction were
+wired in for the W7-X benchmark. These modules were later relocated into
+\code{thermal/} (heat transfer) and \code{hydraulics/} (friction) when those packages
+were created.
+
+\subsection{Splitting the monoliths}
+
+The decomposition followed a single, uniform calling convention established early and
+then reused everywhere: physics is implemented as \emph{free functions taking the
+\code{conductor} (and where needed \code{simulation}) object as explicit first
+argument}; the \code{Conductor} class keeps only thin one-line wrapper methods where
+external callers (GUI, headless drivers) require a stable public API. Highlights:
+
+\begin{itemize}
+  \item \textbf{Thermal consolidation}: the energy equation was extracted from the
+        monolithic assembler into \code{thermal/} (\code{energy\_equation.py},
+        \code{conduction.py}, \code{thermal\_transport.py}, \code{heat\_sources.py},
+        \code{radiation.py}, \code{temperature\_field.py}, Nusselt/HTC models), with the
+        velocity/pressure rows split into the counterpart
+        \code{hydraulics/momentum\_equation.py}. Where one function had computed all
+        equation rows while sharing intermediate terms, the split preserved the required
+        \emph{momentum-before-energy call order} on the shared matrix, documented in both
+        docstrings. \code{step\_matrix\_construction.py} shrank from 1\,473 to
+        $\sim$500 lines and now contains only physics-agnostic FEM assembly.
+  \item \textbf{Conductor/simulation split}: \code{conductor.py} went from 3\,457 to
+        1\,241 lines by extracting the $\sim$618-line heat-transfer-coefficient method
+        into four per-interface-kind functions (\code{thermal/htc\_evaluation.py}), the
+        mutually recursive component-topology discovery into
+        \code{conductor/conductor\_topology.py}, and the mesh construction into the
+        existing \code{conductor/conductor\_mesh.py}. \code{simulation.py} went from 876
+        to 484 lines by moving all output-folder bookkeeping into
+        \code{utility\_functions/simulation\_paths.py}; the class retains only the
+        simulation loop --- its actual single responsibility.
+  \item \textbf{Electric module}: the electric network solver had already been
+        decomposed into \code{electromagnetics/} submodules (circuit topology,
+        resistance, conductance, system assembly, boundary conditions, solver); the
+        14 corresponding \code{Conductor} methods are one-line delegations and served
+        as the architectural template for the rest of the split.
+\end{itemize}
+
+\subsection{Managing import cycles}
+
+Two systematic measures keep the package graph acyclic in practice:
+\code{electromagnetics/\_\_init\_\_.py} uses PEP~562 lazy re-exports
+(module-level \code{\_\_getattr\_\_}) instead of eager imports, and modules inside
+\code{conductor/} or \code{thermal/} that need a utility module which itself imports
+\code{Conductor} defer that import into the function body. Both patterns are documented
+in the code as the house rule for future additions.
+
+%=====================================================================
+\section{Modernization}
+\label{sec:modernization}
+%=====================================================================
+
+\subsection{Packaging and platform compatibility}
+
+The preparation phase turned the source tree into a proper installable package
+(\code{pyproject.toml}, package \code{\_\_init\_\_} files), fixed Linux
+compatibility of the GUI (including deprecated file-dialog calls), restored
+compatibility with current pandas/numpy releases (positional-indexing semantics,
+\code{float()} on length-one arrays), and added \emph{headless drivers} so that every
+test case runs reproducibly without the GUI --- the precondition for all later
+automated verification.
+
+\subsection{Typed data structures instead of string-keyed dictionaries}
+
+\begin{itemize}
+  \item \textbf{Field containers}: the pervasive \code{dict\_node\_pt}/%
+        \code{dict\_Gauss\_pt} dictionaries ($\sim$600 call sites across all physics)
+        were hard-renamed to \code{node\_fields}/\code{gauss\_fields}, instances of
+        \code{physical\_fields.FieldContainer} with typed attribute access
+        (\code{fields.temperature} instead of \code{dict["temperature"]}), field-unit
+        metadata, and time-evolution recording via declared per-component field lists.
+  \item \textbf{Solver structures} (\code{conductor/solver\_structures.py}): the former
+        \code{dict\_N\_equation}, \code{dict\_band}, \code{dict\_Step} and
+        \code{dict\_norm} became the data classes \code{EquationCounts},
+        \code{BandStructure}, \code{TimeIntegrationState} and \code{SolutionNorms}.
+        The assembler bundles \code{SystemMatrices}, \code{GaussPointMatrices} and
+        \code{ElementMatrices} replaced the \code{MASMAT}/\code{FLXMAT}/\ldots{}
+        dictionaries; \code{SystemMatrices} implements a custom \code{\_\_iter\_\_}
+        yielding the array attributes themselves so that in-place assembly mutation is
+        preserved (a \code{dataclasses.astuple}-based implementation would silently
+        deep-copy).
+  \item \textbf{Coupling data}: the never-populated \code{dict\_df\_coupling} was
+        replaced by \code{conductor.coupling}, a \code{ConductorCoupling} of
+        \code{CouplingMatrix} objects supporting name-or-index access with
+        upper-triangle folding.
+\end{itemize}
+
+\subsection{Enumerations for input-workbook flags}
+
+All raw integer/string flags from the Excel workbooks are now translated once, at load
+time, into explicit \code{IntEnum}s and compared symbolically thereafter:
+\code{MethodFlag} (time integrators), \code{HTC\_Choice}, \code{HeatExcitation},
+\code{ContactPerimeterFlag}, \code{HeatTransferModelType}, \code{HydraulicBC},
+\code{BFieldDefinitionType}, \code{ElectricConductanceMode}, among others. Method
+families are expressed as tuples (\code{THETA\_FAMILY\_METHODS},
+\code{ONE\_STEP\_METHODS}) so that array-layout branches never enumerate individual
+members.
+
+\subsection{Naming and dead-code policy}
+
+Every new or renamed identifier uses full descriptive words
+(\code{evaluate\_transport\_coefficients}, not \code{eval\_transp\_coeff});
+Fortran-heritage names were retired (\code{SYSMAT}$\to$\code{system\_matrix},
+\code{Known}$\to$\code{known\_term\_vector},
+\code{ASCALING}$\to$\code{row\_scaling\_factors},
+\code{UPWEQT}$\to$\code{upwind\_weights}, \code{EIGTIM}$\to$%
+\code{time\_accuracy\_eigenvalue}, \ldots). Dead code was deleted rather than carried
+along, e.g.\ the hard-coded profiling scaffold in \code{simulation.py} and the
+hand-written banded LU pair \code{gredub}/\code{gbacsb}.
+
+\subsection{Robustness}
+
+Fail-fast guards with full state dumps (\code{.npz}) were added around the thermal
+solve: non-finite solution components, reconstructed fluid fields leaving the physical
+domain ($p \le 0$, $T \le 0$), and invalid inputs to the fluid-property interface all
+raise immediately with the offending node, time and a reproducible state file ---
+previously such states propagated silently into misleading downstream crashes.
+A related robustness fix nudges temperatures off the CoolProp critical-temperature
+singularity ($|T - T_\mathrm{crit}| < \SI{e-7}{K}$ deterministically crashed the
+equation-of-state flash).
+
+%=====================================================================
+\section{Computational Efficiency}
+\label{sec:efficiency}
+%=====================================================================
+
+All optimizations were verified against frozen 30-step solver-state dumps of the
+W7-X case; the accepted tolerance was floating-point summation-order noise
+(worst observed relative deviation $2.6\times10^{-13}$; the tabulated-property step
+$2.9\times10^{-8}$ by design, see below).
+
+\subsection{Electric module}
+
+\begin{itemize}
+  \item Stiffness assembly via \code{scipy.sparse.bmat} block composition instead of
+        per-block LIL writes (removed a \SI{15}{s} hotspot per 30 steps).
+  \item A sparse \emph{reduction operator} $P$ (equipotential merging and
+        fixed-potential elimination) is built once; each electric substep reduces the
+        system as $P^{T}KP$ and $P^{T}b$ instead of densifying the full matrix.
+  \item Electric \emph{topology caching}: coordinates, connectivity, incidence and
+        contact matrices, conductance, inductance and boundary-condition structure are
+        built once (unless the mesh adapts); only resistance and stiffness are rebuilt
+        per substep.
+  \item The sparse solve uses the default COLAMD column ordering; the previously
+        forced natural ordering was $112\times$ slower on the reduced
+        10\,160-DOF system.
+  \item The number of electric substeps is derived from the physical time scales
+        instead of being hard-coded.
+\end{itemize}
+
+\subsection{Thermal assembler vectorization}
+
+The per-element Python loop over the mesh was eliminated entirely. All Gauss-point and
+element matrix builders operate on whole-mesh batches of shape
+$(n_\mathrm{elem}, n_\mathrm{dof}, n_\mathrm{dof})$; global assembly exploits the fact
+that, for a fixed local (row, column) pair, destination band-storage columns are
+distinct across elements, so each of the $12\times12$ local pairs is scattered with a
+single collision-free vectorized addition. The known-term construction was rewritten as
+a banded matrix--vector product over the 23 band diagonals. Function-call count per
+30 steps dropped from 15.3 to 1.7 million.
+
+\subsection{Linear algebra}
+
+The Fortran-translated banded LU (\code{gredub}/\code{gbacsb}) was replaced by
+LAPACK via \code{scipy.linalg.solve\_banded}, including a documented remapping between
+the legacy band-storage layout and LAPACK layout (verified to $10^{-15}$ on captured
+systems).
+
+\subsection{Tabulated fluid properties}
+
+CoolProp equation-of-state flashes dominated the remaining runtime. CoolProp's own
+tabular backend proved unusable (unsupported in the installed high-level interface;
+erroneous expansion/compressibility values through the low-level one). A custom
+\code{\_FluidPropertyTable} was implemented instead: per property, a bicubic
+\code{RectBivariateSpline} on a $\log T \times \log p$ grid
+($400 \times 300$ points, \SIrange{2.4}{350}{K}, \SIrange{e5}{2.5e7}{Pa}), built once
+per fluid ($\sim$\SI{1}{s}) from the reference equation of state. Accuracy versus the
+full equation of state is $\le 10^{-6}$ at the 99th percentile; the table construction
+additionally repairs a known NaN hole in the helium conductivity model by neighbor
+diffusion. The property evaluation cost per 30 steps fell from 2.85 to \SI{0.53}{s}
+($\approx 2.1\times$ overall solver speedup at that stage).
+
+\subsection{Time integration: new steppers and adaptive error control}
+\label{sec:timestepping}
+
+The original code offered backward Euler ($\theta=1$) and Crank--Nicolson
+($\theta=1/2$) with a degenerate ``adaptive'' controller whose error estimate diverged
+at near-stagnant nodes, permanently pinning the step at its minimum. This layer was
+redesigned:
+
+\begin{itemize}
+  \item \textbf{Galerkin method} (\code{METHOD=GAL}): the $\theta=2/3$ member of the
+        $\theta$ family --- more accurate than backward Euler, less oscillatory than
+        Crank--Nicolson.
+  \item \textbf{Variable-step BDF2} (\code{METHOD=BDF2}): second-order backward
+        differences with exact step-ratio coefficients
+        \begin{equation*}
+          \frac{M}{\Delta t_n}\Bigl(a_0 U^{n+1} - a_1 U^{n} + a_2 U^{n-1}\Bigr)
+            + A\,U^{n+1} = b^{n+1},\qquad
+          a_0 = \tfrac{1+2r}{1+r},\;
+          a_1 = 1+r,\;
+          a_2 = \tfrac{r^2}{1+r},
+        \end{equation*}
+        with $r = \Delta t_n / \Delta t_{n-1}$, a backward-Euler startup step and
+        fully implicit source treatment. All one-step methods now carry a two-level
+        solution history.
+  \item \textbf{Adaptive error control} (\code{IADAPTIME=4}, tolerance
+        \code{TOLTIME}): the local truncation error is estimated from the deviation of
+        the new solution from its linear extrapolation in time (proportional to
+        $\Delta t^2 \ddot U$), normalized \emph{per field} (each fluid's velocity,
+        pressure, temperature; each solid's temperature) with a weighted
+        root-mean-square norm and physical magnitude floors --- this is what makes the
+        estimate non-degenerate. The controller applies
+        $\Delta t \leftarrow 0.9\,\Delta t \sqrt{\varepsilon/\mathrm{err}}$ with growth
+        clamps $[0.25, 1.5]$, honors \code{STPMIN}/\code{STPMAX}, and clamps the step to
+        land exactly on requested output times and on square-wave heating-window edges
+        (both would otherwise be skipped by a variable step). There is no step
+        rejection (a state rollback is not possible in the present architecture), which
+        the conservative safety factor and growth clamp compensate.
+\end{itemize}
+
+On the W7-X benchmark the controller behaves exactly as the physics demands: it holds
+the \SI{1}{ms} floor during the thermal-hydraulic quenchback window ($t \lesssim
+\SI{2}{s}$, where the error indicator sits an order of magnitude above tolerance),
+opens to $\sim$\SI{35}{ms} by $t=\SI{4}{s}$ with the indicator riding at tolerance, and
+saturates at \code{STPMAX} $=\SI{0.1}{s}$ in the hot-spot plateau.
+
+\subsection{Aggregate results}
+
+\begin{table}[ht]
+  \centering
+  \caption{Solver cost for 30 time steps of the W7-X case, 5\,081-node mesh,
+           during the optimization campaign. Every stage verified bit-compatible
+           against the previous one.}
+  \label{tab:perf30}
+  \begin{tabular}{lS[table-format=2.1]}
+    \toprule
+    Stage & {Wall time (\si{s})} \\
+    \midrule
+    Baseline (after runtime migration)                      & 61.7 \\
+    Electric assembly, reduction operator, LAPACK banded    &  9.2 \\
+    Banded known-term, vectorized assembly, COLAMD          & 22.1\textsuperscript{a} \\
+    Full element-loop vectorization                          &  8.0 \\
+    Tabulated fluid properties                               &  3.85 \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{2pt}
+  {\footnotesize \textsuperscript{a}~Intermediate stage measured on a finer
+  profiling configuration; stages are cumulative in code but timings were taken as
+  the campaign progressed.}
+\end{table}
+
+\begin{table}[ht]
+  \centering
+  \caption{End-to-end W7-X quench benchmark, \SI{25}{s} transient, 17\,000 linear
+           elements (85\% refined in the $[60,100]$\,\si{m} zone), versus the
+           CryoSoft THEA reference.}
+  \label{tab:endtoend}
+  \begin{tabular}{lccc}
+    \toprule
+     & Fixed $\Delta t = \SI{1}{ms}$ (BE) & Adaptive BDF2 (\code{TOLTIME}$=10^{-3}$) & THEA \\
+    \midrule
+    Time steps          & 25\,000            & 2\,102   & --- \\
+    Wall time           & $\approx$\SI{4}{h} & \textbf{\SI{19}{min}} & $\approx$\SI{15}{min} \\
+    Hot spot at \SI{2}{s}  & \SI{90.1}{K}    & \SI{89.6}{K}  & \SI{87.3}{K} \\
+    Hot spot at \SI{10}{s} & ---              & \SI{140.9}{K} & \SI{138}{K} \\
+    Peak hot spot          & ---              & \SI{140.9}{K} & $\approx$\SIrange{135}{140.5}{K}\textsuperscript{a} \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{2pt}
+  {\footnotesize \textsuperscript{a}~Spread of THEA's own convergence study across
+  meshes and time-differencing methods; THEA-BDF2 with loose tolerance gives
+  \SI{140.5}{K}.}
+\end{table}
+
+%=====================================================================
+\section{Verification Methodology}
+%=====================================================================
+
+Because the refactoring proceeded on a mid-flight branch without a runnable regression
+suite, verification gates were layered as the code matured:
+
+\begin{enumerate}
+  \item \textbf{Reproducible execution}: headless drivers for the TDD example cases
+        and the W7-X benchmark (phase 0) allow every configuration to run
+        non-interactively from the command line.
+  \item \textbf{Static gate} (early phases): full-tree \code{py\_compile}, an import
+        smoke test growing to 39 core modules, \code{pyflakes} on every new file, and
+        dangling-reference greps for every moved or renamed symbol (including
+        name-mangled \code{\_Class\_\_method} forms, which can be called cross-module).
+  \item \textbf{Bit-compatibility gate} (performance phases): frozen 30-step solver
+        state dumps compared element-wise after every optimization; acceptance
+        threshold at floating-point noise ($\lesssim 10^{-12}$ relative).
+  \item \textbf{Physical benchmark} (final phase): the W7-X quench case reproduces
+        the CryoSoft THEA reference solution (hot-spot trajectory within
+        \SIrange{1}{2}{K} at all checkpoints; self-limiting quench with the correct
+        $\approx$\SI{140}{K} plateau). A backward-Euler regression of the new
+        time-integration layer against the pre-change code was identical to
+        $2\times10^{-13}$.
+\end{enumerate}
+
+%=====================================================================
+\section{Outlook}
+%=====================================================================
+
+\begin{itemize}
+  \item \textbf{Step rejection}: the adaptive controller currently cannot redo a step;
+        adding a rollback of the conductor state would allow more aggressive growth
+        factors and looser tolerances.
+  \item \textbf{Remaining hotspots} (all now legitimate, none loop-bound):
+        vectorized assembly, the electric transient solve, spline evaluation and the
+        banded solve share the remaining per-step cost roughly equally.
+  \item \textbf{Regression suite}: the TDD example cases should be promoted into an
+        automated regression harness now that the code runs end-to-end.
+  \item \textbf{Electric time integration}: the electric subproblem still uses the
+        $\theta$ family only; \code{BDF2} there falls back to backward Euler.
+\end{itemize}
+
+\end{document}

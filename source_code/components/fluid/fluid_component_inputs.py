@@ -3,7 +3,9 @@ This module contains the dataclasses storing fluid component user inputs.
 """
 
 from dataclasses import dataclass 
-import pandas as pd 
+import pandas as pd
+
+import interfaces.yaml_input_registry as yaml_input_registry 
 from pathlib import Path 
 
 import components.component_flags as cf
@@ -103,14 +105,18 @@ class FluidComponentInputLoader:
     def load_input_file(self) -> FluidComponentInputs:
         """Loads the fluid component data from the input file and returns a 
         FluidComponentInputs object with the data."""
-        workbook = pd.read_excel(
-            self.input_file,
-            sheet_name="CHAN",
-            skiprows=2,
-            header=0,
-            index_col=0,
-            usecols=["Variable name", self.identifier],
-        )[self.identifier].to_dict()
+        registry = yaml_input_registry.get_registry(self.input_file)
+        if registry is not None:
+            workbook = registry.component_raw_inputs(self.identifier)
+        else:
+            workbook = pd.read_excel(
+                self.input_file,
+                sheet_name="CHAN",
+                skiprows=2,
+                header=0,
+                index_col=0,
+                usecols=["Variable name", self.identifier],
+            )[self.identifier].to_dict()
         return FluidComponentInputs(
             cross_section=workbook["CROSSECTION"],
             x_barycenter=workbook["X_barycenter"],
@@ -132,14 +138,18 @@ class FluidComponentInputLoader:
     
 
     def load_operations_file(self) -> FluidComponentOperations:
-        workbook = pd.read_excel(
-            self.operations_file,
-            sheet_name="CHAN",
-            skiprows=2,
-            header=0,
-            index_col=0,
-            usecols=["Variable name", self.identifier],
-        )[self.identifier].to_dict()
+        registry = yaml_input_registry.get_registry(self.operations_file)
+        if registry is not None:
+            workbook = registry.component_raw_operations(self.identifier)
+        else:
+            workbook = pd.read_excel(
+                self.operations_file,
+                sheet_name="CHAN",
+                skiprows=2,
+                header=0,
+                index_col=0,
+                usecols=["Variable name", self.identifier],
+            )[self.identifier].to_dict()
         return FluidComponentOperations(
             hydraulic_bc_type=hf.get_hydraulic_bc(int(workbook["INTIAL"])),
             bc_values_from_file=int(workbook["INTIAL"]) < 0,

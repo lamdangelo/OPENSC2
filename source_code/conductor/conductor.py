@@ -10,6 +10,7 @@ import thermal.radiation as thermal_radiation
 import thermal.htc_evaluation as htc_evaluation
 import thermal.energy_balance as energy_balance
 import conductor.conductor_topology as conductor_topology
+import interfaces.yaml_input_registry as yaml_input_registry
 
 import numpy as np
 import pandas as pd
@@ -179,22 +180,35 @@ class Conductor:
             input=self.file_paths.structure_elements_path,
             operation=self.file_paths.operation_path,
         )
-        wb_input, _wb_operations, listOfComponents = (
-            ConductorInputValidator.validate_component_workbooks(
-                self,
-                dict_file_path["input"],
-                dict_file_path["operation"],
-            )
-        )
-
         context = ComponentBuildContext(simulation=simulation, conductor=self)
         factory = ComponentFactory(context)
 
-        for sheetID in listOfComponents:
-            sheet = wb_input[sheetID]
-            numObj = int(sheet.cell(row=1, column=2).value)
-            for comp in factory.create(sheet, numObj, dict_file_path):
-                self.inventory.add(comp)
+        registry = yaml_input_registry.get_registry(self.base_path)
+        if registry is not None:
+            # YAML-driven directory: the component list and kinds come from
+            # the conductor YAML document; the Excel workbook consistency
+            # checks do not apply.
+            for kind, sheet_name, identifiers in registry.component_groups(
+                self.counter
+            ):
+                for comp in factory.create_components(
+                    kind, sheet_name, identifiers, dict_file_path
+                ):
+                    self.inventory.add(comp)
+        else:
+            wb_input, _wb_operations, listOfComponents = (
+                ConductorInputValidator.validate_component_workbooks(
+                    self,
+                    dict_file_path["input"],
+                    dict_file_path["operation"],
+                )
+            )
+
+            for sheetID in listOfComponents:
+                sheet = wb_input[sheetID]
+                numObj = int(sheet.cell(row=1, column=2).value)
+                for comp in factory.create(sheet, numObj, dict_file_path):
+                    self.inventory.add(comp)
 
     def __get_total_cross_section(self):
         """Private method that evaluates: 1) the total cross section of strands and stacks object of the conductor; 2) the total cross section of superconducting materials of the conductor."""
@@ -364,21 +378,27 @@ class Conductor:
         )
         evaluate_time_accuracy_eigenvalue(self)
         path_diagnostic = self.file_paths.diagnostics_path
-        # Load the content of column self.ID of sheet Space in file conductors_disgnostic.xlsx as a series and convert to numpy array of float.
-        df = pd.read_excel(
-            path_diagnostic,
-            sheet_name="Spatial_distribution",
-            skiprows=2,
-            header=0,
-            usecols=[self.identifier],
-        )
-
-        self.Space_save = (
-            df.iloc[:, 0]
-            .dropna()
-            .to_numpy()
-            .astype(float)
-        )
+        # Load the diagnostic save times: from the YAML registry when the
+        # input directory is YAML-driven, from the workbook otherwise.
+        registry = yaml_input_registry.get_registry(self.base_path)
+        if registry is not None:
+            self.Space_save = np.array(
+                registry.diagnostic_spatial_times(self.counter), dtype=float
+            )
+        else:
+            df = pd.read_excel(
+                path_diagnostic,
+                sheet_name="Spatial_distribution",
+                skiprows=2,
+                header=0,
+                usecols=[self.identifier],
+            )
+            self.Space_save = (
+                df.iloc[:, 0]
+                .dropna()
+                .to_numpy()
+                .astype(float)
+            )
         # Adjust the user defined diagnostic.
         self.Space_save = set_diagnostic(
             self.Space_save, lb=0.0, ub=simulation.transient_input["TEND"]
@@ -394,20 +414,24 @@ class Conductor:
         # list of number of time steps at wich save the spatial discretization
         self.num_step_save = np.zeros(self.Space_save.shape, dtype=int)
         # Load the content of column self.identifier of sheet Time in file conductors_disgnostic.xlsx as a series and convert to numpy array of float.
-        df = pd.read_excel(
-            path_diagnostic,
-            sheet_name="Time_evolution",
-            skiprows=2,
-            header=0,
-            usecols=[self.identifier],
-        )
-
-        self.Time_save = (
-            df.iloc[:, 0]
-            .dropna()
-            .to_numpy()
-            .astype(float)
-        )
+        if registry is not None:
+            self.Time_save = np.array(
+                registry.diagnostic_time_positions(self.counter), dtype=float
+            )
+        else:
+            df = pd.read_excel(
+                path_diagnostic,
+                sheet_name="Time_evolution",
+                skiprows=2,
+                header=0,
+                usecols=[self.identifier],
+            )
+            self.Time_save = (
+                df.iloc[:, 0]
+                .dropna()
+                .to_numpy()
+                .astype(float)
+            )
 
         # Adjust the user defined diagnostic.
         self.Time_save = set_diagnostic(

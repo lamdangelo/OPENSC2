@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import interfaces.yaml_input_registry as yaml_input_registry
+
 from components.solid.solid_component_inputs import SolidComponentInputs, StrandComponentOperations
 from utility_functions.auxiliary_functions import check_costheta
 from conductor.conductor_flags import InterpolationType
@@ -70,7 +72,14 @@ class StackComponentInputLoader:
         self.identifier = identifier
         self.sheet_name = sheet_name
 
-    def _read_sheet(self, file_path: Path) -> dict:
+    def _read_sheet(self, file_path: Path, registry_section: str = "inputs") -> dict:
+        registry = yaml_input_registry.get_registry(file_path)
+        if registry is not None:
+            # In YAML mode inputs and operations live in the same conductor
+            # document, so the caller states which section it wants.
+            if registry_section == "operations":
+                return registry.component_raw_operations(self.identifier)
+            return registry.component_raw_inputs(self.identifier)
         return pd.read_excel(
             file_path,
             sheet_name=self.sheet_name,
@@ -127,7 +136,7 @@ class StackComponentInputLoader:
         return inputs
 
     def load_operations_file(self) -> StrandComponentOperations:
-        wb = self._read_sheet(self.operations_file)
+        wb = self._read_sheet(self.operations_file, registry_section="operations")
 
         iop_mode_raw = wb["IOP_MODE"]
         if isinstance(iop_mode_raw, bool):

@@ -17,6 +17,7 @@ import warnings
 
 import pandas as pd
 
+import interfaces.yaml_input_registry as yaml_input_registry
 from conductor.conductor_flags import MethodFlag
 
 
@@ -267,6 +268,24 @@ def resolve_file_name_capitalization(base_path: str, file_name: str) -> str:
 
 def save_input_files(simulation: object) -> None:
     """Save the input file of the simulation as .xlsx files in read only mode. These files are metadata for the simulation output."""
+    registry = yaml_input_registry.get_registry(simulation.basePath)
+    if registry is not None:
+        # YAML-driven run: the metadata copy is the YAML files themselves.
+        for file_name in (
+            [yaml_input_registry.SIMULATION_FILE_NAME]
+            + registry.conductor_file_names
+        ):
+            source = os.path.join(simulation.basePath, file_name)
+            target = os.path.join(simulation.dict_path["Save_input"], file_name)
+            if os.path.exists(target):
+                os.chmod(target, S_IWUSR | S_IREAD)
+            with open(source) as stream:
+                content = stream.read()
+            with open(target, "w") as stream:
+                stream.write(content)
+            os.chmod(target, S_IREAD | S_IRGRP | S_IROTH)
+        return
+
     load_paths = list()
     save_paths = list()
     filenames = list()

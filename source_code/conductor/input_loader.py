@@ -23,6 +23,7 @@ from conductor.conductor_mesh import ConductorMesh
 from conductor.coupling import CouplingMatrix
 import conductor.input_validator as validator
 import conductor.external_inputs as external_inputs 
+import interfaces.yaml_input_registry as yaml_input_registry
 
 EnumType = TypeVar("EnumType", bound=Enum)
 
@@ -51,10 +52,34 @@ class ConductorInputLoader:
         self.external_contact_perimeter_path = self._find_file_containing("external_contact_perimeter")
 
         self.conductor_counter = conductor_counter
-        self.list_conductor_sheets = self.load_conductor_definition()
-        self.conductor_sheet_names = self.load_conductor_sheet_names()
-        self.conductor_name = self.list_conductor_sheets[0].cell(row=1, column=1).value
-        self.conductor_identifier = self.list_conductor_sheets[0].cell(row=3, column=4 + self.conductor_counter).value
+        self.yaml_registry = yaml_input_registry.get_registry(
+            self.input_directory_path
+        )
+        if self.yaml_registry is not None:
+            # YAML-driven directory: no definition workbook exists; the
+            # registry serves every sheet read below.
+            self.definition_path = (
+                self.input_directory_path
+                / yaml_input_registry.SIMULATION_FILE_NAME
+            )
+            self.list_conductor_sheets = None
+            self.conductor_sheet_names = [
+                "CONDUCTOR_files",
+                "CONDUCTOR_input",
+                "CONDUCTOR_operation",
+                "CONDUCTOR_coupling",
+            ]
+            self.conductor_name = self.yaml_registry.conductor_name(
+                self.conductor_counter
+            )
+            self.conductor_identifier = self.yaml_registry.conductor_identifier(
+                self.conductor_counter
+            )
+        else:
+            self.list_conductor_sheets = self.load_conductor_definition()
+            self.conductor_sheet_names = self.load_conductor_sheet_names()
+            self.conductor_name = self.list_conductor_sheets[0].cell(row=1, column=1).value
+            self.conductor_identifier = self.list_conductor_sheets[0].cell(row=3, column=4 + self.conductor_counter).value
 
 
     def load_input_files(self) -> ConductorInputFiles:
@@ -87,6 +112,12 @@ class ConductorInputLoader:
         self, workbook_path: Path, sheet_name: str
     ) -> Dict[str, Any]:
         """Load a conductor definition sheet by identifier column."""
+        if self.yaml_registry is not None:
+            return {
+                "CONDUCTOR_files": self.yaml_registry.conductor_files,
+                "CONDUCTOR_input": self.yaml_registry.conductor_inputs,
+                "CONDUCTOR_operation": self.yaml_registry.conductor_operations,
+            }[sheet_name](self.conductor_counter)
         return pd.read_excel(
             workbook_path,
             sheet_name=sheet_name,
@@ -120,6 +151,11 @@ class ConductorInputLoader:
 
     def load_grid_input(self, conductor_length: float) -> ConductorMesh:
         """Load the conductor grid input dictionary for a single conductor identifier."""
+        if self.yaml_registry is not None:
+            return ConductorMesh(
+                conductor_length,
+                self.yaml_registry.grid_settings(self.conductor_counter),
+            )
         grid_data =  pd.read_excel(
             self.grid_path,
             sheet_name="GRID",
@@ -134,13 +170,18 @@ class ConductorInputLoader:
 
     def load_coupling_data(self) -> ConductorCoupling:
         """Load all sheets from the conductor coupling workbook."""
-        workbook = pd.read_excel(
-            self.coupling_path,
-            sheet_name=None,
-            skiprows=1,
-            header=0,
-            index_col=0,
-        )
+        if self.yaml_registry is not None:
+            workbook = self.yaml_registry.coupling_dataframes(
+                self.conductor_counter
+            )
+        else:
+            workbook = pd.read_excel(
+                self.coupling_path,
+                sheet_name=None,
+                skiprows=1,
+                header=0,
+                index_col=0,
+            )
         valid = validator.check_coupling_sheet_names(workbook.keys())
         if valid:
             return ConductorCoupling(
