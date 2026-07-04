@@ -9,7 +9,11 @@ from utility_functions.auxiliary_functions import (
 from typing import Union
 
 from conductor.conductor import Conductor
-from conductor.conductor_flags import MethodFlag
+from conductor.conductor_flags import (
+    MethodFlag,
+    ONE_STEP_METHODS,
+    THETA_FAMILY_METHODS,
+)
 from utility_functions.step_matrix_construction import (
     array_initialization,
     GaussPointMatrices,
@@ -42,6 +46,25 @@ from hydraulics.momentum_equation import (
     build_smat_fluid_momentum,
     build_smat_fluid_interface_momentum,
 )
+from thermal.thermal_flags import HeatExcitation
+
+# Absolute magnitude floors used to normalize the per-field local truncation
+# error: the relative error of a field is measured against
+# max(|field|_inf, floor), so that fields resting near zero (e.g. stagnant
+# velocity) cannot blow up the estimate the way the legacy eigenvalue
+# estimator did.
+FIELD_MAGNITUDE_FLOORS = {
+    "velocity": 1.0,  # m/s
+    "pressure": 1.0e5,  # Pa
+    "temperature": 1.0,  # K
+}
+# Safety factor and growth/shrink clamps of the adaptive controller
+# (IADAPTIME == 4). The step is never rejected and redone (a state rollback
+# is not possible in the current architecture), so growth is kept moderate
+# and the safety factor conservative.
+ADAPTIVE_SAFETY_FACTOR = 0.9
+ADAPTIVE_MAX_GROWTH = 1.5
+ADAPTIVE_MAX_SHRINK = 0.25
 
 def get_time_step(conductor, transient_input, num_step):
 
@@ -72,6 +95,61 @@ def get_time_step(conductor, transient_input, num_step):
             conductor.time_step = min(
                 conductor.time_step, transient_input["TEND"] - conductor.cond_time[-1]
             )  # crb (March 9, 2011)
+            return
+
+        if transient_input["IADAPTIME"] == 4:
+            # Adaptive time stepping with local-truncation-error control.
+            # The relative error measure of the last completed step (computed
+            # in function step from the deviation of the solution from its
+            # linear extrapolation, normalized per field) is driven towards
+            # the user tolerance TOLTIME with the standard step controller
+            # dt_new = dt * safety * (tol / err)^(1/2), the exponent matching
+            # the dt^2 scaling of the curvature-based estimate.
+            tolerance = float(transient_input.get("TOLTIME", 1.0e-3))
+            error_ratio = conductor.local_truncation_error_ratio
+            if error_ratio is not None and error_ratio > 0.0:
+                growth_factor = ADAPTIVE_SAFETY_FACTOR * np.sqrt(
+                    tolerance / error_ratio
+                )
+                growth_factor = min(
+                    max(growth_factor, ADAPTIVE_MAX_SHRINK), ADAPTIVE_MAX_GROWTH
+                )
+                conductor.time_step = PRVSTP * growth_factor
+            # Limit the time step in the window allowed by the user.
+            conductor.time_step = max(conductor.time_step, transient_input["STPMIN"])
+            conductor.time_step = min(conductor.time_step, transient_input["STPMAX"])
+            # Land exactly on discrete event times so that neither the
+            # spatial-distribution save times (the save condition in
+            # conductor_solution requires |t - t_save| < dt/2) nor the edges
+            # of square-wave heating windows (the deposited energy depends on
+            # resolving them) are stepped across.
+            current_time = conductor.cond_time[-1]
+            event_times = []
+            if conductor.i_save < len(conductor.Space_save) - 1:
+                event_times.append(conductor.Space_save[conductor.i_save])
+            for s_comp in conductor.inventory.solids.collection:
+                if (
+                    s_comp.operations.heat_flux_mode
+                    == HeatExcitation.SQUARE_WAVE_IN_TIME_AND_SPACE
+                ):
+                    event_times.append(s_comp.operations.heat_flux_time_start)
+                    event_times.append(s_comp.operations.heat_flux_time_end)
+            for event_time in event_times:
+                remaining_time = event_time - current_time
+                if remaining_time > 1.0e-12:
+                    conductor.time_step = min(conductor.time_step, remaining_time)
+            # Limit the time step if the end of the transient is reached.
+            conductor.time_step = min(
+                conductor.time_step, transient_input["TEND"] - current_time
+            )
+            error_ratio_msg = (
+                f"{error_ratio:.3e}" if error_ratio is not None else "n/a"
+            )
+            print(
+                f"Selected conductor time step is: {conductor.time_step:.6e} "
+                f"(local truncation error ratio {error_ratio_msg}, "
+                f"tolerance {tolerance:.1e})\n"
+            )
             return
 
         # Ad hoc to emulate time adaptivity for simulation whith feeder CS3U2.
@@ -181,13 +259,17 @@ def get_time_step(conductor, transient_input, num_step):
 
         # C * LIMIT THE TIME STEP IN THE WINDOW ALLOWED BY THE USER
         conductor.time_step = max(conductor.time_step, transient_input["STPMIN"])
+        conductor.time_step = min(conductor.time_step, transient_input["STPMAX"])
         # caf June 26, 2015 moved these 2 lines to the end of the subroutine
         # C * LIMIT THE TIME STEP IF PRINT-OUT OR STORAGE IS REQUIRED
         conductor.time_step = min(
             conductor.time_step, transient_input["TEND"] - conductor.cond_time[-1]
         )
         # C --------------
-        print(f"Selected conductor time step is: {conductor.time_step}\n")
+        print(
+            f"Selected conductor time step is: {conductor.time_step} "
+            f"(accuracy optimum {OPTSTP:.3e})\n"
+        )
         # C --------------
         # caf end *********************************************** June 26, 2015
 
@@ -257,8 +339,9 @@ def step(conductor, environment, qsource, num_step):
     # known_term_vector terms vector initilaization
     known_term_vector = np.zeros_like(row_scaling_factors)
     
-    if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
-        # Backward Euler or Crank-Nicolson (cdp, 10/2020)
+    if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
+        # Theta family (backward Euler, Crank-Nicolson, Galerkin) or BDF2
+        # (whose fully implicit known term leaves the previous column unread).
         if conductor.cond_num_step > 1:
             # Copy the load vector at the previous time step in the second column to \
             # correctly apply the theta method (cdp, 10/2020)
@@ -549,9 +632,9 @@ def step(conductor, environment, qsource, num_step):
     row_scaling_factors = abs(system_matrix).max(0)
     ind_ASCALING = np.nonzero(row_scaling_factors == 0.0)
     # ind_ASCALING = np.nonzero(row_scaling_factors <= 1e-6)
-    if ind_ASCALING[0].shape == 0:
+    if ind_ASCALING[0].size > 0:
         raise ValueError(
-            f"""ERROR: row_scaling_factors[ind_ASCALING[0]] = 
+            f"""ERROR: row_scaling_factors[ind_ASCALING[0]] =
            {row_scaling_factors[ind_ASCALING[0]]}!\n"""
         )
 
@@ -572,11 +655,54 @@ def step(conductor, environment, qsource, num_step):
         }
     )
 
-    # Compute the solution at the current time step and overwrite the time
-    # integration solution
-    conductor.time_integration.solution[:, 0] = solve_thermal_banded_system(
+    # Compute the solution at the current time step.
+    solution = solve_thermal_banded_system(
         conductor, system_matrix, known_term_vector
     )
+
+    # Estimate the local truncation error of this step from the deviation of
+    # the solution from its linear extrapolation in time; must run before the
+    # solution history is shifted below.
+    conductor.local_truncation_error_ratio = (
+        evaluate_local_truncation_error_ratio(conductor, solution)
+    )
+
+    # Shift the solution history (one-step methods carry two time levels:
+    # the second column is read by the BDF2 known term and by the local
+    # truncation error estimator) and store the new solution and the time
+    # step that produced it.
+    if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
+        conductor.time_integration.solution[:, 1] = (
+            conductor.time_integration.solution[:, 0]
+        )
+    conductor.time_integration.solution[:, 0] = solution
+    conductor.previous_time_step = conductor.time_step
+
+    # Fail fast with a state dump if the solve produced non-finite values;
+    # otherwise the NaNs propagate silently into the property evaluations of
+    # the next step and the traceback points far away from the origin.
+    if not np.all(np.isfinite(solution)):
+        bad_equations = np.nonzero(~np.isfinite(solution))[0]
+        ndf = conductor.equation_counts.degrees_of_freedom_per_node
+        dump_path = os.path.join(
+            os.getcwd(), f"nonfinite_solution_step_{conductor.cond_num_step}.npz"
+        )
+        np.savez(
+            dump_path,
+            time=conductor.cond_time[-1],
+            time_step=conductor.time_step,
+            solution=solution,
+            known_term_vector=known_term_vector,
+            row_scaling_factors=row_scaling_factors,
+            bad_equations=bad_equations,
+        )
+        raise RuntimeError(
+            f"Non-finite thermal-hydraulic solution at t = "
+            f"{conductor.cond_time[-1]:.6f} s (step {conductor.cond_num_step}): "
+            f"{bad_equations.size} equations affected, first at node "
+            f"{bad_equations[0] // ndf} (dof {bad_equations[0] % ndf}). "
+            f"State dumped to {dump_path}."
+        )
 
     # COMPUTE THE NORM OF THE SOLUTION AND OF THE SOLUTION CHANGE (START)
     # array smart optimization
@@ -604,6 +730,40 @@ def step(conductor, environment, qsource, num_step):
         conductor,
         old_temperature_gauss,
     )
+
+    # Fail fast if any reconstructed fluid field is non-finite or left the
+    # physical domain (the linear solve does not know about positivity, so a
+    # rarefaction can drive pressure through zero; CoolProp then fails one
+    # call later with a misleading message).
+    for f_comp in conductor.inventory.fluids.collection:
+        fields = f_comp.coolant.node_fields
+        for field_name in ("velocity", "pressure", "temperature"):
+            field = getattr(fields, field_name)
+            invalid = ~np.isfinite(field)
+            if field_name in ("pressure", "temperature"):
+                invalid |= field <= 0.0
+            if invalid.any():
+                bad_nodes = np.nonzero(invalid)[0]
+                dump_path = os.path.join(
+                    os.getcwd(),
+                    f"nonfinite_{f_comp.identifier}_{field_name}_step_"
+                    f"{conductor.cond_num_step}.npz",
+                )
+                np.savez(
+                    dump_path,
+                    time=conductor.cond_time[-1],
+                    velocity=fields.velocity,
+                    pressure=fields.pressure,
+                    temperature=fields.temperature,
+                    bad_nodes=bad_nodes,
+                )
+                raise RuntimeError(
+                    f"Invalid {f_comp.identifier} {field_name} after "
+                    f"solution reorganization at t = {conductor.cond_time[-1]:.6f} s "
+                    f"(step {conductor.cond_num_step}): first at node "
+                    f"{bad_nodes[0]} (value {field[bad_nodes[0]]}). "
+                    f"State dumped to {dump_path}."
+                )
     
     # COMPUTE THE NORM OF THE SOLUTION CHANGE, THE EIGENVALUES AND RECOVER THE \
     # VARIABLES FROM THE SYSTEM SOLUTION (END)
@@ -635,6 +795,87 @@ def solve_thermal_banded_system(
             half_band - diagonal, first + diagonal : last + diagonal
         ]
     return solve_banded((half_band, half_band), lapack_band, known_term)
+
+
+def evaluate_local_truncation_error_ratio(
+    conductor: Conductor,
+    new_solution: np.ndarray,
+) -> Union[float, None]:
+    """Relative local-truncation-error measure of the step just solved.
+
+    The new solution is compared against its linear extrapolation in time
+    from the two previous levels,
+
+        U_predicted = U^n + (dt_n / dt_{n-1}) * (U^n - U^{n-1}),
+
+    whose deviation is proportional to dt^2 times the local curvature of the
+    solution in time -- the leading local truncation error of the first-order
+    theta methods and a conservative estimate for the second-order ones
+    (Crank-Nicolson, BDF2). The deviation is normalized field by field
+    (velocity, pressure, temperature of every fluid; temperature of every
+    solid) against max(|field|_inf, floor) and measured with the root mean
+    square over the nodes (a weighted-RMS norm as used e.g. by SUNDIALS);
+    the worst field ratio is returned. The RMS norm keeps a localized
+    moving quench front from pinning the time step at its minimum the way
+    an infinity norm over 10^4 nodes would, while the magnitude floors keep
+    near-zero fields (e.g. stagnant velocity) from degenerating the
+    estimate like the legacy eigenvalue estimator did.
+
+    Returns None until two genuine previous solution levels exist (the first
+    time step) or when the method does not carry a two-level history.
+
+    Args:
+        conductor (Conductor): object with all the information of the conductor.
+        new_solution (np.ndarray): solution of the current time step, before
+            the solution history is shifted.
+
+    Returns:
+        Union[float, None]: the worst per-field relative error, or None.
+    """
+    history = conductor.time_integration.solution
+    if (
+        history.shape[-1] < 2
+        or conductor.cond_num_step < 2
+        or not conductor.previous_time_step
+    ):
+        return None
+
+    step_ratio = conductor.time_step / conductor.previous_time_step
+    predicted_solution = history[:, 0] + step_ratio * (
+        history[:, 0] - history[:, 1]
+    )
+    deviation = new_solution - predicted_solution
+
+    # Alias
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
+    eq_idx = conductor.equation_index
+
+    def field_ratio(field_index: int, field_name: str) -> float:
+        field_deviation = deviation[field_index::ndf]
+        field_magnitude = max(
+            np.abs(new_solution[field_index::ndf]).max(),
+            FIELD_MAGNITUDE_FLOORS[field_name],
+        )
+        return float(
+            np.sqrt(np.mean(field_deviation ** 2)) / field_magnitude
+        )
+
+    worst_ratio = 0.0
+    for f_comp in conductor.inventory.fluids.collection:
+        for field_name in ("velocity", "pressure", "temperature"):
+            worst_ratio = max(
+                worst_ratio,
+                field_ratio(
+                    getattr(eq_idx[f_comp.identifier], field_name), field_name
+                ),
+            )
+    for s_comp in conductor.inventory.solids.collection:
+        worst_ratio = max(
+            worst_ratio,
+            field_ratio(eq_idx[s_comp.identifier], "temperature"),
+        )
+
+    return worst_ratio
 
 
 def eval_sub_array_norm(
@@ -714,7 +955,7 @@ def eval_eigenvalues(
         )
         # pressure
         sub_array[eq_idx[f_comp.identifier].pressure] = max(
-            array[eq_idx[f_comp.identifier].velocity::ndf]
+            array[eq_idx[f_comp.identifier].pressure::ndf]
         )
         # temperature
         sub_array[eq_idx[f_comp.identifier].temperature] = max(
