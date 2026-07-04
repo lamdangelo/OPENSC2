@@ -14,7 +14,7 @@ from components.solid.solid_component_inputs import (
 )
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode
 from thermal.thermal_flags import HeatExcitation
-from conductor.conductor_flags import MethodFlag
+from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 
 _STRAND_MIXED_NAME = ComponentType.STRAND_MIXED.value          # "STR_MIX"
 _STRAND_STABILIZER_NAME = ComponentType.STRAND_STABILIZER.value  # "STR_STAB"
@@ -457,11 +457,9 @@ class SolidComponent:
                 # Initialization is done always in the same way ragardless of the \
                 # value of the flag IQFUN and coherently with the chosen solution \
                 # algorithm (cdp, 10/2020)
-                if (
-                    conductor.inputs.thermohydraulic_method == MethodFlag.BACKWARD_EULER
-                    or conductor.inputs.thermohydraulic_method == MethodFlag.CRANK_NICOLSON
-                ):
-                    # Backward Euler or Crank-Nicolson (cdp, 10/2020)
+                if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
+                    # Theta family (backward Euler, Crank-Nicolson, Galerkin)
+                    # or BDF2: two-time-level array layout (cdp, 10/2020)
                     self.node_fields.EXTFLX = np.zeros(
                         (conductor.mesh.number_of_nodes, 2)
                     )
@@ -554,7 +552,7 @@ class SolidComponent:
         )
         if self.operations.heat_flux_mode == HeatExcitation.SQUARE_WAVE_IN_TIME_AND_SPACE:
             # Square wave in time and space (cdp, 11/2020)
-            if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+            if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
                 # Backward Euler or Crank-Nicolson (cdp, 10/2020)
                 if conductor.cond_num_step == 0:
                     # Initialization to Q0 value: this occurs when TQBEG = 0.0 s, i.e. \
@@ -638,7 +636,7 @@ class SolidComponent:
         """
 
         # Method JHTFLX_new_0 starts here. (cdp, 06/2020)
-        if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+        if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson (cdp, 10/2020)
             if conductor.cond_time[-1] == 0:
                 # Initialization (cdp, 10/2020)
@@ -701,7 +699,7 @@ class SolidComponent:
             conductor (object): ConductorComponent object with all informations to make the calculation.
         """
 
-        if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+        if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
             if conductor.cond_time[-1] == 0:
                 # Initialization.
@@ -754,7 +752,7 @@ class SolidComponent:
             conductor (object): ConductorComponent object with all informations to make the calculation.
         """
 
-        if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+        if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
             if conductor.cond_time[-1] == 0:
                 # Initialization.
@@ -838,7 +836,7 @@ class SolidComponent:
 
         # Method Set_energy_counters starts here. (cdp, 06/2020)
 
-        if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+        if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson (cdp, 10/2020)
             if conductor.cond_time[-1] == 0:
                 # Initialization (cdp, 10/2020)

@@ -18,6 +18,9 @@ class HeatTransferFactory:
 
         if model is HeatTransferModelType.DITTUS_BOELTER_LOWER_LIMIT_1:
             return nus.LowerBoundNusselt(lower_limit=8.235)
+
+        elif model is HeatTransferModelType.DITTUS_BOELTER_PURE:
+            return nus.DittusBoelter(exponent=0.4)
         
         elif model is HeatTransferModelType.DITTUS_BOELTER_LOWER_LIMIT_119:
             return nus.LowerBoundNusselt_119(

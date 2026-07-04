@@ -21,7 +21,7 @@ from typing_extensions import Self
 from components.component_collection import ComponentInventory
 from electromagnetics.electromagnetic_flags import CurrentMode
 from conductor.conductor_mesh import MeshType
-from conductor.conductor_flags import MethodFlag
+from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from conductor.solver_structures import (
     BandStructure,
     EquationCounts,
@@ -299,13 +299,28 @@ class Conductor:
         # **NUMERICS**
         # evaluate value of theta_method according to flag METHOD (cdo, 08/2020)
         # Adams Moulton value is temporary and maybe non correct
+        # BDF2 does not use theta in the thermal-hydraulic system (its own
+        # multi-level coefficients apply); the value 1.0 only matters when the
+        # flag is used for the electric problem, which then falls back to
+        # backward Euler.
         _ = {
             MethodFlag.BACKWARD_EULER: 1.0,
             MethodFlag.CRANK_NICOLSON: 0.5,
             MethodFlag.ADAMS_MOULTON_4TH_ORDER: 1.0 / 24.0,
+            MethodFlag.GALERKIN: 2.0 / 3.0,
+            MethodFlag.BACKWARD_DIFFERENCE_2: 1.0,
         }
-        self.theta_method = _[self.inputs.electric_method]
+        self.theta_method = _[self.inputs.thermohydraulic_method]
         self.electric_theta = _[self.inputs.electric_method]
+        # Time step of the previously completed step, needed by the
+        # variable-step BDF2 coefficients and by the local-truncation-error
+        # estimator of the adaptive time stepping; set at the end of every
+        # call to function step.
+        self.previous_time_step = None
+        # Relative local-truncation-error measure of the last completed step
+        # (None until two genuine solution levels exist); written by function
+        # step, read by the IADAPTIME == 4 controller in get_time_step.
+        self.local_truncation_error_ratio = None
         conductorlogger.debug(f"Defined electric_theta\n")
         ## Evaluate parameters useful in function \
         # Transient_solution_functions.py\STEP (cdp, 07/2020)
@@ -703,14 +718,14 @@ class Conductor:
         # Construct and initialize the time integration state (load vector
         # and solution) to correctly apply the method that solves the
         # transient.
-        if self.inputs.thermohydraulic_method in (
-            MethodFlag.BACKWARD_EULER,
-            MethodFlag.CRANK_NICOLSON,
-        ):
-            # Backward Euler or Crank-Nicolson (cdp, 10/2020)
+        if self.inputs.thermohydraulic_method in ONE_STEP_METHODS:
+            # Theta family (backward Euler, Crank-Nicolson, Galerkin) or BDF2.
+            # The solution keeps two time levels: the second column holds the
+            # previous solution, needed by the BDF2 history and by the
+            # local-truncation-error estimator of the adaptive time stepping.
             self.time_integration = TimeIntegrationState(
                 load_vector=np.zeros((self.equation_counts.total_equations, 2)),
-                solution=np.zeros((self.equation_counts.total_equations, 1)),
+                solution=np.zeros((self.equation_counts.total_equations, 2)),
             )
         elif self.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton order 4 (cdp, 10/2020)

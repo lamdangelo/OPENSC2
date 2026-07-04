@@ -34,8 +34,16 @@ import numpy as np
 from components.fluid.fluid_component import FluidComponent
 from components.solid.solid_component import SolidComponent
 from conductor.conductor import Conductor
-from conductor.conductor_flags import HTC_Choice, MethodFlag
-from utility_functions.step_matrix_construction import SystemMatrices
+from conductor.conductor_flags import (
+    HTC_Choice,
+    MethodFlag,
+    ONE_STEP_METHODS,
+    THETA_FAMILY_METHODS,
+)
+from utility_functions.step_matrix_construction import (
+    SystemMatrices,
+    backward_difference_2_coefficients,
+)
 
 
 def build_smat_fluid_energy(
@@ -671,18 +679,26 @@ def build_known_therm_vector(
     # source Jacobian).
     mass_capacity, flux_jacobian, diffusion, source_jacobian = aux_matrices
 
-    if method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
-        # Backward Euler or Crank-Nicolson.
+    if method in ONE_STEP_METHODS:
         # The known term is the banded matrix-vector product
-        #   Known = (M/dt - (1 - theta) * (F + D + S)) @ solution_history[:, 0]
+        #   theta family: (M/dt - (1 - theta) * (F + D + S)) @ U^n
+        #   BDF2:         (M/dt) @ (a1 * U^n - a2 * U^{n-1})
         # in the legacy band layout (storage column c holds matrix row c,
         # entry (c, j) at storage row half_1 + j - c). It is evaluated one
         # band diagonal at a time with slice arithmetic instead of the
         # previous per-row Python loop.
-        banded_matrix = mass_capacity / conductor.time_step - (
-            1.0 - conductor.theta_method
-        ) * (flux_jacobian + diffusion + source_jacobian)
-        solution = solution_history[:, 0]
+        if method in THETA_FAMILY_METHODS:
+            banded_matrix = mass_capacity / conductor.time_step - (
+                1.0 - conductor.theta_method
+            ) * (flux_jacobian + diffusion + source_jacobian)
+            solution = solution_history[:, 0]
+        else:
+            # Variable-step BDF2: the spatial operator acts on the (unknown)
+            # current level only; the previous levels enter through the mass
+            # matrix with the multi-level time-derivative weights.
+            _, a1, a2 = backward_difference_2_coefficients(conductor)
+            banded_matrix = mass_capacity / conductor.time_step
+            solution = a1 * solution_history[:, 0] - a2 * solution_history[:, 1]
         array[:] = 0.0
         for diagonal in range(-half_1, half_1 + 1):
             first = max(0, -diagonal)
@@ -738,13 +754,16 @@ def build_known_therm_vector(
                 ) # array of shape (r_arr_idx.shape[0],)
             ) # array of shape (1,)
 
-    if method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
-        # Backward Euler or Crank-Nicolson
+    if method in THETA_FAMILY_METHODS:
+        # Theta family: backward Euler, Crank-Nicolson or Galerkin.
         # External sources (load vector) contribution
         array += (
             + conductor.theta_method * load_vector[:,0]
             + (1.0 - conductor.theta_method) * load_vector[:,1]
         )
+    elif method == MethodFlag.BACKWARD_DIFFERENCE_2:
+        # BDF2 is fully implicit: only the current-level sources contribute.
+        array += load_vector[:, 0]
     elif method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
         # Adams-Moulton order 4
 

@@ -4,7 +4,7 @@ from physical_fields.physical_field import FieldContainer, GridLocation
 
 from components.jacket.jacket_component_inputs import JacketComponentInputs
 from components.solid.solid_component_inputs import SolidComponentOperations
-from conductor.conductor_flags import MethodFlag
+from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType
 
 
@@ -127,7 +127,7 @@ class JacketComponent(SolidComponent):
             environment ([type]): [description]
         """
         key = f"{environment.KIND}_{self.identifier}"
-        if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+        if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
             if conductor.cond_time[-1] == 0:
                 # Initialization.
@@ -185,7 +185,7 @@ class JacketComponent(SolidComponent):
         else:
             key = f"{jk_inner.identifier}_{self.identifier}"
         # End if self.identifier.
-        if conductor.inputs.thermohydraulic_method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
+        if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
             if conductor.cond_time[-1] == 0:
                 # Initialization.

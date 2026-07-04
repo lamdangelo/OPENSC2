@@ -13,6 +13,14 @@ class MethodFlag(IntEnum):
     BACKWARD_EULER = auto()
     CRANK_NICOLSON = auto()
     ADAMS_MOULTON_4TH_ORDER = auto()
+    # Theta method with theta = 2/3 (as the Galerkin time-differencing method
+    # of CryoSoft THEA): more accurate than backward Euler, less prone to
+    # oscillations than Crank-Nicolson.
+    GALERKIN = auto()
+    # Variable-step backward differentiation formula of second order (BDF2),
+    # A-stable and well suited to the stiff quench problem; the first time
+    # step falls back to backward Euler to start the two-level history.
+    BACKWARD_DIFFERENCE_2 = auto()
 
 
     @staticmethod
@@ -24,9 +32,28 @@ class MethodFlag(IntEnum):
             return MethodFlag.CRANK_NICOLSON
         elif method_value == "AM4":
             return MethodFlag.ADAMS_MOULTON_4TH_ORDER
+        elif method_value == "GAL":
+            return MethodFlag.GALERKIN
+        elif method_value == "BDF2":
+            return MethodFlag.BACKWARD_DIFFERENCE_2
         else:
             raise ValueError(f"Invalid METHOD value: {method_value}")
-        
+
+
+# One-step theta-family methods: the system matrix and known term are the
+# usual theta blend between the current and the previous time level.
+THETA_FAMILY_METHODS = (
+    MethodFlag.BACKWARD_EULER,
+    MethodFlag.CRANK_NICOLSON,
+    MethodFlag.GALERKIN,
+)
+
+# All the methods that share the two-time-level array layout (load vector,
+# external fluxes, radiative heat sources, solution history): the theta
+# family plus BDF2, which is fully implicit in the loads but keeps two
+# previous solution levels.
+ONE_STEP_METHODS = THETA_FAMILY_METHODS + (MethodFlag.BACKWARD_DIFFERENCE_2,)
+
 
 class ContactPerimeterFlag(IntEnum):
     """

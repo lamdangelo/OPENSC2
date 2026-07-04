@@ -201,6 +201,8 @@ def manage_simulation_folders(simulation: object, target_directory: str = None) 
         MethodFlag.BACKWARD_EULER: "BE",
         MethodFlag.CRANK_NICOLSON: "CN",
         MethodFlag.ADAMS_MOULTON_4TH_ORDER: "AM4",
+        MethodFlag.GALERKIN: "GAL",
+        MethodFlag.BACKWARD_DIFFERENCE_2: "BDF2",
     }
     # Update dictionary simulation.dict_path
     if target_directory is not None:

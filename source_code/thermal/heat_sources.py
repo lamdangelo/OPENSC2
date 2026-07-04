@@ -8,6 +8,9 @@ thermal calculations into the ``thermal`` package.
 """
 
 from conductor.conductor_flags import HTC_Choice
+from electromagnetics.resistance import (
+    distribute_joule_power_to_parallel_jackets,
+)
 from thermal.thermal_flags import HeatExcitation
 
 _RADIATIVE_HTC_CHOICES = (
@@ -113,6 +116,10 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
         # End for jacket_c.
     # End for rr.
 
+    # Move each ideal-parallel jacket's Joule share from its strand's power
+    # array to the jacket's (current redistribution on quench).
+    distribute_joule_power_to_parallel_jackets(conductor)
+
 
 def _build_heat_source_gauss_pt(conductor: object) -> None:
     """Build heat source therms in Gauss points for strand and jacket objects."""
@@ -138,10 +145,14 @@ def _build_heat_source_gauss_pt(conductor: object) -> None:
     for rr, jacket in enumerate(conductor.inventory.jackets.collection):
 
         jacket.gauss_fields.Q1 = (
-            jacket.node_fields.JHTFLX[:-1] + jacket.node_fields.EXTFLX[:-1]
+            jacket.node_fields.JHTFLX[:-1]
+            + jacket.node_fields.EXTFLX[:-1]
+            + jacket.gauss_fields.linear_power_el_resistance
         )
         jacket.gauss_fields.Q2 = (
-            jacket.node_fields.JHTFLX[1:] + jacket.node_fields.EXTFLX[1:]
+            jacket.node_fields.JHTFLX[1:]
+            + jacket.node_fields.EXTFLX[1:]
+            + jacket.gauss_fields.linear_power_el_resistance
         )
         # Add the radiative heat contribution with the environment.
         jacket.gauss_fields.Q1 = (

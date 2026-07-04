@@ -6,7 +6,11 @@ from typing import Iterator, Union, NamedTuple
 
 from components.fluid.fluid_component import FluidComponent
 from conductor.conductor import Conductor
-from conductor.conductor_flags import MethodFlag
+from conductor.conductor_flags import (
+    MethodFlag,
+    ONE_STEP_METHODS,
+    THETA_FAMILY_METHODS,
+)
 
 
 @dataclass
@@ -64,6 +68,36 @@ class ElementMatrices:
                 self.source_jacobian,
             )
         )
+
+def backward_difference_2_coefficients(conductor:Conductor)->tuple:
+    """Coefficients (a0, a1, a2) of the variable-step BDF2 discretization
+
+        M / dt * (a0 * U^{n+1} - a1 * U^n + a2 * U^{n-1}) + A U^{n+1} = b^{n+1}
+
+    with step ratio r = dt_n / dt_{n-1}:
+
+        a0 = (1 + 2r) / (1 + r);  a1 = 1 + r;  a2 = r^2 / (1 + r)
+
+    (a0 - a1 + a2 = 0, so a constant solution is reproduced exactly; for
+    r = 1 the classical constant-step coefficients 3/2, 2, 1/2 are
+    recovered). On the first time step, or whenever no previous time step
+    exists, the backward Euler coefficients (1, 1, 0) are returned to start
+    the two-level history.
+
+    Args:
+        conductor (Conductor): object with all the information of the conductor.
+
+    Returns:
+        tuple: the three floats (a0, a1, a2).
+    """
+    if conductor.cond_num_step <= 1 or not conductor.previous_time_step:
+        return 1.0, 1.0, 0.0
+    step_ratio = conductor.time_step / conductor.previous_time_step
+    return (
+        (1.0 + 2.0 * step_ratio) / (1.0 + step_ratio),
+        1.0 + step_ratio,
+        step_ratio ** 2 / (1.0 + step_ratio),
+    )
 
 def array_initialization(shape:tuple, num_step:int)-> Union[NamedTuple,np.ndarray]:
     """Wrapper of function np.zeros that initializes an array of the given shape according to the time step number.
@@ -154,6 +188,8 @@ def build_kmat_fluid(
     # Alias
     # Fluid velocity at every Gauss point.
     velocity = np.abs(f_comp.coolant.gauss_fields.velocity)
+    # Fluid speed of sound at every Gauss point.
+    speed_of_sound = f_comp.coolant.gauss_fields.total_speed_of_sound
     # Length of every element of the spatial discretization.
     delta_z = conductor.mesh.element_lengths
     # Collection of fluid equation index (velocity, pressure and temperaure
@@ -169,6 +205,13 @@ def build_kmat_fluid(
     # Set diagonal elements at every Gauss point (exploit broadcasting).
     matrix[:, diag_idx, diag_idx] = (
         (delta_z * velocity / 2.0)[:, None] * upweqt[diag_idx][None, :]
+    )
+    # The momentum equation must be stabilized with its characteristic speed
+    # |v| + c, not the advection speed alone: the acoustic (compression) waves
+    # travel at the sound speed and are otherwise left essentially undamped
+    # (|v|+c)*dx/2 in the unit-mass-matrix normalization).
+    matrix[:, eq_idx.velocity, eq_idx.velocity] = (
+        delta_z * (velocity + speed_of_sound) / 2.0 * upweqt[eq_idx.velocity]
     )
 
     return matrix
@@ -445,8 +488,8 @@ def assemble_syslod(
         conductor.mesh.number_of_elements
     )
 
-    if method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
-        # Backward Euler or Crank-Nicolson
+    if method in ONE_STEP_METHODS:
+        # Theta family (backward Euler, Crank-Nicolson, Galerkin) or BDF2.
         if num_step == 1:
             # Construct the load vector columns
             for local_dof in range(half):
@@ -496,13 +539,21 @@ def eval_system_matrix(
     # source Jacobian).
     mass_capacity, flux_jacobian, diffusion, source_jacobian = aux_matrices
     # ** COMPUTE SYSTEM MATRIX **
-    if method in (MethodFlag.BACKWARD_EULER, MethodFlag.CRANK_NICOLSON):
-        # Backward Euler or Crank-Nicolson
+    if method in THETA_FAMILY_METHODS:
+        # Theta family: backward Euler, Crank-Nicolson or Galerkin.
         matrix = (
             mass_capacity / conductor.time_step
             + conductor.theta_method * (flux_jacobian + diffusion + source_jacobian)
         )
-        
+
+    elif method == MethodFlag.BACKWARD_DIFFERENCE_2:
+        # Variable-step BDF2, fully implicit in the spatial operator.
+        a0, _, _ = backward_difference_2_coefficients(conductor)
+        matrix = (
+            a0 * mass_capacity / conductor.time_step
+            + flux_jacobian + diffusion + source_jacobian
+        )
+
     elif method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
         # Adams-Moulton order 4
         # Alias
