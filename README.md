@@ -81,7 +81,7 @@ The editable install (`-e`) is recommended for running the test cases and develo
 
 Among the dependencies there is [CoolProp](http://www.coolprop.org/) that, according to the operative system you use, may require some other dependences and/or packages. To deal with this, please follow the [documentation](http://www.coolprop.org/coolprop/wrappers/Python/index.html) and [prerequisites](http://www.coolprop.org/coolprop/wrappers/index.html#wrapper-common-prereqs).
 
-The GUI (`OPENSC²_gui.py`) is built with `tkinter`, part of the Python standard library; on some Linux distributions it requires an OS-level package (e.g. `python3-tk`) installed separately, since it is not distributed via pip.
+The GUI (`OPENSC2_gui.py`) is built with `tkinter`, part of the Python standard library; on some Linux distributions it requires an OS-level package (e.g. `python3-tk`) installed separately, since it is not distributed via pip.
 
 As an alternative, a **headless simulation** is possible, which allows for a pure scripted / command-line execution of OPENSC² without the GUI with a couple of lines of code (see the `headless_driver.py` files in the TDD examples).
 
