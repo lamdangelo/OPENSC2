@@ -26,18 +26,21 @@ from electromagnetics.electromagnetic_flags import BFieldDefinitionType, Current
 class StrandStabilizerComponentInputs(SolidComponentInputs):
     """Input parameters for StrandStabilizerComponent (pure stabilizer strand)."""
 
-    # Superconducting material parameters (used in strand_component.py)
-    superconducting_material: str             # superconducting_material
-    upper_critical_field_at_0K: float         # Bc20m — Bc2 at T=0, B=0 in T
-    critical_current_scaling_constant: float  # c0
-    critical_temperature_at_0T: float         # Tc0m  — Tc0 at B=0 in K
-
     # Stabilizer material
     stabilizer_material: str                  # stabilizer_material (lowercased by loader)
 
     # Electrical parameter — Optional because it is only meaningful for Cu stabilizer;
     # the loader returns 0.0 if absent, and the component sets it to None if not Cu.
     residual_resistivity_ratio: Optional[float]  # RRR
+
+    # Superconducting material parameters. A pure stabilizer strand has no
+    # superconductor and its workbook sheet may omit these rows entirely; the
+    # superconductor-property evaluation (electromagnetics/operating_conditions.py)
+    # explicitly skips StrandStabilizerComponent, so they are never read then.
+    superconducting_material: Optional[str] = None    # superconducting_material
+    upper_critical_field_at_0K: Optional[float] = None         # Bc20m
+    critical_current_scaling_constant: Optional[float] = None  # c0
+    critical_temperature_at_0T: Optional[float] = None         # Tc0m
 
 
 class StrandStabilizerInputLoader:
@@ -84,12 +87,23 @@ class StrandStabilizerInputLoader:
             x_barycenter=float(wb["X_barycenter"]),
             y_barycenter=float(wb["Y_barycenter"]),
             show_figure=bool(wb["Show_fig"]),
-            superconducting_material=str(wb["superconducting_material"]).lower(),
-            upper_critical_field_at_0K=float(wb["Bc20m"]),
-            critical_current_scaling_constant=float(wb["c0"]),
-            critical_temperature_at_0T=float(wb["Tc0m"]),
             stabilizer_material=stabilizer_material,
             residual_resistivity_ratio=rrr,
+            # Optional superconductor rows (see the dataclass note).
+            superconducting_material=(
+                str(wb["superconducting_material"]).lower()
+                if "superconducting_material" in wb
+                else None
+            ),
+            upper_critical_field_at_0K=(
+                float(wb["Bc20m"]) if "Bc20m" in wb else None
+            ),
+            critical_current_scaling_constant=(
+                float(wb["c0"]) if "c0" in wb else None
+            ),
+            critical_temperature_at_0T=(
+                float(wb["Tc0m"]) if "Tc0m" in wb else None
+            ),
         )
 
         check_costheta(inputs.cos_theta, str(self.input_file), self.sheet_name)

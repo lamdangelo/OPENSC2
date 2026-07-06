@@ -165,27 +165,6 @@ class IncroperaRectangularLaminarCSHole(LaminarCorrelation):
         )   
     
 
-class DuctDemoCommonRectangular(LaminarCorrelation):
-
-    def __init__(self, width: float, heigth: float):
-        self.alpha = heigth / width 
-
-
-    def __call__(self, reynolds: np.ndarray) -> np.ndarray:
-        return (
-            24.0
-            * (
-                1.0
-                - 1.3553 * self.alpha
-                + 1.9467 * self.alpha ** 2
-                - 1.7012 * self.alpha ** 3
-                + 0.9564 * self.alpha ** 4
-                - 0.2537 * self.alpha ** 5
-            )
-            / np.minimum(reynolds, 2000)
-        )
-    
-
 class DuctDemoCommonTriangular(LaminarCorrelation):
         
     def __call__(self, reynolds: np.ndarray) -> np.ndarray:

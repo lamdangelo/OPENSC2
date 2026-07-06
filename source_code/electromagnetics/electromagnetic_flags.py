@@ -2,6 +2,7 @@
 This module contains all flags regarding electromagnetic properties.
 """
 
+import math
 from enum import Enum, IntEnum, auto
 
 
@@ -35,8 +36,12 @@ class CurrentMode(IntEnum):
     @staticmethod
     def get_current_mode_flag(iop_value: int):
         """Convert the I0_OP_MODE value from the Excel file to a CurrentMode."""
-        if iop_value is None or (
-            isinstance(iop_value, str) and iop_value.lower() == "none"
+        # A workbook cell holding the string "None" arrives as NaN from
+        # pandas.read_excel, which treats "None" as an NA marker.
+        if (
+            iop_value is None
+            or (isinstance(iop_value, str) and iop_value.lower() == "none")
+            or (isinstance(iop_value, float) and math.isnan(iop_value))
         ):
             return CurrentMode.CURRENT_NOT_DEFINED
         elif iop_value == 0:

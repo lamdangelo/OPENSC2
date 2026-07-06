@@ -66,6 +66,17 @@ class JacketComponentInputLoader:
             usecols=["Variable name", self.identifier],
         )[self.identifier].to_dict()
 
+    @staticmethod
+    def _material_name(raw_value) -> str:
+        """Normalize a workbook material cell to a lowercase name.
+
+        A cell holding the string "None" arrives as NaN from
+        pandas.read_excel (which treats "None" as an NA marker); map it to
+        the "none" placeholder the material tables expect.
+        """
+        name = str(raw_value).lower()
+        return "none" if name == "nan" or raw_value is None else name
+
     def load_input_file(self) -> JacketComponentInputs:
         wb = self._read_sheet(self.input_file)
 
@@ -78,8 +89,8 @@ class JacketComponentInputLoader:
             x_barycenter=float(wb.get("X_barycenter", 0.0)),
             y_barycenter=float(wb.get("Y_barycenter", 0.0)),
             show_figure=bool(wb.get("Show_fig", True)),
-            jacket_material=str(wb["jacket_material"]).lower(),
-            insulation_material=str(wb["insulation_material"]).lower(),
+            jacket_material=self._material_name(wb["jacket_material"]),
+            insulation_material=self._material_name(wb["insulation_material"]),
             jacket_cross_section=jacket_xs,
             insulation_cross_section=insulation_xs,
             num_material_types=int(wb["NUM_MATERIAL_TYPES"]),

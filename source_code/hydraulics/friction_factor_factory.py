@@ -16,18 +16,35 @@ import hydraulics.total_friction as totf
 
 class FrictionFactorFactory:
 
+    # Models whose laminar friction factor is, by definition of the original
+    # correlation, the same correlation as the turbulent one (their total is
+    # the maximum of the two, hence the correlation at every Reynolds number).
+    SAME_CORRELATION_FOR_LAMINAR = frozenset((
+        FrictionFactorModelType.HAALAND,
+        FrictionFactorModelType.COLEBROOK,
+        FrictionFactorModelType.PETUKHOV,
+        FrictionFactorModelType.ENEA_HTS_CICC,
+        FrictionFactorModelType.HTS_CL,
+    ))
+
     @staticmethod
     def create(
         inputs: FluidComponentInputs
     ) -> FrictionFactors:
 
-        laminar = FrictionFactorFactory._create_laminar(
-            inputs
-        )
-
         turbulent = FrictionFactorFactory._create_turbulent(
             inputs
         )
+
+        if (
+            inputs.friction_factor_model
+            in FrictionFactorFactory.SAME_CORRELATION_FOR_LAMINAR
+        ):
+            laminar = turbulent
+        else:
+            laminar = FrictionFactorFactory._create_laminar(
+                inputs
+            )
 
         total = FrictionFactorFactory._create_total(
             inputs.friction_factor_model
@@ -58,14 +75,11 @@ class FrictionFactorFactory:
             # number, as in the THEA user friction model (ZUT).
             return lamf.UserDefinedLaminar()
 
-        if model is FrictionFactorModelType.RECTANGULAR_DUCT_MEMO:
+        if model is FrictionFactorModelType.DUCT_DEMO_COMMON_RECTANGULAR:
             return lamf.RectangularDuctLaminar(
                 side1=inputs.width,
                 side2=inputs.height,
             )
-
-        if model is FrictionFactorModelType.DUCT_DEMO_COMMON_RECTANGULAR:
-            return lamf.DuctDemoCommonRectangular()
         
         if model is FrictionFactorModelType.DUCT_DEMO_COMMON_TRIANGULAR:
             return lamf.DuctDemoCommonTriangular()

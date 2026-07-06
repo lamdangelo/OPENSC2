@@ -347,7 +347,8 @@ def current_sharing_temperature_re123(B, JOP, TC0M, BC20M, c0):
     """
 
     def critical_current_density_bisection_re123(TT, BB, JOP, TC0M, BC20M, C):
-        return critical_current_density_re123([TT], [BB], TC0M, BC20M, C) - JOP
+        jc = critical_current_density_re123([TT], [BB], TC0M, BC20M, C)[0]
+        return float(jc - JOP)
 
     # ppp = 5.875e-1
     # qqq = 1.7
@@ -393,17 +394,16 @@ def current_sharing_temperature_re123(B, JOP, TC0M, BC20M, c0):
 
     for _, vv in enumerate(JC_ind):
 
-        T_lower = np.array([3.5])
-        # T_upper = np.array([40.0])
-        T_upper = np.array([TC0M])
+        T_lower = 3.5
+        # T_upper = 40.0
+        T_upper = float(TC0M)
 
-        ex_args = (B[vv], JOP[vv], TC0M, BC20M, c0)
         # Evaluate current sharing temperature with bisection method.
         TCSRE123[vv] = optimize.bisect(
             critical_current_density_bisection_re123,
             T_lower,
             T_upper,
-            ex_args,
+            args=(B[vv], JOP[vv], TC0M, BC20M, c0),
             xtol=1e-5,
         )
     # End for ii.
