@@ -7,10 +7,10 @@ Author: Laura D'Angelo
 from simulation import Simulation
 
 
-# Setup 
+# Setup
 input_directory_path = './TDD_examples/CASE_2_ENEA_HTS_CICC/'
 simulation = Simulation(input_directory_path)
 
 
-# Run simulation workflow 
-simulation.conductor_instance()
+# Run simulation workflow
+simulation.run()
