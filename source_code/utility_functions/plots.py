@@ -65,6 +65,7 @@ def plot_properties(simulation, cond, what="initialization"):
                     f" {p_name[:ind]}"
                 ),
                 figsize=(7.0, 6.0),
+                clear=True,
             )
             ax.plot(load_chan[prop_chan[0]], load_chan[p_name], "k-", linewidth=2.0)
             ax.grid(True)
@@ -108,6 +109,7 @@ def plot_properties(simulation, cond, what="initialization"):
                     f" {p_name[:ind]}"
                 ),
                 figsize=(7.0, 6.0),
+                clear=True,
             )
             ax.plot(
                 load_s_comp[prop_s_comp[0]], load_s_comp[p_name], "k-", linewidth=2.0
@@ -1180,6 +1182,7 @@ def create_real_time_plots_max_temperature(simulation, conductor, comp):
     comp.figure_max_temp, comp.axes_max_temp = plt.subplots(
         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): maximum {comp.identifier} temperature",
         figsize=(5, 5),
+        clear=True,
     )
     # set axes features (cdp, 10/2020)
     comp.axes_max_temp.grid(True)
@@ -1205,6 +1208,7 @@ def create_real_time_plots_inlet_outlet_mfr(simulation, conductor, f_comp):
     f_comp.figure_io_mfr, f_comp.axes_io_mfr = plt.subplots(
         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): {f_comp.identifier} mass flow rates",
         figsize=(5, 5),
+        clear=True,
     )
 
     # set axes features (cdp, 10/2020)
@@ -1355,6 +1359,7 @@ def plot_time_animation(simulation, conductor):
             ) = plt.subplots(
                 num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): maximum {l_type} temperature",
                 figsize=(5, 5),
+                clear=True,
             )
             if l_type == "FluidComponent":
                 # Create a number of Figure and axes objects equal to the number of \
@@ -1370,6 +1375,7 @@ def plot_time_animation(simulation, conductor):
                         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): {fluid_comp.identifier} "
                         + f"mass flow rate",
                         figsize=(5, 5),
+                        clear=True,
                     )
                     # set axes features (cdp, 10/2020)
                     conductor.dict_axes_animation["mfr"][fluid_comp.identifier].grid(

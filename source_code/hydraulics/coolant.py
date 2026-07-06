@@ -68,10 +68,16 @@ class Coolant():
 
     def eval_coolant_density_din_viscosity_gen_flow(self, pressure, temperature):
         """Compute mass density and dynamic viscosity at the given pressure and
-        temperature (needed to perform the flow initialization)."""
+        temperature (needed to perform the flow initialization).
+
+        Returns scalars: the flow initialization evaluates one point at a
+        time, and the shape CoolProp returns for one-element inputs differs
+        between versions (1-D array vs. 2-D matrix), which breaks the
+        callers' element assignments.
+        """
         density = cpi.compute_mass_density(self.fluid_type, temperature, pressure)
         viscosity = cpi.compute_viscosity(self.fluid_type, temperature, pressure)
-        return density, viscosity
+        return float(np.ravel(density)[0]), float(np.ravel(viscosity)[0])
 
 
     def eval_reynolds_from_mass_flow_rate(self, mass_flow_rate, din_viscosity):
