@@ -1,11 +1,16 @@
+import os
+
 import matplotlib
 
-matplotlib.use("TkAgg")
+# The GUI's real-time plots need an interactive backend, but an explicitly
+# requested backend (e.g. MPLBACKEND=Agg for headless/CI runs) must win —
+# TkAgg cannot even be imported on machines without a display/Tk.
+if "MPLBACKEND" not in os.environ:
+    matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
 from components.component_flags import ComponentType
 
-import os
 import numpy as np
 import pandas as pd
 
