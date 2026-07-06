@@ -6,13 +6,15 @@ from enum import Enum, IntEnum, auto
 
 
 class FluidType(Enum):
+    """Coolants; the value is the CoolProp fluid name."""
     HELIUM = "helium"
+    NITROGEN = "nitrogen"
 
 
 def get_fluid_type(flag: str) -> FluidType:
-    if flag.lower() == "helium":
-        return FluidType.HELIUM
-    else:
+    try:
+        return FluidType(flag.lower())
+    except ValueError:
         raise ValueError(f"Unknown fluid type {flag}.")
 
 

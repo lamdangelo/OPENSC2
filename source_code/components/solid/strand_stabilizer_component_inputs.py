@@ -139,7 +139,9 @@ class StrandStabilizerInputLoader:
             outlet_temperature=float(wb["TEMOUT"]),
             alpha_b_mode=int(wb["IALPHAB"]),
             alpha_b_interpolation=str(wb["ALPHAB_INTERPOLATION"]),
-            strain_mode=int(wb["IEPS"]),
+            # Strain rows may be absent for a pure stabilizer strand (strain
+            # is only read on superconductor paths, which skip stabilizers).
+            strain_mode=int(wb.get("IEPS", 0)),
             strain_value=float(wb.get("EPS", 0.0)),
             tcs_evaluation=bool(wb.get("TCS_EVALUATION", False)),
             fix_potential_flag=bool(wb["FIX_POTENTIAL_FLAG"]),
