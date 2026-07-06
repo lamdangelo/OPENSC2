@@ -526,10 +526,19 @@ def current_sharing_temperature_nb3sn(B, EPSLON, JOP, TC0M, BC20M, C):
     ######################################################################
     """
 
-    def critical_current_density_bisection_nb3sn(TT, BB, EPSLON, JOP, TC0M, BC20M, C):
-        return (
-            critical_current_density_nb3sn([TT], [BB], [EPSLON], TC0M, BC20M, C) - JOP
-        )
+    def critical_current_density_bisection_nb3sn(
+    TT, BB, EPSLON, JOP, TC0M, BC20M, C
+    ):
+        jc = critical_current_density_nb3sn(
+            [TT],
+            [BB],
+            [EPSLON],
+            TC0M,
+            BC20M,
+            C,
+        )[0]
+
+        return float(jc - JOP)
 
     # ppp = 0.56
     # qqq = 1.75
@@ -604,17 +613,17 @@ def current_sharing_temperature_nb3sn(B, EPSLON, JOP, TC0M, BC20M, C):
 
         # Loop to evaluate the current sharing temperature for all the index in 
         # which JOP[JC_ind] > 0.0 A/m^2.
-        for ii, vv in enumerate(JC_ind[ind_not_0]):
-            
-            T_lower = np.array([3.5])
+        for idx in ind_not_0:
 
-            ex_args = (B[vv], EPSLON[vv], JOP[vv], TC0M, BC20M, C)
+            vv = JC_ind[idx]            
+            T_lower = 3.5
+
             # Evaluate current sharing temperature with bisection method.
             TCS[vv] = optimize.bisect(
                 critical_current_density_bisection_nb3sn,
                 T_lower,
-                T_upper[ii],
-                ex_args,
+                float(T_upper[idx]),
+                args=(B[vv], EPSLON[vv], JOP[vv], TC0M, BC20M, C),
                 xtol=1e-5,
             )
         # End for ii.

@@ -1,11 +1,11 @@
 # Moule that manages the code Graphycal User Interface (GUI) (cdp, 12/2020).
 
 import tkinter as tk
-from tkinter import messagebox
 from tkinter import filedialog
-from tkinter import ttk
 from PIL import ImageTk, Image
 import os
+from pathlib import Path
+import platform
 import subprocess
 
 from simulation import Simulation
@@ -40,16 +40,24 @@ class OPENSC2_GUI:
         """
         Constructor method of class OPENSC2_GUI (cdp, 12/2020).
         """
+        system = platform.system()
 
-        self.current_dir = os.path.abspath(os.getcwd())
-        icons_dir = os.path.join(self.current_dir, "GUI_icons")
+        self.current_dir = Path(__file__).resolve().parent
+        icons_dir = self.current_dir / "gui_icons"
         self.root_window = tk.Tk()
         self.root_window.option_add("*tearOff", False)
         # Does not show the root window of the GUI (cdp, 12/2020)
         self.root_window.withdraw()
+
         # create a main window
         self.main_window = tk.Toplevel(master=self.root_window)
-        self.main_window.wm_iconbitmap(os.path.join(icons_dir, "MAHTEP_LOGO.ico"))
+        if system == "Windows":
+            self.main_window.wm_iconbitmap(os.path.join(icons_dir, "MAHTEP_LOGO.ico"))  # this works only for Windows
+        else:  # workaround for Linux
+            icon = tk.PhotoImage(
+                file=os.path.join(icons_dir, "logo_mahtep.png")
+            )
+            self.main_window.iconphoto(True, icon)
         self.main_window.title("OPENSC2 GUI Main Window")
         # Start: Create images objects (cdp, 08/2020)
         # Simulation input cascade images (cdp, 08/2020)
@@ -333,7 +341,7 @@ class OPENSC2_GUI:
 
         # Main directory with all the input files (cdp, 10/2020)
         main_input = "input_files"
-        sub_input = tk.filedialog.askdirectory(
+        sub_input = filedialog.askdirectory(
             parent=self.main_window,
             title="Select input files directory",
             initialdir=main_input,
@@ -367,7 +375,7 @@ class OPENSC2_GUI:
         """
         Title = "Give a name to the set of simulation main directory"
         # Get the new folder name (cdp, 10/2020)
-        self.simulation.dict_path["Main_dir"] = tk.filedialog.asksaveasfilename(
+        self.simulation.dict_path["Main_dir"] = filedialog.asksaveasfilename(
             parent=self.main_window,
             title=Title,
             initialdir=self.simulation.dict_path["Results_dir"],
@@ -398,7 +406,7 @@ class OPENSC2_GUI:
         """
         Title = "Open existing simulation main directory"
         # Get the existing folder name (cdp, 10/2020)
-        self.simulation.dict_path["Main_dir"] = tk.filedialog.askdirectory(
+        self.simulation.dict_path["Main_dir"] = filedialog.askdirectory(
             parent=self.main_window,
             mustexist=True,
             title=Title,
@@ -520,7 +528,7 @@ class OPENSC2_GUI:
         # Path of the user guide folder (cdp, 12/2020)
         user_guide = os.path.join(self.current_dir, "user_guide")
         # get the name of the file to be opened (cdp, 12/2020)
-        f_name = tk.filedialog.askopenfilename(
+        f_name = filedialog.askopenfilename(
             parent=self.main_window, title="User guide", initialdir=user_guide
         )
         # Open the selected file in pdf (cdp, 12/2020)

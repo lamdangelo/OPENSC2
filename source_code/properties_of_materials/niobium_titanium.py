@@ -247,15 +247,12 @@ def _convert_to_nparray(value):
 
 def critical_magnetic_field_nbti(temperature, B_c20, T_c0, nn=1.7):
 
-    temperature = _convert_to_nparray(temperature)
-    critical_mag_field = np.zeros(temperature.shape)
-    # Find index such that temperature <= maximum critical temperature
-    ind = temperature <= T_c0
-    # Evaluate critical magnetic field only for those values of temperature, elsewhere critical magnetic field is 0 by initialization.
-    critical_mag_field[ind] = B_c20 * (
-        1.0 - reduced_temperature_nbti(temperature[ind], T_c0) ** nn
-    )
-    return critical_mag_field
+    temperature = np.asarray(temperature)
+
+    tau = temperature / T_c0
+    bc = B_c20 * (1.0 - tau**nn)
+
+    return np.maximum(bc, 0.0)
 
 
 # End function critical_magnetic_field_nbti
@@ -263,9 +260,17 @@ def critical_magnetic_field_nbti(temperature, B_c20, T_c0, nn=1.7):
 
 def reduced_magnetic_field_nbti(magnetic_field, temperature, B_c20, T_c0, nn=1.7):
 
-    return magnetic_field / critical_magnetic_field_nbti(
-        temperature, B_c20, T_c0, nn=nn
+    bc = critical_magnetic_field_nbti(
+    temperature, B_c20, T_c0, nn
     )
+
+    print("Bc min =", np.nanmin(bc))
+    print("Bc max =", np.nanmax(bc))
+    print("any Bc == 0:", np.any(bc == 0))
+
+    bb = magnetic_field / bc
+    print("bb max =", np.nanmax(bb))
+    return bb 
 
 
 # End function reduced_magnetic_field_nbti
@@ -317,23 +322,37 @@ def critical_current_density_nbti(
     Returns:
         _type_: _description_
     """
+    temperature = np.asarray(temperature, dtype=float)
+    magnetic_field = np.asarray(magnetic_field, dtype=float)
+    scalar_input = temperature.ndim == 0 and magnetic_field.ndim == 0
+    temperature, magnetic_field = np.broadcast_arrays(
+        np.atleast_1d(temperature), np.atleast_1d(magnetic_field)
+    )
     magnetic_field = np.maximum(magnetic_field, b_low)
-    bb = reduced_magnetic_field_nbti(magnetic_field, temperature, B_c20, T_c0, nn=nn)
-    tau = reduced_temperature_nbti(temperature, T_c0)
 
     # Compute critical current density:
-    return (
-        C_0
-        / magnetic_field
-        * (1.0 - tau ** nn) ** gamma
-        * (
-            delta * bb ** alpha[0] * (1.0 - bb) ** beta[0] / g_func(alpha[0], beta[0])
-            + (1.0 - delta)
-            * bb ** alpha[1]
-            * (1.0 - bb) ** beta[1]
-            / g_func(alpha[1], beta[1])
+    tau = reduced_temperature_nbti(temperature, T_c0)
+    bc = critical_magnetic_field_nbti(temperature, B_c20, T_c0, nn)
+
+    valid = (tau < 1.0) & (magnetic_field < bc)
+
+    jc = np.zeros_like(tau, dtype=float)
+
+    if np.any(valid):
+        bb = magnetic_field[valid] / bc[valid]
+
+        jc[valid] = (
+            C_0 / magnetic_field[valid]
+            * (1.0 - tau[valid]**nn)**gamma
+            * (
+                delta * bb**alpha[0] * (1.0 - bb)**beta[0] / g_func(alpha[0], beta[0])
+                + (1.0 - delta)
+                * bb**alpha[1] * (1.0 - bb)**beta[1] / g_func(alpha[1], beta[1])
+            )
         )
-    )
+    if scalar_input:
+        return jc.item()
+    return jc
 
 
 # End function critical_current_density_nbti

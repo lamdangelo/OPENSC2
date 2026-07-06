@@ -1,0 +1,279 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage[hidelinks]{hyperref}
+\newcommand{\code}[1]{\texttt{#1}}
+\setlength{\parindent}{0pt}
+
+\title{OPENSC$^2$ 2.0 YAML Input Format:\\Key Reference (Schema v2)}
+\author{Laura A. M. D'Angelo}
+\date{%
+	{\small Stellarator Reactor Studies, Max Planck Institute for Plasma Physics, Greifswald (Germany)}\\[2ex]%
+	July 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Overview}
+A simulation directory is YAML-driven when it contains \code{simulation.yaml}
+(one entry file per run, one \code{conductor\_<ID>.yaml} per conductor). The
+loader accepts both the descriptive schema-v2 keys documented here and the
+legacy names (schema v1 / Excel variable names) interchangeably; the converter
+\code{tools/convert\_inputs\_to\_yaml.py} emits schema v2. When both formats
+are present in a directory, \textbf{YAML takes precedence} over the Excel
+workbooks. All units are SI. Empty values are written \code{null}; enumeration
+flags currently keep their legacy integer/string values (listed below), with
+symbolic member names planned as the next step. The multiplexed legacy
+\code{INTIAL} is split in v2 (see the fluid-operations table).
+
+\section*{simulation.yaml}
+
+\begin{longtable}{p{4.6cm}p{3.4cm}p{7.2cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{simulation.name} & SIMULATION & string; names the output folder \\
+\code{simulation.end\_time} & TEND & float, s \\
+\code{time\_stepping.method}\footnotemark & METHOD & \code{BE}, \code{CN}, \code{GAL}, \code{BDF2}, \code{AM4} \\
+\code{time\_stepping.adaptivity} & IADAPTIME & \code{FIXED} (0), \code{LEGACY\_EIGENVALUE} (1), \code{LEGACY\_EIGENVALUE\_SOLID\_ONLY} (2), \code{CS3U2\_SCHEDULE} (3), \code{ERROR\_CONTROLLED} (4) \\
+\code{time\_stepping.tolerance} & TOLTIME & float; relative local-truncation-error target (\code{ERROR\_CONTROLLED} only), default $10^{-3}$ \\
+\code{time\_stepping.minimum\_step} & STPMIN & float, s \\
+\code{time\_stepping.maximum\_step} & STPMAX & float, s \\
+\code{time\_stepping.reference\_time} & TIMEREF & float, s (legacy refinement schedule) \\
+\code{time\_stepping.reference\_duration} & TAUREF & float, s (legacy refinement schedule) \\
+\code{environment.medium} & Medium & string, e.g. \code{Air} \\
+\code{environment.temperature} & Temperature & float, K \\
+\code{environment.pressure} & Pressure & float, Pa \\
+\code{conductors[].file} & --- (MAGNET) & conductor YAML file name \\
+\bottomrule
+\end{longtable}
+\footnotetext{The method itself lives in \code{conductor.inputs.thermohydraulic\_method}; it is shown here because it belongs logically to time stepping.}
+
+\section*{conductor.inputs}
+
+\begin{longtable}{p{4.6cm}p{3.4cm}p{7.2cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{length} & ZLENGTH & float, m \\
+\code{diameter} & Diameter & float, m (round cross section) \\
+\code{is\_rectangular} & Is\_rectangular & boolean \\
+\code{width}, \code{height} & Width, Height & float, m \\
+\code{is\_joint} & ISJOINT & boolean \\
+\code{current\_mode} & I0\_OP\_MODE & int: $-1$ from file, $0$ constant, (not defined $\Rightarrow$ no electric model) \\
+\code{initial\_current} & I0\_OP\_TOT & float, A \\
+\code{inlet\_heated\_zone\_start/\allowbreak end} & XJBEG, XJBEIN & float, m \\
+\code{outlet\_heated\_zone\_start/\allowbreak end} & XJBEOUT and XJENOUT & float, m \\
+\code{thermohydraulic\_method} & METHOD & \code{BE} ($\theta{=}1$), \code{CN} ($\theta{=}\tfrac12$), \code{GAL} ($\theta{=}\tfrac23$), \code{BDF2}, \code{AM4} \\
+\code{electric\_method} & ELECTRIC\_METHOD & \code{BE}, \code{CN}, \code{GAL} ($\theta$ family; \code{BDF2} falls back to \code{BE}) \\
+\code{electric\_time\_step} & ELECTRIC\_TIME\_STEP & float, s (clamped to the thermal step) \\
+\code{upwind} & UPWIND & boolean \\
+\code{phi\_radiative}, \code{phi\_convective} & Phi\_rad, Phi\_conv & float \\
+\code{external\_free\_convection} \code{\_correlation} & (unchanged) & correlation name string \\
+\bottomrule
+\end{longtable}
+
+\section*{conductor.operations}
+
+\begin{longtable}{p{5.9cm}p{4.6cm}p{4.6cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{electric\_solver} & ELECTRIC\_SOLVER & solver selection flag \\
+\code{do\_equipotential\_surfaces\_exist} & EQUIPOTENTIAL\_SURFACE\_FLAG & boolean \\
+\code{number\_of\_equipotential\_surfaces} & EQUIPOTENTIAL\_SURFACE\_NUMBER & int \\
+\code{equipotential\_surface\_coordinates} & EQUIPOTENTIAL\_SURFACE\_COORDINATE & comma-separated floats, m \\
+\code{inductance\_mode}, \code{self\_inductance\_mode} & INDUCTANCE\_MODE, SELF\_INDUCTANCE\_MODE & int flags \\
+\code{maximum\_iteration\_number} & MAXIMUM\_ITERATION\_NUMBER & int \\
+\bottomrule
+\end{longtable}
+
+\section*{Fluid channel components (\code{kind: CHAN})}
+
+\textbf{inputs:}
+
+\begin{longtable}{p{4.6cm}p{3.6cm}p{7.0cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{cross\_section} & CROSSECTION & float, m$^2$ \\
+\code{hydraulic\_diameter} & HYDIAMETER & float, m \\
+\code{cos\_theta} & COSTETA & float; cable-twist projection \\
+\code{void\_fraction} & VOID\_FRACTION & float \\
+\code{fluid\_type} & FLUID\_TYPE & \code{He}, \code{N2}, \dots \\
+\code{channel\_type} & CHANNEL\_TYPE & channel geometry string \\
+\code{friction\_factor\_model} & IFRICTION & int flag: $100$--$107$ ITER/turbulent correlations, $206$ Darcy--Forchheimer porous medium (CryoSoft ``ZUT''), $-99$ user-defined; full list in \code{FrictionFactorModelType} \\
+\code{friction\_multiplier} & FRICTION\_MULTIPLIER & float \\
+\code{heat\_transfer\_model} & Flag\_htc\_steady\_corr & int flag: $1$ Dittus--Boelter with $\mathrm{Nu}\ge 8.235$, $2$ bare Dittus--Boelter (THEA \code{DB}), $119$--$121$ bounded variants, $211$, $212$ special correlations; see \code{HeatTransferModelType} \\
+\code{roughness} & Roughness & float, m \\
+\code{is\_rectangular}, \code{width}, \code{height} & ISRECTANGULAR, SIDE1, SIDE2 & boolean; float, m \\
+\code{x\_barycenter}, \code{y\_barycenter} & X\_barycenter, Y\_barycenter & float, m \\
+\code{show\_figure} & Show\_fig & boolean \\
+\bottomrule
+\end{longtable}
+
+\textbf{operations:}
+
+\begin{longtable}{p{5.2cm}p{3.0cm}p{7.0cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{hydraulic\_boundary\_condition} & INTIAL (magnitude) & int: hydraulic BC type (e.g.\ $1$ inlet p, T + outlet p; $2$ inlet $\dot m$, T + outlet p; $3$/$5$ from-file variants) \\
+\code{boundary\_values\_from\_file} & INTIAL (sign) & boolean; \code{true} reproduces the legacy negative flag \\
+\code{inlet/outlet\_temperature} & TEMINL, TEMOUT & float, K \\
+\code{initial\_temperature(\_outlet)} & TEMINI, TEMINI\_OUT & float, K; optional outlet value defines a linear initial profile \\
+\code{inlet/outlet/initial\_pressure} & PREINL, PREOUT, PREINI & float, Pa \\
+\code{inlet/outlet\_mass\_flow\_rate} & MDTIN, MDTOUT & float, kg/s \\
+\code{flow\_direction} & FLOWDIR & flow-direction flag \\
+\bottomrule
+\end{longtable}
+
+\section*{Solid components --- shared operations (STR\_MIX, STR\_STAB, STACK, Z\_JACKET)}
+
+\begin{longtable}{p{5.6cm}p{3.4cm}p{6.2cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{initial\_temperature\_mode} & INTIAL & int flag for the initial temperature profile \\
+\code{inlet/outlet\_temperature} & TEMINL, TEMOUT & float, K \\
+\code{heat\_flux\_mode} & IQFUN & \code{HeatExcitation}: $0$ NO\_HEATING, $1$ SQUARE\_WAVE\_IN\_TIME\_AND\_SPACE, $-1$ FROM\_FILE, $-2$ FROM\_USER\_FUNCTION \\
+\code{heat\_flux\_amplitude} & Q0 & float, W (per heated component) \\
+\code{heat\_flux\_time\_start/end} & TQBEG, TQEND & float, s \\
+\code{heat\_flux\_position\_start/end} & XQBEG, XQEND & float, m \\
+\code{heat\_flux\_interpolation} & Q\_INTERPOLATION & interpolation kind string \\
+\code{joule\_heating\_fraction} & QJFRACT & float \\
+\code{magnetic\_field\_mode} & IBIFUN & \code{BFieldDefinitionType}: $-1$ FROM\_FILE, $0$ CONSTANT\_OR\_LINEAR, $1$ LINEAR\_WITH\_TRANSIENT ($B \propto I(t)/I_0$) \\
+\code{magnetic\_field\_inlet/} \code{outlet\_initial} & BISS, BOSS & float, T \\
+\code{magnetic\_field\_inlet/} \code{outlet\_transient} & BITR, BOTR & float, T \\
+\code{magnetic\_field\_interpolation} & B\_INTERPOLATION & interpolation kind string \\
+\code{magnetic\_field\_units} & B\_field\_units & unit string \\
+\code{field\_angle\_mode} & IALPHAB & int flag; field-to-tape angle (HTS anisotropy) \\
+\code{field\_angle\_interpolation} & ALPHAB\_INTERPOLATION & interpolation kind string \\
+\code{fixed\_field\_angle\_value} & fixAlphaBvalue & float, deg \\
+\code{strain\_mode}, \code{strain\_value} & IEPS, EPS & int flag; float \\
+\code{strain\_interpolation} & EPS\_INTERPOLATION & interpolation kind string \\
+\code{operating\_current\_mode} & IOP\_MODE & int flag: how the strand operating current is defined \\
+\code{operating\_current\_interpolation} & IOP\_INTERPOLATION & interpolation kind string \\
+\code{current\_sharing\_temperature} \code{\_evaluation} & TCS\_EVALUATION & boolean; evaluate $T_{cs}$ every step \\
+\code{fixed\_potential\_flag/number} & FIX\_POTENTIAL\_FLAG/NUMBER & boolean; int \\
+\code{fixed\_potential\_coordinates/} \code{values} & FIX\_POTENTIAL\_COORDINATE/VALUE & comma-separated floats (m; V) \\
+\bottomrule
+\end{longtable}
+
+\section*{Solid components --- inputs}
+
+Common to all kinds: \code{cross\_section} (CROSSECTION, m$^2$),
+\code{cos\_theta} (COSTETA), \code{x/y\_barycenter}, \code{show\_figure}
+(Show\_fig), \code{residual\_resistivity\_ratio} (RRR).
+
+\begin{longtable}{p{7.0cm}p{3.2cm}p{5.0cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\multicolumn{3}{l}{\emph{Mixed strand (STR\_MIX):}} \\
+\code{number\_of\_material\_types} & NUM\_MATERIAL\_TYPES & int \\
+\code{superconductor\_strand\_count/diameter} & N\_sc\_strand, d\_sc\_strand & int; float, m \\
+\code{stabilizer\_strand\_count/} \code{diameter} & N\_stab\_strand, d\_stab\_strand & int; float, m \\
+\code{stabilizer\_to\_superconductor} \code{\_ratio(\_mode)} & STAB\_NON\_STAB, ISTAB\_NON\_STAB & float; int flag \\
+\code{superconducting\_material} & (unchanged) & \code{NbTi}, \code{NbTi-W7X}, \code{Nb3Sn}, \code{YBCO}, \code{MgB2}, \dots \\
+\code{stabilizer\_material} & (unchanged) & \code{Cu}, \dots \\
+\code{critical\_current\_definition\_mode} & C0\_MODE & int flag: how $c_0$ is interpreted \\
+\code{critical\_current\_scaling\_constant} & c0 & float, A\,T/m$^2$ \\
+\code{critical\_temperature\_at\_zero\_field} & Tc0m & float, K \\
+\code{upper\_critical\_field\_at\_zero\_temperature} & Bc20m & float, T \\
+\code{power\_law\_exponent} & nn & float ($n$-value) \\
+\code{electric\_field\_criterion} & E0 & float, V/m \\
+\multicolumn{3}{l}{\emph{Stack (STACK), additional:}} \\
+\code{tape\_count} & N\_tape & int \\
+\code{tape\_identifier} & Tape\_number & string \\
+\code{number\_of\_material\_layers} & Material\_number & int \\
+\code{stack\_width} & Stack\_width & float, m \\
+\multicolumn{3}{l}{\emph{Jacket (Z\_JACKET):}} \\
+\code{jacket\_kind} & Jacket\_kind & e.g.\ \code{outer\_insulation}, \code{whole\_enclosure} \\
+\code{jacket\_material}, \code{insulation\_material} & (unchanged) & material name, e.g.\ \code{Al6063}, \code{steel} \\
+\code{jacket\_cross\_section}, \code{insulation\_cross\_section} & (unchanged) & float, m$^2$ \\
+\code{emissivity} & Emissivity & float \\
+\code{outer/inner\_perimeter} & Outer/Inner\_perimeter & float, m \\
+\bottomrule
+\end{longtable}
+
+\section*{grid}
+
+\begin{longtable}{p{5.6cm}p{3.4cm}p{6.2cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel name} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{number\_of\_elements} & NELEMS & int \\
+\code{mesh\_type} & ITYMSH & int flag: uniform / refined zone / adapted / from file (\code{MeshType}) \\
+\code{refined\_zone\_number\_of\_elements} & NELREF & int \\
+\code{refined\_zone\_start/end} & XBREFI, XEREFI & float, m \\
+\code{minimum/maximum\_element\_size} & SIZMIN, SIZMAX & float, m \\
+\code{growth\_ratio\_left/right} & DXINCRE\_LEFT/RIGHT & float $>1$ \\
+\code{maximum\_number\_of\_nodes} & MAXNOD & int \\
+\bottomrule
+\end{longtable}
+
+\section*{couplings (pair records)}
+
+Each record names its component pair once (\code{between: [A, B]}, symmetric;
+\code{Environment} is a valid partner); unlisted pairs are uncoupled. These
+replace the eleven triangular matrix sheets of
+\code{conductor\_*\_coupling.xlsx} (Excel names = sheet names).
+
+\begin{longtable}{p{6.4cm}p{4.0cm}p{4.8cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel sheet} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{contact\_perimeter\_mode} & contact\_perimeter\_flag & $0$ no contact, $1$ constant, $-1$ variable from file (\code{ContactPerimeterFlag}) \\
+\code{contact\_perimeter} & contact\_perimeter & float, m \\
+\code{heat\_transfer\_coefficient\_mode} & HTC\_choice & int flag $\pm1\dots\pm4$: correlation / imposed / radiative variants (\code{HTC\_Choice}) \\
+\code{contact\_heat\_transfer\_coefficient} & contact\_HTC & float, W/(m$^2$K) \\
+\code{thermal\_contact\_resistance} & thermal\_contact\_resistance & float, m$^2$K/W \\
+\code{heat\_transfer\_coefficient\_multiplier} & HTC\_multiplier & float \\
+\code{electric\_conductance\_mode} & electric\_conductance\_mode & $0$ none; $1$ ideal parallel (THEA-style strand--jacket current sharing); see \code{ElectricConductanceMode} \\
+\code{electric\_conductance} & electric\_conductance & float, S/m \\
+\code{open\_perimeter\_fraction} & open\_perimeter\_fract & float \\
+\code{interface\_thickness} & interf\_thickness & float, m \\
+\code{transverse\_transport\_multiplier} & trans\_transp\_multiplier & float \\
+\code{view\_factors} & view\_factors & float \\
+\bottomrule
+\end{longtable}
+
+\section*{diagnostics}
+
+\begin{longtable}{p{6.2cm}p{4.0cm}p{5.0cm}}
+\toprule
+\textbf{v2 key} & \textbf{Excel origin} & \textbf{Type / values} \\
+\midrule
+\endhead
+\code{spatial\_distribution\_times} & Spatial\_distribution sheet (TIME\_$i$ rows) & list of floats, s \\
+\code{time\_evolution\_positions} & Time\_evolution sheet & list of floats, m \\
+\bottomrule
+\end{longtable}
+
+\section*{Compatibility notes}
+\begin{itemize}
+  \item Legacy (v1/Excel) key names remain accepted everywhere; unknown keys
+        pass through unchanged, so mixed files load correctly.
+  \item The converter repairs number-as-text workbook cells (e.g.
+        \code{'6.2004E-5'} $\rightarrow$ float) and preserves empty cells as
+        \code{null} (served to the code as NaN, exactly like the Excel
+        readers).
+  \item Regression status: Excel-driven and YAML-v2-driven W7-X runs produce
+        bit-identical outputs (61/61 files).
+\end{itemize}
+
+\end{document}

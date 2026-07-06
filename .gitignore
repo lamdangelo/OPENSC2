@@ -246,6 +246,13 @@ $RECYCLE.BIN/
 *.csv
 *.xlsx
 *.ods
+*.pdf 
+
+# LaTeX
+*.aux
+*.out 
+*.synctex.gz
+*.toc 
 
 # Temporary files #
 *.~
@@ -256,3 +263,7 @@ Simulations_results/**/ # code output directory
 source_code/opensc2/**/ # virtual environment
 source_code/GUI_icons/**/ # graphical user interface images
 TDD_examples/**/ # input files template for the three selected cases used whitin the Test Driven Development approach
+refactoring/*
+
+# Regression-test reference data must be tracked despite the global *.tsv rule
+!tests/reference_data/**/*.tsv

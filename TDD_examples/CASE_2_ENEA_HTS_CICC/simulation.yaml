@@ -1,0 +1,21 @@
+# OPENSC2 simulation input (YAML schema v2), converted from the Excel workbooks.
+format: opensc2-yaml/1
+simulation:
+  name: TEND_50_STPMIN_0.05_NELEMS_150_case2_test_adapt_time_20240416
+  end_time: 50.0
+  time_stepping:
+    adaptivity: LEGACY_EIGENVALUE_SOLID_ONLY
+    minimum_step: 0.05
+    maximum_step: 0.5
+    reference_time: 100
+    reference_duration: 5
+  legacy_settings:
+    TIME_STEP: 0.05
+    MLT_INCREASE: 2
+    MLT_DECREASE: 0.5
+environment:
+  medium: Air
+  temperature: 300.15
+  pressure: 101325
+conductors:
+- file: conductor_CONDUCTOR_1.yaml

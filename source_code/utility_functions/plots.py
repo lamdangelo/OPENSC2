@@ -1,9 +1,16 @@
+import os
+
 import matplotlib
 
-matplotlib.use("TkAgg")
+# The GUI's real-time plots need an interactive backend, but an explicitly
+# requested backend (e.g. MPLBACKEND=Agg for headless/CI runs) must win —
+# TkAgg cannot even be imported on machines without a display/Tk.
+if "MPLBACKEND" not in os.environ:
+    matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
-import os
+from components.component_flags import ComponentType
+
 import numpy as np
 import pandas as pd
 
@@ -27,7 +34,7 @@ def plot_properties(simulation, cond, what="initialization"):
         )
     # end if what (cdp, 12/2020)
     # Loop on FluidComponent (cdp, 12/2020)
-    for fluid_comp in cond.inventory["FluidComponent"].collection:
+    for fluid_comp in cond.inventory.fluids.collection:
         # load values
         file_load = os.path.join(dict_path["Load"], f"{fluid_comp.identifier}.tsv")
         # Load data in file_load as pandas DataFrame
@@ -58,6 +65,7 @@ def plot_properties(simulation, cond, what="initialization"):
                     f" {p_name[:ind]}"
                 ),
                 figsize=(7.0, 6.0),
+                clear=True,
             )
             ax.plot(load_chan[prop_chan[0]], load_chan[p_name], "k-", linewidth=2.0)
             ax.grid(True)
@@ -72,7 +80,7 @@ def plot_properties(simulation, cond, what="initialization"):
             plt.close()
     # end for fluid_comp (cdp, 12/2020)
     # Loop on SolidComponent (cdp, 12/2020)
-    for s_comp in cond.inventory["SolidComponent"].collection:
+    for s_comp in cond.inventory.solids.collection:
         # load values
         file_load = os.path.join(dict_path["Load"], f"{s_comp.identifier}.tsv")
         # Load data in file_load as pandas DataFrame
@@ -101,6 +109,7 @@ def plot_properties(simulation, cond, what="initialization"):
                     f" {p_name[:ind]}"
                 ),
                 figsize=(7.0, 6.0),
+                clear=True,
             )
             ax.plot(
                 load_s_comp[prop_s_comp[0]], load_s_comp[p_name], "k-", linewidth=2.0
@@ -269,7 +278,7 @@ def make_plots(simulation, kind="Space_distr"):
             N_lines[nn] = round(N_lines_tot[nn] / N_axes[nn])
         # end for nn (cdp, 11/2020)
         # Loop on FluidComponent (cdp, 11/2020)
-        for fluid_comp in cond.inventory["FluidComponent"].collection:
+        for fluid_comp in cond.inventory.fluids.collection:
             # dictionary declaration (cdp, 09/2020)
             dict_values[cond.identifier][fluid_comp.identifier] = {}
             # Load properties value for channels (cdp, 09/2020)
@@ -361,9 +370,9 @@ def make_plots(simulation, kind="Space_distr"):
             # end for prop (cdp, 10/2020)
         # end for fluid_comp (cdp, 10/2020)
         # Loop on SolidComponent (cdp, 11/2020)
-        for s_comp in cond.inventory["SolidComponent"].collection:
+        for s_comp in cond.inventory.solids.collection:
             dict_values[cond.identifier][s_comp.identifier] = {}
-            if s_comp.name != cond.inventory["JacketComponent"].name:
+            if s_comp.name != ComponentType.JACKET.value:
                 # StrandComponent objects (cdp, 09/2020)
                 # Load properties value for strands (cdp, 09/2020)
                 prop_s_comp = prop_st[s_comp.name]
@@ -444,13 +453,13 @@ def make_plots(simulation, kind="Space_distr"):
                     for ii in range(len(abscissa.columns))
                 }
             )
-            for rr, jk_r in enumerate(cond.inventory["SolidComponent"].collection):
+            for rr, jk_r in enumerate(cond.inventory.solids.collection):
                 for _, jk_c in enumerate(
-                    cond.inventory["SolidComponent"].collection[rr + 1 :]
+                    cond.inventory.solids.collection[rr + 1 :]
                 ):
                     if (
                         abs(
-                            cond.dict_df_coupling["HTC_choice"].at[
+                            cond.coupling.htc_choice[
                                 jk_r.identifier, jk_c.identifier
                             ]
                         )
@@ -483,7 +492,7 @@ def make_plots(simulation, kind="Space_distr"):
                     # End if abs().
                 # End for cc.
             if (
-                abs(cond.dict_df_coupling["contact_perimeter_flag"].at[
+                abs(cond.coupling.contact_perimeter_flag[
                     simulation.environment.KIND, jk_r.identifier
                 ]
                 ) == 1
@@ -512,7 +521,7 @@ def make_plots(simulation, kind="Space_distr"):
                     leg_title,
                     figures=N_figure,
                 )
-            # End if cond.dict_df_coupling["contact_perimeter_flag"].
+            # End if cond.coupling.contact_perimeter_flag.
         # End for rr.
 
     # end for cond (cdp, 11/2020)
@@ -1113,7 +1122,7 @@ def create_real_time_plots(simulation, conductor):
         simulation (object): object simulation instance of class Simulation.
         conductor (object): object conductor instance of class Conductor.
     """
-    for f_comp in conductor.inventory["FluidComponent"].collection:
+    for f_comp in conductor.inventory.fluids.collection:
         f_comp.create_rtp_max_temperature = {
             True: create_real_time_plots_max_temperature,
             False: do_nothing,
@@ -1134,16 +1143,16 @@ def create_real_time_plots(simulation, conductor):
         # When the GUI works add the default to true.
 
         # If flag Show_fig is set to TRUE define the required attributes to make the real time plot of maximum f_comp temperature (invoke function create_real_time_plots_max_temperature); else does nothing.
-        f_comp.create_rtp_max_temperature[f_comp.coolant.inputs["Show_fig"]](
+        f_comp.create_rtp_max_temperature[f_comp.channel.inputs.show_figure](
             simulation, conductor, f_comp
         )
         # If flag Show_fig is set to TRUE define the required attributes to make the real time plot of inlet and outlet f_comp mass flow rate (invoke function create_real_time_plots_inlet_outlet_mfr); else does nothing.
-        f_comp.create_rtp_io_mfr[f_comp.coolant.inputs["Show_fig"]](
+        f_comp.create_rtp_io_mfr[f_comp.channel.inputs.show_figure](
             simulation, conductor, f_comp
         )
     # End for f_comp.
 
-    for s_comp in conductor.inventory["SolidComponent"].collection:
+    for s_comp in conductor.inventory.solids.collection:
         s_comp.create_rtp_max_temperature = {
             True: create_real_time_plots_max_temperature,
             False: do_nothing,
@@ -1153,7 +1162,7 @@ def create_real_time_plots(simulation, conductor):
             False: do_nothing,
         }
         # If flag Show_fig is set to TRUE define the required attributes to make the real time plot of maximum s_comp temperature (invoke function create_real_time_plots_max_temperature); else does nothing.
-        s_comp.create_rtp_max_temperature[s_comp.inputs["Show_fig"]](
+        s_comp.create_rtp_max_temperature[s_comp.inputs.show_figure](
             simulation, conductor, s_comp
         )
     # End for s_comp.
@@ -1173,6 +1182,7 @@ def create_real_time_plots_max_temperature(simulation, conductor, comp):
     comp.figure_max_temp, comp.axes_max_temp = plt.subplots(
         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): maximum {comp.identifier} temperature",
         figsize=(5, 5),
+        clear=True,
     )
     # set axes features (cdp, 10/2020)
     comp.axes_max_temp.grid(True)
@@ -1198,6 +1208,7 @@ def create_real_time_plots_inlet_outlet_mfr(simulation, conductor, f_comp):
     f_comp.figure_io_mfr, f_comp.axes_io_mfr = plt.subplots(
         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): {f_comp.identifier} mass flow rates",
         figsize=(5, 5),
+        clear=True,
     )
 
     # set axes features (cdp, 10/2020)
@@ -1233,21 +1244,21 @@ def update_real_time_plots(conductor):
     Args:
         conductor (object): object conductor instance of class Conductor.
     """
-    for f_comp in conductor.inventory["FluidComponent"].collection:
+    for f_comp in conductor.inventory.fluids.collection:
 
         # When the GUI works add the default to true.
 
         # If flag Show_fig is set to TRUE update the real time plot of maximum f_comp temperature (invoke function update_real_time_plots_max_temperature); else does nothing.
-        f_comp.update_rtp_max_temperature[f_comp.coolant.inputs["Show_fig"]](
+        f_comp.update_rtp_max_temperature[f_comp.channel.inputs.show_figure](
             conductor, f_comp
         )
         # If flag Show_fig is set to TRUE update the real time plot of inlet and outlet f_comp mass flow rate (invoke function update_real_time_plots_inlet_outlet_mfr); else does nothing.
-        f_comp.update_rtp_io_mfr[f_comp.coolant.inputs["Show_fig"]](conductor, f_comp)
+        f_comp.update_rtp_io_mfr[f_comp.channel.inputs.show_figure](conductor, f_comp)
     # End for f_comp.
 
-    for s_comp in conductor.inventory["SolidComponent"].collection:
+    for s_comp in conductor.inventory.solids.collection:
         # If flag Show_fig is set to TRUE update the real time plot of maximum s_comp temperature (invoke function update_real_time_plots_max_temperature); else does nothing.
-        s_comp.update_rtp_max_temperature[s_comp.inputs["Show_fig"]](conductor, s_comp)
+        s_comp.update_rtp_max_temperature[s_comp.inputs.show_figure](conductor, s_comp)
         # End for s_comp.
 
     plt.pause(5e-3)
@@ -1265,12 +1276,12 @@ def update_real_time_plots_max_temperature(conductor, comp):
     if comp.KIND == "Fluid_component":
         comp.axes_max_temp.plot(
             conductor.cond_time[-1],
-            comp.coolant.dict_node_pt["temperature"].max(),
+            comp.coolant.node_fields.temperature.max(),
             "k.",
         )
     else:
         comp.axes_max_temp.plot(
-            conductor.cond_time[-1], comp.dict_node_pt["temperature"].max(), "k."
+            conductor.cond_time[-1], comp.node_fields.temperature.max(), "k."
         )
 
 
@@ -1287,13 +1298,13 @@ def update_real_time_plots_inlet_outlet_mfr(conductor, f_comp):
     # Aggiustare per tener conto della effettiva direzione del flusso di refrigerante.
     f_comp.axes_io_mfr.plot(
         conductor.cond_time[-1],
-        f_comp.coolant.dict_node_pt["mass_flow_rate"][0],
+        f_comp.coolant.node_fields.mass_flow_rate[0],
         "co",
         label="Inlet",
     )
     f_comp.axes_io_mfr.plot(
         conductor.cond_time[-1],
-        f_comp.coolant.dict_node_pt["mass_flow_rate"][-1],
+        f_comp.coolant.node_fields.mass_flow_rate[-1],
         "b.",
         label="Outlet",
     )
@@ -1308,9 +1319,9 @@ def create_legend_rtp(conductor):
     Args:
         conductor (object): object conductor instance of class Conductor.
     """
-    for f_comp in conductor.inventory["FluidComponent"].collection:
+    for f_comp in conductor.inventory.fluids.collection:
         # If flag Show_fig is set to TRUE create the legend in the time plot of inlet and outlet f_comp mass flow rate (invoke function add_legend_mfr); else does nothing.
-        f_comp.add_legend_rtp_io_mfr[f_comp.coolant.inputs["Show_fig"]](f_comp)
+        f_comp.add_legend_rtp_io_mfr[f_comp.channel.inputs.show_figure](f_comp)
     # End for create_legend_rtp.
 
 
@@ -1348,6 +1359,7 @@ def plot_time_animation(simulation, conductor):
             ) = plt.subplots(
                 num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): maximum {l_type} temperature",
                 figsize=(5, 5),
+                clear=True,
             )
             if l_type == "FluidComponent":
                 # Create a number of Figure and axes objects equal to the number of \
@@ -1355,7 +1367,7 @@ def plot_time_animation(simulation, conductor):
                 # for each FluidComponent object in a dedicated plot. (cdp, 10/2020)
                 # conductor.dict_Figure_animation["mfr"][l_type] = dict()
                 # conductor.dict_axes_animation["mfr"][l_type] = dict()
-                for fluid_comp in conductor.inventory["FluidComponent"].collection:
+                for fluid_comp in conductor.inventory.fluids.collection:
                     (
                         conductor.dict_Figure_animation["mfr"][fluid_comp.identifier],
                         conductor.dict_axes_animation["mfr"][fluid_comp.identifier],
@@ -1363,6 +1375,7 @@ def plot_time_animation(simulation, conductor):
                         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): {fluid_comp.identifier} "
                         + f"mass flow rate",
                         figsize=(5, 5),
+                        clear=True,
                     )
                     # set axes features (cdp, 10/2020)
                     conductor.dict_axes_animation["mfr"][fluid_comp.identifier].grid(
@@ -1391,26 +1404,26 @@ def plot_time_animation(simulation, conductor):
         # end if conductor.cond_time[-1] (cdp, 10/2020)
         if l_type == "FluidComponent":
             # loop on FluidComponent (cdp, 10/2020)
-            for fluid_comp in conductor.inventory["FluidComponent"].collection:
+            for fluid_comp in conductor.inventory.fluids.collection:
                 # make the plot of channels maximum temperature (cdp, 10/2020)
                 # conductor.dict_axes_animation["T_max"][l_type].plot(
-                #     conductor.cond_time[-1], fluid_comp.coolant.dict_node_pt["temperature"].max(), conductor.color[ii], label = fluid_comp.identifier) # choose the color
+                #     conductor.cond_time[-1], fluid_comp.coolant.node_fields.temperature.max(), conductor.color[ii], label = fluid_comp.identifier) # choose the color
                 conductor.dict_axes_animation["T_max"][l_type].plot(
                     conductor.cond_time[-1],
-                    fluid_comp.coolant.dict_node_pt["temperature"].max(),
+                    fluid_comp.coolant.node_fields.temperature.max(),
                     label=fluid_comp.identifier,
                 )
                 # make plot of inlet and outlet mass flow rate; each channel has its \
                 # own figures (cdp, 10/2020)
                 conductor.dict_axes_animation["mfr"][fluid_comp.identifier].plot(
                     conductor.cond_time[-1],
-                    fluid_comp.coolant.dict_node_pt["mass_flow_rate"][0],
+                    fluid_comp.coolant.node_fields.mass_flow_rate[0],
                     conductor.color[0],
                     label="Inlet",
                 )
                 conductor.dict_axes_animation["mfr"][fluid_comp.identifier].plot(
                     conductor.cond_time[-1],
-                    fluid_comp.coolant.dict_node_pt["mass_flow_rate"][-1],
+                    fluid_comp.coolant.node_fields.mass_flow_rate[-1],
                     conductor.color[1],
                     label="Outlet",
                 )
@@ -1428,13 +1441,13 @@ def plot_time_animation(simulation, conductor):
             # end for ii (cdp, 10/2020)
         elif l_type == "StrandComponent":
             # loop on StrandComponent (cdp, 10/2020)
-            for strand in conductor.inventory["StrandComponent"].collection:
+            for strand in conductor.inventory.strands.collection:
                 # plot the maximum strand temperature (cdp, 10/2020)
                 # conductor.dict_axes_animation["T_max"][l_type].plot(
-                #     conductor.cond_time[-1], strand.dict_node_pt["temperature"].max(), conductor.color[ii], label = strand.identifier) # choose the color.
+                #     conductor.cond_time[-1], strand.node_fields.temperature.max(), conductor.color[ii], label = strand.identifier) # choose the color.
                 conductor.dict_axes_animation["T_max"][l_type].plot(
                     conductor.cond_time[-1],
-                    strand.dict_node_pt["temperature"].max(),
+                    strand.node_fields.temperature.max(),
                     label=strand.identifier,
                 )
             # end for strand (cdp, 10/2020)
