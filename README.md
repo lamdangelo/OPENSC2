@@ -11,7 +11,7 @@ OPENSC² is a software for the multi-physical analysis of thermal-hydraulic and 
 Currently it is developed mainly in [Python](https://www.python.org/) but future versions will possibly take advantage of other programming languages such as [TypeScript](https://www.typescriptlang.org/) and [Rust](https://www.rust-lang.org/) as well as the [OpenModelica](https://www.openmodelica.org/) environment.
 
 The software is built based on well-established numerical models and assumptions, re-arranged in an object-oriented framework to be user-friendly and easily manageable through a GUI. The input set can be prescribed either through self-explanatory Excel files or, alternatively, through human-readable YAML files (see [Refactoring and modernization](#refactoring-and-modernization) below).
-The developing team includes Prof. L. Savoldi[^1], Prof. F. Freschi, D. Placido[^2], S. Viarengo[^2] @ Dipartimento Energia “Galileo Ferraris” @ [Politecnico di Torino](https://www.polito.it/). Please, contact us at:
+The **original developing team** includes Prof. L. Savoldi[^1], Prof. F. Freschi, D. Placido[^2], S. Viarengo[^2] @ Dipartimento Energia “Galileo Ferraris” @ [Politecnico di Torino](https://www.polito.it/). Please, contact us at:
 
 * laura.savoldi@polito.it
 * fabio.freschi@polito.it
@@ -21,10 +21,12 @@ The developing team includes Prof. L. Savoldi[^1], Prof. F. Freschi, D. Placido[
 [^1]: Head of the [**MAHTEP** research group](http://www.mahtep.polito.it/).
 [^2]: PhD students @ the [**MAHTEP** research group](http://www.mahtep.polito.it/).
 
-The refactoring team includes Dr. Laura D'Angelo and Prof. Felix Warmer @ the Stellarator Reactor Studies research group[^3] at Max Planck Institute for Plasma Physics in Greifswald (Germany). More information about our refactoring and modernization work is found in [Refactoring and modernization](#refactoring-and-modernization). We can be contacted at:
+The **refactoring developing team** includes Dr. Laura D'Angelo and Prof. Felix Warmer @ the Stellarator Reactor Studies research group[^3] at Max Planck Institute for Plasma Physics in Greifswald (Germany). More information about our refactoring and modernization work is found in [Refactoring and modernization](#refactoring-and-modernization). We can be contacted at:
 
 * laura-anna-maria.dangelo@ipp.mpg.de
 * felix.warmer@ipp.mpg.de
+
+[^3]: [**Stellarator Reactor Studies (SRS)** research group](https://www.ipp.mpg.de/stellarator-reactor-studies) at the Max Planck Institute for Plasma Physics in Greifswald (Germany).
 
 
 ### Goals
@@ -43,8 +45,6 @@ Starting from the `develop` branch, OPENSC² underwent a substantial refactoring
 
 This repository is currently a **fork** of the original MAHTEP OPENSC² project, hosting the above refactoring work. It may be merged back into the original project's branch at some point in the future.
 
-[^3]: [**Stellarator Reactor Studies (SRS)**](https://www.ipp.mpg.de/stellarator-reactor-studies) at the Max Planck Institute for Plasma Physics in Greifswald (Germany).
-
 
 ## Get started
 
@@ -54,7 +54,19 @@ Users can benefit from several test cases to check the software functionalities:
 2. Heat slug propagation in a stacked-HTS slotted-core CICC for fusion applications
 3. Steady state operation for a double-cryostat HVDC cable for power transmission
 
-To run a simulation with one of the above test cases, download the repository and install the requirements (more informations in section [Install requirements](user-content-intall-requirements)). After that, you can run the software (the starting file is _simulation_starter.py_) and from the GUI you can navigate through the folder three until you enter directory _TDD_examples_ and then select one of the three folders contained with pre-compiled inpuput files. In the GUI window select **Add solution path** to select where to save the results (by default they are all collected in the directory _Simulation_results_, that is automatically created if does not already exist). User can create a new folder in this directory or open an existing one: the output (both .tsv files and .eps figures) will be saved in this folder.
+To run a simulation with one of the above test cases, download the repository and install the requirements (more informations in section [Install requirements](user-content-intall-requirements)). After that, you have two possibilities to run the software: 
+
+1. **GUI mode**: You can run _simulation_starter.py_ and from the GUI you can navigate through the folder three until you enter directory _TDD_examples_ and then select one of the three folders contained with pre-compiled inpuput files. In the GUI window select **Add solution path** to select where to save the results (by default they are all collected in the directory _Simulation_results_, that is automatically created if does not already exist). User can create a new folder in this directory or open an existing one: the output (both .tsv files and .eps figures) will be saved in this folder.
+2. **Headless mode**: You can run the headless driver Python scripts in the respective folders of the test examples, or in general run these few line of codes:
+
+```
+    from simulation import Simulation
+
+    input_directory = './TDD_examples/CASE_1_ITER_like_LTS/'  # adapt path for other examples
+    simulation = Simulation(input_directory)
+    simulation.run()
+```
+
 
 ### Install requirements
 
