@@ -103,7 +103,16 @@ class Simulation:
             total_thermal_conductivity="conductivity",
         )
 
-    # end method __init__ (cdp, 06/2020)
+    
+    def run(self):
+        """Run the simulation workflow."""
+        self.conductor_instance()  # read input files
+        self.simulation_folders_manager(target_directory=self.basePath)  # create folders
+        self.save_input_files()  # create metadata
+        self.conductor_initialization()  # initialize conductors
+        self.conductor_solution()  # solve the numerical problem
+        self.conductor_post_processing()  # do post-processing
+
 
     def __count_sigfigs(self,num:Union[int,float]):
         """Private method that counts the number of significant digits.
