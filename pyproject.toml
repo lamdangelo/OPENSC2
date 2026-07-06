@@ -4,9 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "OPENSC2"
-version = "1.0.0"
-authors = [{name = "MAHTEP Group"}]
+version = "2.0.0"
+authors = [{name = "MAHTEP Group (PoliTo), SRS Group (IPP)"}]
 readme = "README.md"
+requires-python = ">=3.11"
 
 dependencies = [
 # Scientific computing
@@ -21,12 +22,12 @@ dependencies = [
 # Thermodynamics / engineering
 "CoolProp>=6.6",
 
-# Excel support
+# Excel / YAML input support
 "openpyxl>=3.1",
+"PyYAML>=6.0",
 
-# CLI / utilities
-"click>=8.1",
-"colorama>=0.4.6",
+# Typing backport (Self, used ahead of the stdlib py3.11 typing.Self)
+"typing_extensions>=4.9",
 
 # Interactive shell support
 "ipython>=8.20",
@@ -34,8 +35,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gui = ["PyQt5"] 
+# The GUI (opensc2_gui.py) uses tkinter, which ships with the Python
+# standard library (may require an OS-level Tk package, e.g. python3-tk).
 dev = [
+# Testing
+"pytest>=8.0",
+
 # Formatting / linting
 "black>=24.0",
 "ruff>=0.5",
