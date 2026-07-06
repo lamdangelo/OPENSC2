@@ -21,7 +21,10 @@ The developing team includes Prof. L. Savoldi[^1], Prof. F. Freschi, D. Placido[
 [^1]: Head of the [**MAHTEP** research group](http://www.mahtep.polito.it/).
 [^2]: PhD students @ the [**MAHTEP** research group](http://www.mahtep.polito.it/).
 
-The refactoring team includes Dr. Laura D'Angelo and Prof. Felix Warmer @ the Stellarator Reactor Studies research group at Max Planck Institute for Plasma Physics in Greifswald (Germany). More information about our refactoring and modernization work is found in [Refactoring and modernization](#refactoring-and-modernization).
+The refactoring team includes Dr. Laura D'Angelo and Prof. Felix Warmer @ the Stellarator Reactor Studies research group[^3] at Max Planck Institute for Plasma Physics in Greifswald (Germany). More information about our refactoring and modernization work is found in [Refactoring and modernization](#refactoring-and-modernization). We can be contacted at:
+
+* laura-anna-maria.dangelo@ipp.mpg.de
+* felix.warmer@ipp.mpg.de
 
 
 ### Goals
@@ -32,15 +35,15 @@ A detailed description of the physics and of the first tests carried out for the
 
 ## Refactoring and modernization
 
-Starting from the `develop` branch, OPENSC² underwent a substantial refactoring, modernization and performance-optimization effort, carried out by the **SRS group**[^3] at the Max Planck Institute for Plasma Physics in Greifswald (Germany) with the support of [Claude](https://claude.com/product/claude-code) (Anthropic). The full rationale and technical details are documented in [refactoring/OPENSC²_refactoring_summary.tex](refactoring/OPENSC²_refactoring_summary.tex); in short, the work covered three threads:
+Starting from the `develop` branch, OPENSC² underwent a substantial refactoring, modernization and performance-optimization effort, carried out by the **SRS group**[^3] at the Max Planck Institute for Plasma Physics in Greifswald (Germany) with the support of [Claude](https://claude.com/product/claude-code) (Anthropic). The full rationale and technical details are documented in [docs/OPENSC2_refactoring_summary.tex](docs/OPENSC2_refactoring_summary.tex); in short, the work covered three threads:
 
 * **Modularization** — the formerly monolithic source tree was split into physics-oriented packages with single-responsibility modules (`components`, `conductor`, `electromagnetics`, `hydraulics`, `thermal`, `physical_fields`, `interfaces`, `utility_functions`, ...), replacing multi-thousand-line files that mixed unrelated concerns.
-* **Modernization** — string-keyed dictionaries and Fortran-heritage identifiers were progressively replaced with typed data classes, enumerations and descriptive naming; a new **YAML input format** (schema documented in [refactoring/yaml_input_key_reference.pdf](refactoring/yaml_input_key_reference.pdf)) was introduced as a fully interchangeable, human-readable alternative to the Excel input files, with automatic conversion tooling and bit-identical backward compatibility.
+* **Modernization** — string-keyed dictionaries and Fortran-heritage identifiers were progressively replaced with typed data classes, enumerations and descriptive naming; a new **YAML input format** (schema documented in [docs/yaml_input_key_reference.tex](docs/yaml_input_key_reference.tex)) was introduced as a fully interchangeable, human-readable alternative to the Excel input files, with automatic conversion tooling and bit-identical backward compatibility.
 * **Computational efficiency** — sparse-matrix assembly, vectorized finite-element construction, LAPACK-based linear algebra, tabulated fluid properties, and a new adaptive time-integration layer (Galerkin and second-order backward-differentiation time steppers with error-controlled adaptive time stepping) were introduced. On the W7-X quench benchmark (17,000 linear elements) these changes reduced the wall time for a full 25 s transient from several hours to about 19 minutes, while every optimization step was numerically verified against a frozen solver state.
 
 This repository is currently a **fork** of the original MAHTEP OPENSC² project, hosting the above refactoring work. It may be merged back into the original project's branch at some point in the future.
 
-[^3]: [Stellarator Reactor Studies group](https://www.ipp.mpg.de/stellarator-reactor-studies) at the Max Planck Institute for Plasma Physics in Greifswald (Germany).
+[^3]: [**Stellarator Reactor Studies (SRS)**](https://www.ipp.mpg.de/stellarator-reactor-studies) at the Max Planck Institute for Plasma Physics in Greifswald (Germany).
 
 
 ## Get started
@@ -70,6 +73,12 @@ The GUI (`OPENSC²_gui.py`) is built with `tkinter`, part of the Python standard
 
 As an alternative, a **headless simulation** is possible, which allows for a pure scripted / command-line execution of OPENSC² without the GUI with a couple of lines of code (see the `headless_driver.py` files in the TDD examples).
 
+## Tests
+
+A regression test suite lives in [tests/](tests/): it runs the TDD examples headless and compares the produced solution and time-evolution outputs against committed reference data within a tight numerical tolerance. TDD example 1 (CASE_1_ITER_like_LTS) runs its full transient in both the YAML and the Excel input format; TDD examples 2 (CASE_2_ENEA_HTS_CICC) and 3 (CASE_3_HTS_HVDC) run shortened variants of their scenarios (the full transients are too long for a CI pipeline). The suite runs automatically on GitHub via [.github/workflows/tests.yml](.github/workflows/tests.yml) for every push and pull request; locally, execute it from the repository root with:
+
+    python -m pytest tests -v
+
 
 ## Help
 
@@ -82,12 +91,6 @@ The development team apologizes for the inconvenience and is committed to fixing
 
 The developing team wish to receive help form the users in the definition and test of new test cases, in the benchmark against other established software, in the inclusion of other functionalities.
 To contribute please refer to [contribution](CONTRIBUTION.md).
-
-### Tests
-
-A regression test suite lives in [tests/](tests/): it runs the TDD examples headless and compares the produced solution and time-evolution outputs against committed reference data within a tight numerical tolerance. TDD example 1 (CASE_1_ITER_like_LTS) runs its full transient in both the YAML and the Excel input format; TDD examples 2 (CASE_2_ENEA_HTS_CICC) and 3 (CASE_3_HTS_HVDC) run shortened variants of their scenarios (the full transients are too long for a CI pipeline). The suite runs automatically on GitHub via [.github/workflows/tests.yml](.github/workflows/tests.yml) for every push and pull request; locally, execute it from the repository root with:
-
-    python -m pytest tests -v
 
 ## Code of Conduct
 
