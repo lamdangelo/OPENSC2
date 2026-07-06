@@ -10,7 +10,7 @@ from conductor.conductor import Conductor
 from conductor.input_loader import ConductorInputLoader
 from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
-from environment import Environment
+from environment.environment import Environment
 from utility_functions.auxiliary_functions import (
     with_read_csv,
     with_read_excel,
