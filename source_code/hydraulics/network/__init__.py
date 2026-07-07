@@ -24,7 +24,6 @@ from hydraulics.network.coupling import (
     ResolvedPort,
     apply_network_port_boundary_conditions,
     build_coupled_network,
-    initialize_network_flow,
     resolve_network_coupling,
     solve_coupled_step,
 )

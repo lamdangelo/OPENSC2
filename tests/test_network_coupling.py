@@ -77,19 +77,22 @@ NETWORK_SECTION = {
 }
 
 
-def prepare_run_directory(tmp_path, name: str, with_network: bool) -> Path:
+def prepare_run_directory(tmp_path, name: str, network_section=None,
+                          end_time: float = SHORTENED_END_TIME,
+                          conductor_edits=None) -> Path:
     """Copy the CASE_1 YAML inputs and edit them into the shortened
-    scenario, optionally adding the degenerate hydraulic network."""
+    scenario: optionally add a hydraulic network section and apply extra
+    in-place edits to the conductor document (callback)."""
     run_directory = tmp_path / name
     run_directory.mkdir()
     copy_input_files(CASE_1_INPUT_DIRECTORY, run_directory, "yaml")
 
     simulation_file = run_directory / "simulation.yaml"
     simulation_document = yaml.safe_load(simulation_file.read_text())
-    simulation_document["simulation"]["end_time"] = SHORTENED_END_TIME
-    if with_network:
+    simulation_document["simulation"]["end_time"] = end_time
+    if network_section is not None:
         simulation_document["hydraulic_network"] = copy.deepcopy(
-            NETWORK_SECTION
+            network_section
         )
     simulation_file.write_text(
         yaml.safe_dump(simulation_document, sort_keys=False)
@@ -102,12 +105,25 @@ def prepare_run_directory(tmp_path, name: str, with_network: bool) -> Path:
     diagnostics["spatial_distribution_times"] = [
         save_time
         for save_time in diagnostics["spatial_distribution_times"]
-        if save_time <= SHORTENED_END_TIME
+        if save_time <= end_time
     ]
+    if conductor_edits is not None:
+        conductor_edits(conductor_document)
     conductor_file.write_text(
         yaml.safe_dump(conductor_document, sort_keys=False)
     )
     return run_directory
+
+
+def impose_pressure_drop_on_both_channels(conductor_document) -> None:
+    """Switch CHAN_1 and CHAN_2 to INTIAL = 1 (imposed pressure drop).
+
+    The two channels form one hydraulic-parallel group (open interface),
+    whose initialization requires a uniform INTIAL; the pressure values
+    (600 kPa / 590 kPa) are already in the committed input."""
+    for component in conductor_document["components"]:
+        if component["kind"] == "CHAN":
+            component["operations"]["hydraulic_boundary_condition"] = 1
 
 
 def run_simulation(run_directory: Path) -> Simulation:
@@ -134,14 +150,7 @@ def assert_fields_match(reference: np.ndarray, coupled: np.ndarray,
     )
 
 
-def test_degenerate_network_matches_fixed_pressure_boundary(tmp_path):
-    baseline = run_simulation(
-        prepare_run_directory(tmp_path, "baseline", with_network=False)
-    )
-    coupled = run_simulation(
-        prepare_run_directory(tmp_path, "coupled", with_network=True)
-    )
-
+def assert_conductors_match(baseline: Simulation, coupled: Simulation):
     baseline_conductor = baseline.list_of_Conductors[0]
     coupled_conductor = coupled.list_of_Conductors[0]
 
@@ -166,6 +175,20 @@ def test_degenerate_network_matches_fixed_pressure_boundary(tmp_path):
             f"{base_comp.identifier} temperature",
         )
 
+
+def test_degenerate_network_matches_fixed_pressure_boundary(tmp_path):
+    baseline = run_simulation(
+        prepare_run_directory(tmp_path, "baseline")
+    )
+    coupled = run_simulation(
+        prepare_run_directory(
+            tmp_path, "coupled", network_section=NETWORK_SECTION
+        )
+    )
+
+    assert_conductors_match(baseline, coupled)
+    coupled_conductor = coupled.list_of_Conductors[0]
+
     # Network-side consistency: the manifold sits R * mdot above the
     # reservoir, and the recovery line carries the CHAN_1 outlet flow (the
     # zero-volume node balance ties them; densities are frozen one step
@@ -185,3 +208,288 @@ def test_degenerate_network_matches_fixed_pressure_boundary(tmp_path):
         OUTLET_PRESSURE + VALVE_RESISTANCE * line_flow,
         rtol=1.0e-12,
     )
+
+
+# ----------------------------------------------------------------------- #
+# Stage 2: both channel ends coupled (pump loop)                           #
+# ----------------------------------------------------------------------- #
+
+INLET_PRESSURE = 600000.0  # CHAN_1/CHAN_2 inlet_pressure of CASE_1
+
+# Ideal pump loop: a droop-free pump pins the supply manifold exactly
+# head_at_zero_flow above the bath, and the near-ideal drain valve pins the
+# return manifold at the bath pressure -- reproducing the INTIAL = 1
+# imposed pressure drop.
+IDEAL_PUMP_LOOP_SECTION = {
+    "fluid_type": "helium",
+    "nodes": [
+        {
+            "identifier": "bath",
+            "kind": "reservoir",
+            "pressure": OUTLET_PRESSURE,
+            "temperature": 4.5,
+        },
+        {
+            "identifier": "supply",
+            "kind": "internal",
+            "initial_pressure": INLET_PRESSURE,
+            "initial_temperature": 4.5,
+        },
+        {
+            "identifier": "return",
+            "kind": "internal",
+            "initial_pressure": OUTLET_PRESSURE,
+            "initial_temperature": 4.5,
+        },
+    ],
+    "branches": [
+        {
+            "identifier": "pump",
+            "kind": "pump",
+            "from": "bath",
+            "to": "supply",
+            "characteristic": {
+                "head_at_zero_flow": INLET_PRESSURE - OUTLET_PRESSURE,
+            },
+        },
+        {
+            "identifier": "drain",
+            "kind": "valve",
+            "from": "return",
+            "to": "bath",
+            "linear_resistance": VALVE_RESISTANCE,
+        },
+    ],
+    "ports": [
+        {
+            "node": "supply",
+            "conductor": "CONDUCTOR_1",
+            "channel": "CHAN_1",
+            "end": "inlet",
+        },
+        {
+            "node": "return",
+            "conductor": "CONDUCTOR_1",
+            "channel": "CHAN_1",
+            "end": "outlet",
+        },
+    ],
+}
+
+
+def test_degenerate_pump_loop_matches_pressure_drop_boundary(tmp_path):
+    """Both ends of CHAN_1 coupled: in the ideal-pump limit the loop must
+    reproduce the INTIAL = 1 imposed-pressure-drop baseline."""
+    baseline = run_simulation(
+        prepare_run_directory(
+            tmp_path,
+            "baseline",
+            conductor_edits=impose_pressure_drop_on_both_channels,
+        )
+    )
+    coupled = run_simulation(
+        prepare_run_directory(
+            tmp_path,
+            "coupled",
+            network_section=IDEAL_PUMP_LOOP_SECTION,
+            conductor_edits=impose_pressure_drop_on_both_channels,
+        )
+    )
+
+    assert_conductors_match(baseline, coupled)
+
+    # Loop consistency: the ideal pump pins the supply manifold and feeds
+    # exactly the channel intake; the drain carries the discharge.
+    network = coupled.hydraulic_network
+    np.testing.assert_allclose(
+        network.node_pressure_of("supply"), INLET_PRESSURE, rtol=1.0e-12
+    )
+    chan_1 = next(
+        f_comp
+        for f_comp in coupled.list_of_Conductors[0].inventory.fluids.collection
+        if f_comp.identifier == "CHAN_1"
+    )
+    np.testing.assert_allclose(
+        network.branch_mass_flow_of("pump"),
+        chan_1.coolant.node_fields.mass_flow_rate[0],
+        rtol=1.0e-3,
+    )
+    np.testing.assert_allclose(
+        network.branch_mass_flow_of("drain"),
+        chan_1.coolant.node_fields.mass_flow_rate[-1],
+        rtol=1.0e-3,
+    )
+
+
+# Pump loop with a bypass: the physical stage-2 configuration. BOTH
+# channels are manifolded to the shared supply/return nodes -- the real
+# CICC plumbing, and essential numerically: the two channels are openly
+# connected along their whole length (hydraulic parallel), and a network
+# that moved only one channel's plenum pressure would drive a strongly
+# amplified differential between them (see
+# warn_on_partially_ported_parallel_groups). The manifolds carry real
+# compliance volumes so the loop relaxes smoothly from the declared
+# initial pressures to its operating point, and the pump is sized to put
+# that operating point near the committed 600 kPa supply state (total flow
+# ~0.026 kg/s: two channel intakes ~0.021 plus ~0.005 through the bypass).
+PUMP_HEAD = 2.015e4  # Pa
+PUMP_DROOP = 1.5e7  # Pa/(kg/s)^2
+BYPASS_RESISTANCE = 4.0e8  # Pa/(kg/s)^2
+MANIFOLD_VOLUME = 2.0e-2  # m^3
+
+BYPASS_LOOP_SECTION = {
+    "fluid_type": "helium",
+    "nodes": [
+        {
+            "identifier": "bath",
+            "kind": "reservoir",
+            "pressure": OUTLET_PRESSURE,
+            "temperature": 4.5,
+        },
+        {
+            "identifier": "supply",
+            "kind": "internal",
+            "initial_pressure": INLET_PRESSURE,
+            "initial_temperature": 4.5,
+            "volume": MANIFOLD_VOLUME,
+        },
+        {
+            "identifier": "return",
+            "kind": "internal",
+            "initial_pressure": OUTLET_PRESSURE,
+            "initial_temperature": 4.5,
+            "volume": MANIFOLD_VOLUME,
+        },
+    ],
+    "branches": [
+        {
+            "identifier": "pump",
+            "kind": "pump",
+            "from": "bath",
+            "to": "supply",
+            "characteristic": {
+                "head_at_zero_flow": PUMP_HEAD,
+                "quadratic_coefficient": PUMP_DROOP,
+            },
+        },
+        {
+            "identifier": "bypass",
+            "kind": "valve",
+            "from": "supply",
+            "to": "return",
+            "quadratic_resistance": BYPASS_RESISTANCE,
+        },
+        {
+            "identifier": "drain",
+            "kind": "valve",
+            "from": "return",
+            "to": "bath",
+            "linear_resistance": 100.0,
+        },
+    ],
+    "ports": [
+        {
+            "node": "supply",
+            "conductor": "CONDUCTOR_1",
+            "channel": channel,
+            "end": "inlet",
+        }
+        for channel in ("CHAN_1", "CHAN_2")
+    ] + [
+        {
+            "node": "return",
+            "conductor": "CONDUCTOR_1",
+            "channel": channel,
+            "end": "outlet",
+        }
+        for channel in ("CHAN_1", "CHAN_2")
+    ],
+}
+
+REDISTRIBUTION_END_TIME = 2.5
+
+
+def boost_heat_pulse(conductor_document) -> None:
+    """Retime the committed STR_MIX_1 heat pulse (500 W at 6-10 s over
+    0.2 m) into the shortened window and strengthen it, so the channel
+    impedance visibly rises during the run."""
+    for component in conductor_document["components"]:
+        if component["identifier"] == "STR_MIX_1":
+            operations = component["operations"]
+            operations["heat_flux_time_start"] = 0.3
+            operations["heat_flux_time_end"] = 2.4
+            operations["heat_flux_position_start"] = 0.5
+            operations["heat_flux_position_end"] = 8.0
+            operations["heat_flux_amplitude"] = 5000
+
+
+def total_channel_intake(simulation: Simulation) -> float:
+    """Combined mass flow drawn from the supply manifold by the coupled
+    channels (positive into the channels), from the resolved ports."""
+    return -sum(
+        port.mass_flow_into_node()
+        for port in simulation.list_of_Conductors[0].network_ports
+        if port.end.value == "inlet"
+    )
+
+
+def test_pump_loop_redistributes_flow_into_bypass(tmp_path):
+    """The stage-2 physics no fixed-boundary run can reproduce: when the
+    heat pulse raises the channel impedance, the channel intake must drop
+    and the bypass take over, while the pump flow (stabilized by its droop)
+    changes less than the channel flow.
+
+    The pulse effect is isolated by comparing against a control run with
+    the identical pump loop but the committed (inert, t = 6-10 s) heat
+    pulse: both runs share the mild settling transient of the loop."""
+    def control_edits(conductor_document):
+        impose_pressure_drop_on_both_channels(conductor_document)
+
+    def pulsed_edits(conductor_document):
+        impose_pressure_drop_on_both_channels(conductor_document)
+        boost_heat_pulse(conductor_document)
+
+    runs = {}
+    for name, edits in (("control", control_edits), ("pulsed", pulsed_edits)):
+        runs[name] = run_simulation(
+            prepare_run_directory(
+                tmp_path,
+                name,
+                network_section=BYPASS_LOOP_SECTION,
+                end_time=REDISTRIBUTION_END_TIME,
+                conductor_edits=edits,
+            )
+        )
+
+    intake = {name: total_channel_intake(run) for name, run in runs.items()}
+    bypass = {
+        name: run.hydraulic_network.branch_mass_flow_of("bypass")
+        for name, run in runs.items()
+    }
+    pump = {
+        name: run.hydraulic_network.branch_mass_flow_of("pump")
+        for name, run in runs.items()
+    }
+
+    assert intake["control"] > 0.0
+    # Observed redistribution: the pulse collapses the channel intake by
+    # ~70% (0.021 -> 0.006 kg/s) with the bypass rising 0.005 -> 0.0085 and
+    # the pump riding up its droop curve (supply 600 -> 606 kPa); 0.2 keeps
+    # a comfortable margin while catching any gross physics regression.
+    relative_drop = 1.0 - intake["pulsed"] / intake["control"]
+    assert relative_drop > 0.2, (
+        f"channel intake should drop during the pulse, got a relative "
+        f"change of {relative_drop:.3e}"
+    )
+    assert bypass["pulsed"] > bypass["control"]
+    # The bypass absorbs the redistribution: the pump flow moves less than
+    # the channel flow.
+    assert abs(pump["pulsed"] - pump["control"]) < abs(
+        intake["pulsed"] - intake["control"]
+    )
+    # The reduced pump flow must sit higher on the droop curve.
+    supply_pressure = {
+        name: run.hydraulic_network.node_pressure_of("supply")
+        for name, run in runs.items()
+    }
+    assert supply_pressure["pulsed"] > supply_pressure["control"]

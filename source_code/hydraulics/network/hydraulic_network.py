@@ -535,6 +535,62 @@ class HydraulicNetwork:
                 f"{self.num_step}: {self.node_pressure[bad]} Pa."
             )
 
+    def initialize_branch_flows_from_pressures(
+        self,
+        max_iterations: int = 200,
+        tolerance: float = 1.0e-12,
+        relaxation: float = 0.5,
+    ):
+        """Initialize every branch flow from the user-given node pressures
+        through the branch's own characteristic, leaving the pressures
+        untouched.
+
+        This respects the declared initial condition: any residual node
+        imbalance is resolved by the transient itself -- through the
+        compliance of nodes with volume, or instantaneously by the
+        algebraic balance of zero-volume junctions, which moves flows, not
+        pressures. (An initialization that relocated the node pressures to
+        the network's own operating point would apply a pressure step to
+        the coupled channel ends on the first time step.)
+
+        Branches whose linearized resistance vanishes together with their
+        driving pressure difference (e.g. an ideal pump exactly matched by
+        its node pressures) keep their declared initial flow; the first
+        transient step determines the flow through the node balances."""
+        for b in range(len(self.branch_inputs)):
+            if self.branch_mass_flow[b] == 0.0:
+                self.branch_mass_flow[b] = STEADY_STATE_FLOW_SEED
+        for _ in range(max_iterations):
+            self.update_properties()
+            resistance, pump_head = self._branch_resistance_and_source()
+            driving = pump_head + (
+                self.node_pressure[self._branch_from]
+                - self.node_pressure[self._branch_to]
+            )
+            flows = np.where(
+                resistance > 0.0,
+                driving / np.where(resistance > 0.0, resistance, 1.0),
+                np.array([
+                    branch.initial_mass_flow for branch in self.branch_inputs
+                ]),
+            )
+            change = np.abs(flows - self.branch_mass_flow).max() / max(
+                np.abs(flows).max(), 1.0e-30
+            )
+            if change < tolerance:
+                self.branch_mass_flow = flows
+                break
+            self.branch_mass_flow = (
+                relaxation * flows
+                + (1.0 - relaxation) * self.branch_mass_flow
+            )
+        self._solution_history[:, 0] = self._pack_state()
+        self._solution_history[:, 1] = self._solution_history[:, 0]
+        self._last_source = None
+        self._previous_source = None
+        self.num_step = 0
+        self.previous_time_step = 0.0
+
     def solve_steady_state(
         self,
         max_iterations: int = 200,

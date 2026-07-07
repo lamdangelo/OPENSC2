@@ -38,6 +38,7 @@ conductor, and each port end must be one where the channel's own boundary
 condition imposes pressure (the port takes over exactly that row).
 """
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -203,18 +204,45 @@ def resolve_network_coupling(network: HydraulicNetwork, conductors: list):
         network.coupled_node_identifiers.add(port_input.node)
 
 
-def initialize_network_flow(network: HydraulicNetwork, conductor):
-    """Steady-solve the network with the conductor's initial port flows as
-    frozen external sources, so the transient starts from a consistent
-    network state (the network analog of the gen_flow initialization)."""
-    prescribed_sources = dict(network.external_mass_sources)
-    for port in conductor.network_ports:
-        network.external_mass_sources[port.node_identifier] = (
-            network.external_mass_sources.get(port.node_identifier, 0.0)
-            + port.mass_flow_into_node()
-        )
-    network.solve_steady_state()
-    network.external_mass_sources = prescribed_sources
+def warn_on_partially_ported_parallel_groups(network: HydraulicNetwork,
+                                             conductor):
+    """Warn when a ported channel has hydraulic-parallel partners (open
+    interface along the length) that are not ported to the same node at the
+    same end.
+
+    A network node then moves the ported channel's end pressure relative to
+    its partners' fixed boundary values, and a differential plenum pressure
+    between openly connected parallel channels is strongly amplified by the
+    transverse exchange terms (measured on CASE_1: a common-mode 10 Pa
+    boundary shift responds with ~1e-5 K, the same shift on one channel
+    only with ~1 K scale). Legitimate only when the differential stays
+    negligible."""
+    ported = {
+        (port.fluid_component.identifier, port.end): port.node_identifier
+        for port in conductor.network_ports
+    }
+    groups = conductor.dict_topology["ch_ch"]["Hydraulic_parallel"]
+    for group_data in groups.values():
+        group = [f_comp.identifier for f_comp in group_data["Group"]]
+        for (channel, end), node in ported.items():
+            if channel not in group:
+                continue
+            unmatched = [
+                partner for partner in group
+                if partner != channel and ported.get((partner, end)) != node
+            ]
+            if unmatched:
+                warnings.warn(
+                    f"Channel {channel!r} is ported to network node "
+                    f"{node!r} at its {end.value}, but its hydraulic-"
+                    f"parallel partner(s) {unmatched} are not ported to the "
+                    "same node there. The network can then drive a "
+                    "differential plenum pressure between openly connected "
+                    "channels, which is strongly amplified by the "
+                    "transverse exchange terms; port all channels of the "
+                    "group to the shared manifold unless the differential "
+                    "is guaranteed to stay negligible."
+                )
 
 
 def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
@@ -248,7 +276,13 @@ def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
         inputs, method=conductor.inputs.thermohydraulic_method
     )
     resolve_network_coupling(network, simulation.list_of_Conductors)
-    initialize_network_flow(network, conductor)
+    warn_on_partially_ported_parallel_groups(network, conductor)
+    # Initialize the branch flows from the declared node pressures without
+    # relocating the pressures themselves: the coupled channels were
+    # initialized against those values, and moving a port node to the
+    # network's own operating point would step the channel end pressure on
+    # the first time step.
+    network.initialize_branch_flows_from_pressures()
     return network
 
 
