@@ -1,12 +1,12 @@
 """Lumped-parameter hydraulic network (hydraulic field-circuit coupling).
 
-Stage 0 of the coupling plan: the network is defined by the
-``hydraulic_network:`` section of ``simulation.yaml`` (parsed and validated
-in :mod:`hydraulics.network.network_inputs`) and solved standalone by
-:class:`hydraulics.network.hydraulic_network.HydraulicNetwork`. The port
-declarations that couple network nodes to conductor channel ends are parsed
-and validated against the network topology here, but their resolution to
-FluidComponent boundary conditions (the bordered solve) is stage 1.
+The network is defined by the ``hydraulic_network:`` section of
+``simulation.yaml`` (parsed and validated in
+:mod:`hydraulics.network.network_inputs`) and solved by
+:class:`hydraulics.network.hydraulic_network.HydraulicNetwork` -- standalone
+(stage 0) or coupled to conductor channel ends through the port
+declarations, resolved and solved monolithically with the bordered Schur
+complement machinery of :mod:`hydraulics.network.coupling` (stage 1).
 """
 
 from hydraulics.network.network_inputs import (
@@ -20,3 +20,11 @@ from hydraulics.network.network_inputs import (
     PumpCharacteristic,
 )
 from hydraulics.network.hydraulic_network import HydraulicNetwork
+from hydraulics.network.coupling import (
+    ResolvedPort,
+    apply_network_port_boundary_conditions,
+    build_coupled_network,
+    initialize_network_flow,
+    resolve_network_coupling,
+    solve_coupled_step,
+)

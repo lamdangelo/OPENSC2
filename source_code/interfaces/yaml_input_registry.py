@@ -174,6 +174,13 @@ class YamlInputRegistry:
             self.document["environment"], schema_v2.ENVIRONMENT_KEYS
         )
 
+    def hydraulic_network(self) -> Optional[Dict[str, Any]]:
+        """Raw mapping of the optional top-level ``hydraulic_network:``
+        section (parsed by hydraulics.network.network_inputs), or None.
+        This is a new YAML-only section with no legacy workbook
+        counterpart, so no key translation is involved."""
+        return self.document.get("hydraulic_network")
+
     @property
     def conductor_count(self) -> int:
         return len(self.conductor_documents)

@@ -195,9 +195,17 @@ class HydraulicNetwork:
         }
 
         # External mass sources into internal nodes, by node identifier
-        # (kg/s, positive into the node). Stage 1 injects the conductor port
-        # flows here / through the coupling blocks.
+        # (kg/s, positive into the node); used for genuinely prescribed
+        # sources and for the steady initialization with frozen port flows.
         self.external_mass_sources = {}
+
+        # Identifiers of internal nodes whose mass balance receives an
+        # implicit conductor port flow (filled by the port resolution).
+        # Their rows are enforced fully implicitly by assemble_transient:
+        # the port term has no old-time-level counterpart in the network
+        # known term, so a theta blend of the rest of the row would mix
+        # time levels inconsistently at the interface.
+        self.coupled_node_identifiers = set()
 
         # Frozen properties, filled by update_properties.
         self.node_capacitance = np.zeros(number_of_nodes)
@@ -225,6 +233,22 @@ class HydraulicNetwork:
 
     def branch_mass_flow_of(self, identifier: str) -> float:
         return float(self.branch_mass_flow[self.branch_index[identifier]])
+
+    def state_vector(self) -> np.ndarray:
+        """Current state in unknown-vector layout
+        [internal node pressures | branch mass flows]."""
+        return self._pack_state()
+
+    def internal_node_unknown_index(self, identifier: str) -> int:
+        """Position of an internal node's pressure in the unknown vector
+        (which is also its equation row); raises for reservoirs."""
+        node_index = self.node_index[identifier]
+        positions = np.nonzero(self.internal_node_indices == node_index)[0]
+        if positions.size == 0:
+            raise ValueError(
+                f"Network node {identifier!r} is not an internal node."
+            )
+        return int(positions[0])
 
     def _pack_state(self) -> np.ndarray:
         return np.concatenate(
@@ -382,8 +406,9 @@ class HydraulicNetwork:
         Algebraic rows (no storage term) are enforced fully implicitly: the
         theta blend on a constraint row would only damp -- for
         Crank-Nicolson, indefinitely sustain -- an initial constraint
-        residual instead of eliminating it. BDF2 rows with zero mass are
-        implicit by construction."""
+        residual instead of eliminating it. Node rows flagged in
+        coupled_node_identifiers get the same treatment (see the attribute
+        comment). BDF2 rows are implicit by construction."""
         mass, stiffness, source = self._assemble_raw()
         old_solution = self._solution_history[:, 0]
         if self.method is MethodFlag.BACKWARD_DIFFERENCE_2:
@@ -407,9 +432,17 @@ class HydraulicNetwork:
                 + self.theta * source
                 + (1.0 - self.theta) * previous_source
             )
-            algebraic = mass == 0.0
-            matrix[algebraic, :] = stiffness[algebraic, :]
-            known_term[algebraic] = source[algebraic]
+            implicit = mass == 0.0
+            for identifier in self.coupled_node_identifiers:
+                implicit[self.internal_node_unknown_index(identifier)] = True
+            # Backward Euler on the flagged rows; for the algebraic rows
+            # (zero mass) this reduces to the plain implicit constraint.
+            matrix[implicit, :] = (
+                np.diag(mass) / time_step + stiffness
+            )[implicit, :]
+            known_term[implicit] = (
+                mass / time_step * old_solution + source
+            )[implicit]
         self._last_source = source
         return matrix, known_term
 

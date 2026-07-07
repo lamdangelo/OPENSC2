@@ -140,8 +140,13 @@ class Conductor:
         self.workbook_sheet_name = loader.conductor_sheet_names
 
         # TODO: loading and checking external files if any
-        
+
         self.inventory: ComponentInventory = ComponentInventory.empty()
+
+        # Hydraulic network ports of this conductor (ResolvedPort list,
+        # filled by hydraulics.network.coupling.resolve_network_coupling);
+        # empty when the conductor is not coupled to a network.
+        self.network_ports = []
 
 
     # end method __init__ (cdp, 11/2020)

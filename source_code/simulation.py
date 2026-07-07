@@ -11,6 +11,7 @@ from conductor.input_loader import ConductorInputLoader
 from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
 from environment.environment import Environment
+from hydraulics.network.coupling import build_coupled_network
 from utility_functions.auxiliary_functions import (
     with_read_csv,
     with_read_excel,
@@ -71,6 +72,10 @@ class Simulation:
                 usecols=["Variable name", "Value"],
             )["Value"].to_dict()
         self.flag_start = False
+        # Optional lumped hydraulic network coupled to conductor channel
+        # ends; built in conductor_initialization from the YAML input
+        # (see hydraulics/network).
+        self.hydraulic_network = None
         # get the order of maginitude of the minimum time step to make proper 
         # rounds to when saving data and figures of solution spatial 
         # distribution at default or User defined times.
@@ -289,6 +294,17 @@ class Simulation:
                 # End if all(self.contactBetweenConductors[rr, rr + 1:])
                 # End for rr.
         # end if numObj
+
+        # Build, resolve and initialize the optional hydraulic network
+        # coupled to conductor channel ends. Must run after the conductor
+        # loop above: the port resolution reuses the boundary-condition
+        # equation indices and the initial flow built there.
+        if self.yaml_registry is not None:
+            network_mapping = self.yaml_registry.hydraulic_network()
+            if network_mapping is not None:
+                self.hydraulic_network = build_coupled_network(
+                    self, network_mapping
+                )
 
     # end method Conductor_initialization
 

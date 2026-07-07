@@ -209,6 +209,19 @@ def test_from_mapping_parses_full_section():
             ],
             "unknown node",
         ),
+        (
+            [reservoir("a", 1.0e5), reservoir("b", 2.0e5)],
+            [valve("v", "a", "b", linear_resistance=1.0e9)],
+            [
+                {
+                    "node": "a",
+                    "conductor": "CONDUCTOR_1",
+                    "channel": "CHAN_1",
+                    "end": "inlet",
+                }
+            ],
+            "must reference an internal node",
+        ),
     ],
 )
 def test_validation_rejects_bad_input(nodes, branches, ports, message):
@@ -500,6 +513,42 @@ def test_bdf2_is_more_accurate_than_backward_euler():
         errors[MethodFlag.BACKWARD_DIFFERENCE_2]
         < errors[MethodFlag.BACKWARD_EULER]
     )
+
+
+def test_internal_node_unknown_index():
+    network = build_network(
+        [reservoir("bath", 5.0e5), internal("vessel", 5.0e5, volume=1.0e-3)],
+        [valve("fill", "bath", "vessel", linear_resistance=1.0e9)],
+    )
+    assert network.internal_node_unknown_index("vessel") == 0
+    with pytest.raises(ValueError, match="not an internal node"):
+        network.internal_node_unknown_index("bath")
+
+
+def test_coupled_node_rows_are_backward_euler_under_crank_nicolson():
+    # A node flagged as coupled (its balance receives an implicit conductor
+    # port flow) must be discretized with backward Euler even when the
+    # network runs Crank-Nicolson, matching the fully implicit treatment of
+    # the interface on the field side.
+    def assembled(method, coupled):
+        network, *_ = filling_network(method)
+        if coupled:
+            network.coupled_node_identifiers.add("vessel")
+        network.update_properties()
+        return network, *network.assemble_transient(1.0)
+
+    network_cn, matrix_cn, known_cn = assembled(
+        MethodFlag.CRANK_NICOLSON, coupled=True
+    )
+    _, matrix_be, known_be = assembled(MethodFlag.BACKWARD_EULER,
+                                       coupled=False)
+    _, matrix_cn_plain, _ = assembled(MethodFlag.CRANK_NICOLSON,
+                                      coupled=False)
+    vessel_row = network_cn.internal_node_unknown_index("vessel")
+    assert np.allclose(matrix_cn[vessel_row], matrix_be[vessel_row])
+    assert known_cn[vessel_row] == pytest.approx(known_be[vessel_row])
+    # Sanity: without the flag the Crank-Nicolson row genuinely differs.
+    assert not np.allclose(matrix_cn_plain[vessel_row], matrix_be[vessel_row])
 
 
 def test_crank_nicolson_enforces_junction_constraint_exactly():

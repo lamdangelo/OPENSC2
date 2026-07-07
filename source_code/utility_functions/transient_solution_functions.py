@@ -46,6 +46,10 @@ from hydraulics.momentum_equation import (
     build_smat_fluid_momentum,
     build_smat_fluid_interface_momentum,
 )
+from hydraulics.network.coupling import (
+    apply_network_port_boundary_conditions,
+    solve_coupled_step,
+)
 from thermal.thermal_flags import HeatExcitation
 
 # Absolute magnitude floors used to normalize the per-field local truncation
@@ -626,6 +630,15 @@ def step(conductor, environment, qsource, num_step):
             path,
         )
 
+    # Overlay the hydraulic network port rows (pressure continuity and
+    # inflow temperature) on top of the standard boundary conditions.
+    if conductor.network_ports:
+        known_term_vector, system_matrix = (
+            apply_network_port_boundary_conditions(
+                conductor, known_term_vector, system_matrix
+            )
+        )
+
     # DIAGONAL ROW SCALING
 
     # SELECT THE MAX FOR EACH ROW
@@ -655,10 +668,21 @@ def step(conductor, environment, qsource, num_step):
         }
     )
 
-    # Compute the solution at the current time step.
-    solution = solve_thermal_banded_system(
-        conductor, system_matrix, known_term_vector
-    )
+    # Compute the solution at the current time step: a plain banded solve,
+    # or the bordered field + network solve when the conductor has
+    # hydraulic network ports (which also advances the network state).
+    if conductor.network_ports:
+        solution = solve_coupled_step(
+            conductor,
+            conductor.network_ports[0].network,
+            system_matrix,
+            known_term_vector,
+            row_scaling_factors,
+        )
+    else:
+        solution = solve_thermal_banded_system(
+            conductor, system_matrix, known_term_vector
+        )
 
     # Estimate the local truncation error of this step from the deviation of
     # the solution from its linear extrapolation in time; must run before the
@@ -784,9 +808,13 @@ def solve_thermal_banded_system(
     ``system_matrix[half_band + j - i, i] = a[i, j]``. LAPACK band storage
     wants ``ab[half_band + i - j, j] = a[i, j]``, so each diagonal is
     remapped with a shifted slice copy before the solve.
+
+    ``known_term`` may also carry several right-hand-side columns (shape
+    ``(n, k)``), all solved with the single factorization -- used by the
+    bordered hydraulic-network solve.
     """
     half_band = conductor.band.number_of_subdiagonals
-    number_of_equations = known_term.size
+    number_of_equations = known_term.shape[0]
     lapack_band = np.zeros((2 * half_band + 1, number_of_equations))
     for diagonal in range(-half_band, half_band + 1):
         first = max(0, -diagonal)

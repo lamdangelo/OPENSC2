@@ -439,6 +439,16 @@ class HydraulicNetworkInput:
                     f"Network port of {port.conductor}/{port.channel} "
                     f"references unknown node {port.node!r}."
                 )
+            if (
+                node_by_identifier[port.node].kind
+                is not NetworkNodeKind.INTERNAL
+            ):
+                raise ValueError(
+                    f"Network port of {port.conductor}/{port.channel} must "
+                    f"reference an internal node; {port.node!r} is a "
+                    "reservoir (a fixed-pressure port is just the ordinary "
+                    "imposed-pressure boundary condition)."
+                )
             key = (port.conductor, port.channel, port.end)
             if key in seen:
                 raise ValueError(
