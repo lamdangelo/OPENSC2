@@ -27,6 +27,18 @@ linearize-at-old-state pattern of the 1D solver (see
 hydraulics.momentum_equation.build_smat_fluid_momentum). One linear solve
 advances a time step; there is no sub-iteration.
 
+Energy transport (stage 4): the internal node temperatures are advanced by
+a segregated backward Euler step of the node enthalpy balances after every
+pressure/flow solve (:meth:`update_node_temperatures`) -- inflows carry
+the upstream temperature, outflows the node's own well-mixed temperature.
+The resulting temperature rate feeds the thermal-expansion part of the
+node mass storage,
+
+    d(rho V)/dt = V * (rho kappa_T dp/dt - rho beta dT/dt),
+
+into the next step's mass balance as a lagged known source (heating a
+node acts as a mass source pushing flow out).
+
 Time discretization mirrors the conductor (theta family and variable-step
 BDF2, selected with conductor_flags.MethodFlag). Rows without a storage
 term (zero-volume junctions, zero-inertance branches) are algebraic
@@ -71,10 +83,13 @@ _THETA_BY_METHOD = {
 _NODE_PROPERTY_ALIASES = {
     "total_density": "Dmass",
     "isothermal_compressibility": "isothermal_compressibility",
+    "isobaric_expansion_coefficient": "isobaric_expansion_coefficient",
+    "total_isobaric_specific_heat": "Cpmass",
 }
 _BRANCH_PROPERTY_ALIASES = {
     "total_density": "Dmass",
     "total_dynamic_viscosity": "viscosity",
+    "total_isobaric_specific_heat": "Cpmass",
 }
 
 
@@ -179,6 +194,10 @@ class HydraulicNetwork:
         self.branch_inertance = np.array(
             [branch.resolved_inertance() for branch in self.branch_inputs]
         )
+        # Temperature rate of change of the last completed step (zero at
+        # reservoirs): the lagged dT/dt of the thermal-expansion source in
+        # the node mass balances.
+        self.node_temperature_rate = np.zeros(number_of_nodes)
 
         # Channel-style friction models of the pipe branches.
         self._friction_models = {
@@ -209,8 +228,12 @@ class HydraulicNetwork:
 
         # Frozen properties, filled by update_properties.
         self.node_capacitance = np.zeros(number_of_nodes)
+        self.node_density = np.zeros(number_of_nodes)
+        self.node_isobaric_specific_heat = np.zeros(number_of_nodes)
+        self.node_expansion_coefficient = np.zeros(number_of_nodes)
         self.branch_density = np.zeros(number_of_branches)
         self.branch_dynamic_viscosity = np.zeros(number_of_branches)
+        self.branch_isobaric_specific_heat = np.zeros(number_of_branches)
         self.update_properties()
 
         # Record of the state time evolution (node pressures and branch
@@ -245,6 +268,9 @@ class HydraulicNetwork:
     def branch_mass_flow_of(self, identifier: str) -> float:
         return float(self.branch_mass_flow[self.branch_index[identifier]])
 
+    def node_temperature_of(self, identifier: str) -> float:
+        return float(self.node_temperature[self.node_index[identifier]])
+
     def state_vector(self) -> np.ndarray:
         """Current state in unknown-vector layout
         [internal node pressures | branch mass flows]."""
@@ -252,14 +278,17 @@ class HydraulicNetwork:
 
     def time_evolution_headers(self) -> list:
         """Column headers of the state time-evolution record: time, the
-        pressure of every node (reservoirs included, documenting the
-        references) and the mass flow rate of every branch. Node
-        temperatures are prescribed inputs until the network-side energy
-        transport stage and are not recorded."""
+        pressure and temperature of every node (reservoirs included,
+        documenting the fixed references) and the mass flow rate of every
+        branch."""
         return (
             ["time (s)"]
             + [
                 f"pressure_{node.identifier} (Pa)"
+                for node in self.node_inputs
+            ]
+            + [
+                f"temperature_{node.identifier} (K)"
                 for node in self.node_inputs
             ]
             + [
@@ -275,6 +304,9 @@ class HydraulicNetwork:
         for node in self.node_inputs:
             record[f"pressure_{node.identifier} (Pa)"].append(
                 self.node_pressure_of(node.identifier)
+            )
+            record[f"temperature_{node.identifier} (K)"].append(
+                self.node_temperature_of(node.identifier)
             )
         for branch in self.branch_inputs:
             record[f"mass_flow_rate_{branch.identifier} (kg/s)"].append(
@@ -327,9 +359,16 @@ class HydraulicNetwork:
             self.node_temperature,
             self.node_pressure,
         )
+        self.node_density = node_properties["total_density"]
+        self.node_isobaric_specific_heat = node_properties[
+            "total_isobaric_specific_heat"
+        ]
+        self.node_expansion_coefficient = node_properties[
+            "isobaric_expansion_coefficient"
+        ]
         self.node_capacitance = (
             self.node_volume
-            * node_properties["total_density"]
+            * self.node_density
             * node_properties["isothermal_compressibility"]
         )
         upstream = np.where(
@@ -348,6 +387,9 @@ class HydraulicNetwork:
         self.branch_density = branch_properties["total_density"]
         self.branch_dynamic_viscosity = branch_properties[
             "total_dynamic_viscosity"
+        ]
+        self.branch_isobaric_specific_heat = branch_properties[
+            "total_isobaric_specific_heat"
         ]
 
     def _branch_resistance_and_source(self) -> tuple:
@@ -421,9 +463,22 @@ class HydraulicNetwork:
         stiffness[:number_of_internal, number_of_internal:] = (
             internal_incidence
         )
+        # Thermal-expansion part of the node mass storage, known from the
+        # segregated temperature update of the previous step (see the
+        # module docstring): heating a node expands the fluid and acts as
+        # a mass source pushing flow out.
+        expansion_source = (
+            self.node_volume
+            * self.node_density
+            * self.node_expansion_coefficient
+            * self.node_temperature_rate
+        )
         for local, node_index in enumerate(self.internal_node_indices):
-            source[local] = self.external_mass_sources.get(
-                self.node_inputs[node_index].identifier, 0.0
+            source[local] = (
+                self.external_mass_sources.get(
+                    self.node_inputs[node_index].identifier, 0.0
+                )
+                + expansion_source[node_index]
             )
 
         # Branch rows: L_b dmdot_b/dt + R_b mdot_b - sum_i N[i, b] p_i
@@ -557,6 +612,7 @@ class HydraulicNetwork:
         matrix, known_term = self.assemble_transient(time_step)
         solution = self._solve(matrix, known_term)
         self.advance(solution, time_step)
+        self.update_node_temperatures(time_step)
         return solution
 
     def advance(self, solution: np.ndarray, time_step: float):
@@ -583,6 +639,111 @@ class HydraulicNetwork:
                 f"{self.num_step}: {self.node_pressure[bad]} Pa."
             )
 
+    def update_node_temperatures(self, time_step: float, port_inflows=None):
+        """Advance the internal node temperatures by one backward Euler
+        step of the node enthalpy balances (the network-side energy
+        transport), using the flows just computed by the pressure/flow
+        solve.
+
+        Subtracting h_node times the mass balance from the total energy
+        balance of a well-mixed node leaves only the inflows:
+
+            (rho V cp)_n dT_n/dt = sum_inflows mdot_in * cp * (T_up - T_n)
+
+        with cp * (T_up - T_n) as the Picard approximation of
+        h_in - h_node (branch cp frozen at the branch upstream state, node
+        heat capacity at the node state). Outflows carry the node
+        temperature and cancel; external mass sources have no declared
+        temperature and are treated as thermally neutral (entering at the
+        node temperature). A zero-volume node reduces to the algebraic
+        flow-weighted inflow mixture; a node with neither storage nor
+        inflow keeps its temperature. Reservoir temperatures are fixed
+        boundary values.
+
+        ``port_inflows`` maps a node identifier to a list of
+        (mass_flow_into_node, temperature) pairs of its conductor ports,
+        evaluated at the new field state by the coupled solve; negative
+        (channel-feeding) port flows are skipped for the same
+        outflow-cancellation reason.
+
+        The balance is re-linearized every step (upwind directions from
+        the just-computed flows, coefficients frozen at the old state), so
+        it is enforced fully implicitly regardless of the pressure/flow
+        method -- like the coupled node rows of assemble_transient. The
+        resulting temperature rate is stored and feeds the
+        V rho beta dT/dt expansion source of the next step's mass
+        balances."""
+        number_of_internal = self.internal_node_indices.size
+        if number_of_internal == 0:
+            return
+        local_of = {
+            node_index: local
+            for local, node_index in enumerate(self.internal_node_indices)
+        }
+        old_temperature = self.node_temperature[self.internal_node_indices]
+        heat_capacity_rate = (
+            self.node_volume
+            * self.node_density
+            * self.node_isobaric_specific_heat
+        )[self.internal_node_indices] / time_step
+        matrix = np.diag(heat_capacity_rate)
+        known_term = heat_capacity_rate * old_temperature
+
+        for b in range(len(self.branch_inputs)):
+            flow = self.branch_mass_flow[b]
+            if flow >= 0.0:
+                upstream, downstream = self._branch_from[b], self._branch_to[b]
+            else:
+                upstream, downstream = self._branch_to[b], self._branch_from[b]
+            local = local_of.get(downstream)
+            if local is None:
+                continue
+            advective = abs(flow) * self.branch_isobaric_specific_heat[b]
+            matrix[local, local] += advective
+            upstream_local = local_of.get(upstream)
+            if upstream_local is None:
+                known_term[local] += (
+                    advective * self.node_temperature[upstream]
+                )
+            else:
+                matrix[local, upstream_local] -= advective
+        for identifier, inflows in (port_inflows or {}).items():
+            node_index = self.node_index[identifier]
+            local = local_of[node_index]
+            specific_heat = self.node_isobaric_specific_heat[node_index]
+            for mass_flow, temperature in inflows:
+                if mass_flow <= 0.0:
+                    continue
+                matrix[local, local] += mass_flow * specific_heat
+                known_term[local] += (
+                    mass_flow * specific_heat * temperature
+                )
+        # Every off-diagonal entry comes with a matching diagonal one, so a
+        # zero diagonal means an empty balance (no storage, no inflow):
+        # hold the temperature.
+        stagnant = np.flatnonzero(matrix.diagonal() == 0.0)
+        matrix[stagnant, stagnant] = 1.0
+        known_term[stagnant] = old_temperature[stagnant]
+
+        new_temperature = np.linalg.solve(matrix, known_term)
+        if (
+            not np.all(np.isfinite(new_temperature))
+            or np.any(new_temperature <= 0.0)
+        ):
+            bad = int(
+                self.internal_node_indices[np.argmin(new_temperature)]
+            )
+            raise RuntimeError(
+                "Unphysical temperature at network node "
+                f"{self.node_inputs[bad].identifier!r} after step "
+                f"{self.num_step}: {new_temperature.min()} K."
+            )
+        self.node_temperature_rate[:] = 0.0
+        self.node_temperature_rate[self.internal_node_indices] = (
+            new_temperature - old_temperature
+        ) / time_step
+        self.node_temperature[self.internal_node_indices] = new_temperature
+
     def initialize_branch_flows_from_pressures(
         self,
         max_iterations: int = 200,
@@ -605,6 +766,7 @@ class HydraulicNetwork:
         driving pressure difference (e.g. an ideal pump exactly matched by
         its node pressures) keep their declared initial flow; the first
         transient step determines the flow through the node balances."""
+        self.node_temperature_rate[:] = 0.0
         for b in range(len(self.branch_inputs)):
             if self.branch_mass_flow[b] == 0.0:
                 self.branch_mass_flow[b] = STEADY_STATE_FLOW_SEED
@@ -657,6 +819,7 @@ class HydraulicNetwork:
 
         Returns the converged solution vector and resets the time
         integration history to the steady state."""
+        self.node_temperature_rate[:] = 0.0
         for b in range(len(self.branch_inputs)):
             if self.branch_mass_flow[b] == 0.0:
                 self.branch_mass_flow[b] = STEADY_STATE_FLOW_SEED

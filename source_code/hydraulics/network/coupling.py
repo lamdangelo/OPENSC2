@@ -444,3 +444,21 @@ def solve_coupled_conductors_step(conductors: list,
             row_scaling_factors,
         )
     network.advance(old_network_state + network_increment, time_step)
+
+    # Network-side energy transport: every port reports its new-state mass
+    # flow and temperature to the node enthalpy balances (channel-feeding
+    # ports carry the node's own temperature and drop out there).
+    port_inflows = {}
+    for conductor in conductors:
+        for port in conductor.network_ports:
+            port_inflows.setdefault(port.node_identifier, []).append(
+                (
+                    port.mass_flow_into_node(),
+                    float(
+                        port.fluid_component.coolant.node_fields.temperature[
+                            port.end_node_slice
+                        ]
+                    ),
+                )
+            )
+    network.update_node_temperatures(time_step, port_inflows)

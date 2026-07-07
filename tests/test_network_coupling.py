@@ -211,6 +211,17 @@ def test_degenerate_network_matches_fixed_pressure_boundary(tmp_path):
         rtol=1.0e-12,
     )
 
+    # Network-side energy transport in the degenerate limit: the manifold
+    # is a zero-volume node with a single (port) inflow, so its algebraic
+    # enthalpy balance pins it to the CHAN_1 outlet temperature, while the
+    # reservoir temperature stays the fixed boundary value.
+    np.testing.assert_allclose(
+        network.node_temperature_of("outlet_manifold"),
+        chan_1.coolant.node_fields.temperature[-1],
+        rtol=1.0e-12,
+    )
+    assert network.node_temperature_of("recovery_bath") == 4.5
+
 
 # ----------------------------------------------------------------------- #
 # Stage 2: both channel ends coupled (pump loop)                           #
@@ -581,11 +592,17 @@ def total_channel_intake(simulation: Simulation) -> float:
     )
 
 
-def test_pump_loop_redistributes_flow_into_bypass(tmp_path):
-    """The stage-2 physics no fixed-boundary run can reproduce: when the
-    heat pulse raises the channel impedance, the channel intake must drop
-    and the bypass take over, while the pump flow (stabilized by its droop)
-    changes less than the channel flow.
+def test_heat_pulse_redistributes_and_pressurizes_the_loop(tmp_path):
+    """The coupled physics no fixed-boundary run can reproduce: the strong
+    heat pulse makes the channels expel hot fluid into the manifolds, the
+    bypass takes over flow, and -- with the network-side energy transport
+    of stage 4 -- the expelled enthalpy warms the manifolds, whose
+    near-incompressible helium (thermal pressure coefficient beta/kappa_T
+    of order 1e6 Pa/K) pressurizes the rigid loop by tens of kPa: the pump
+    is pushed down (here: backward through) its droop curve and the drain
+    vents the expansion surplus into the bath. Before stage 4 the static
+    node temperatures silently discarded that enthalpy and the same pulse
+    looked like a mild impedance-driven flow redistribution.
 
     The pulse effect is isolated by comparing against a control run with
     the identical pump loop but the committed (inert, t = 6-10 s) heat
@@ -620,27 +637,41 @@ def test_pump_loop_redistributes_flow_into_bypass(tmp_path):
     }
 
     assert intake["control"] > 0.0
-    # Observed redistribution: the pulse collapses the channel intake by
-    # ~70% (0.021 -> 0.006 kg/s) with the bypass rising 0.005 -> 0.0085 and
-    # the pump riding up its droop curve (supply 600 -> 606 kPa); 0.2 keeps
-    # a comfortable margin while catching any gross physics regression.
-    relative_drop = 1.0 - intake["pulsed"] / intake["control"]
-    assert relative_drop > 0.2, (
-        f"channel intake should drop during the pulse, got a relative "
-        f"change of {relative_drop:.3e}"
-    )
     assert bypass["pulsed"] > bypass["control"]
-    # The bypass absorbs the redistribution: the pump flow moves less than
-    # the channel flow.
-    assert abs(pump["pulsed"] - pump["control"]) < abs(
-        intake["pulsed"] - intake["control"]
+
+    # Energy transport: the expelled hot fluid warms both manifolds -- the
+    # return one through the ported outlets, the supply one through the
+    # back-flowing inlets (observed at the end of the run: supply
+    # 4.5 -> ~5.0 K, return -> ~5.2 K); the control supply only ever sees
+    # the 4.5 K bath through the pump and must stay there.
+    temperature = {
+        name: {
+            node: run.hydraulic_network.node_temperature_of(node)
+            for node in ("supply", "return")
+        }
+        for name, run in runs.items()
+    }
+    np.testing.assert_allclose(
+        temperature["control"]["supply"], 4.5, rtol=1.0e-9
     )
-    # The reduced pump flow must sit higher on the droop curve.
+    assert temperature["pulsed"]["supply"] > 4.6
+    assert temperature["pulsed"]["return"] > temperature["control"]["return"]
+
+    # Thermal-expansion pressurization: the warming manifolds inflate the
+    # loop pressure (observed: supply 600 -> ~639 kPa), the pump is pushed
+    # down (backward through) its droop curve and the drain vents the
+    # expansion surplus into the bath.
     supply_pressure = {
         name: run.hydraulic_network.node_pressure_of("supply")
         for name, run in runs.items()
     }
-    assert supply_pressure["pulsed"] > supply_pressure["control"]
+    assert supply_pressure["pulsed"] > supply_pressure["control"] + 1.0e4
+    assert pump["pulsed"] < pump["control"]
+    drain = {
+        name: run.hydraulic_network.branch_mass_flow_of("drain")
+        for name, run in runs.items()
+    }
+    assert drain["pulsed"] > drain["control"]
 
     # The network state time evolution is written next to the channel time
     # evolutions: header + one row per time level (t = 0 and 25 fixed steps
@@ -666,3 +697,12 @@ def test_pump_loop_redistributes_flow_into_bypass(tmp_path):
         rtol=1.0e-12,
     )
     assert (frame["pressure_bath (Pa)"] == OUTLET_PRESSURE).all()
+
+    # The recorded return-manifold temperature matches the in-memory state
+    # and the bath stays the fixed reference.
+    np.testing.assert_allclose(
+        frame["temperature_return (K)"].iloc[-1],
+        temperature["pulsed"]["return"],
+        rtol=1.0e-12,
+    )
+    assert (frame["temperature_bath (K)"] == 4.5).all()

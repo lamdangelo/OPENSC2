@@ -521,6 +521,8 @@ def test_time_evolution_record():
         "time (s)",
         "pressure_bath (Pa)",
         "pressure_vessel (Pa)",
+        "temperature_bath (K)",
+        "temperature_vessel (K)",
         "mass_flow_rate_fill (kg/s)",
     ]
     network.record_time_evolution(0.0)
@@ -539,6 +541,119 @@ def test_time_evolution_record():
     assert all(
         len(values) == 0 for values in network.time_evolution_record.values()
     )
+
+
+# --------------------------------------------------------------------- #
+# Energy transport (network-side node enthalpy balances)                 #
+# --------------------------------------------------------------------- #
+
+
+def test_zero_volume_junction_mixes_inflow_temperatures():
+    # Two reservoirs at different temperatures feed a zero-volume junction
+    # that drains into a sink: one step after the (isothermal) steady state
+    # the junction must sit at the flow-weighted enthalpy mixture of its
+    # inflows. The cold feed is declared with reversed orientation
+    # (junction -> cold), so its physical inflow carries a negative branch
+    # flow and exercises the upwind selection.
+    hot_temperature, cold_temperature = 4.8, 4.4
+    network = build_network(
+        [
+            reservoir("hot", 6.0e5, temperature=hot_temperature),
+            reservoir("cold", 6.0e5, temperature=cold_temperature),
+            reservoir("sink", 5.0e5),
+            internal("junction", 5.5e5),
+        ],
+        [
+            valve("feed_hot", "hot", "junction", linear_resistance=1.0e9),
+            valve("feed_cold", "junction", "cold", linear_resistance=2.0e9),
+            valve("drain", "junction", "sink", linear_resistance=1.0e9),
+        ],
+    )
+    network.solve_steady_state()
+    network.step(1.0)
+
+    hot_flow = network.branch_mass_flow_of("feed_hot")
+    cold_flow = -network.branch_mass_flow_of("feed_cold")
+    assert hot_flow > 0.0 and cold_flow > 0.0
+    cp = network.branch_isobaric_specific_heat
+    hot_advective = hot_flow * cp[network.branch_index["feed_hot"]]
+    cold_advective = cold_flow * cp[network.branch_index["feed_cold"]]
+    expected = (
+        hot_advective * hot_temperature + cold_advective * cold_temperature
+    ) / (hot_advective + cold_advective)
+    junction_temperature = network.node_temperature_of("junction")
+    assert cold_temperature < junction_temperature < hot_temperature
+    assert junction_temperature == pytest.approx(expected, rel=1.0e-12)
+
+    # The mixture is algebraic (no storage): further steps hold it.
+    network.step(1.0)
+    assert network.node_temperature_of("junction") == pytest.approx(
+        junction_temperature, rel=1.0e-9
+    )
+
+
+def test_volume_node_temperature_relaxation():
+    # A compliant vessel initialized at the hydraulic fixed point between a
+    # hot feed and a cold sink: the flow is steady from the start and the
+    # vessel temperature relaxes towards the feed temperature with
+    # tau = (rho V cp)_node / (mdot cp_feed). The first step must match the
+    # backward Euler update with the frozen coefficients exactly; the full
+    # trajectory follows the analytic exponential (small temperature span,
+    # so the refrozen properties barely drift).
+    hot_temperature, initial_temperature = 4.6, 4.5
+    initial_pressure = 5.0e5
+    volume = 1.0e-3
+    network = build_network(
+        [
+            reservoir("bath_hot", 5.05e5, temperature=hot_temperature),
+            reservoir("sink", 4.95e5),
+            internal("vessel", initial_pressure, volume=volume),
+        ],
+        [
+            valve("fill", "bath_hot", "vessel", linear_resistance=1.0e9),
+            valve("drain", "vessel", "sink", linear_resistance=1.0e9),
+        ],
+    )
+    network.solve_steady_state()
+
+    vessel = network.node_index["vessel"]
+    mass_flow = network.branch_mass_flow_of("fill")
+    heat_capacity = (
+        volume
+        * network.node_density[vessel]
+        * network.node_isobaric_specific_heat[vessel]
+    )
+    advective = mass_flow * network.branch_isobaric_specific_heat[
+        network.branch_index["fill"]
+    ]
+    time_constant = heat_capacity / advective
+    time_step = time_constant / 50.0
+
+    network.step(time_step)
+    expected_first = (
+        heat_capacity / time_step * initial_temperature
+        + advective * hot_temperature
+    ) / (heat_capacity / time_step + advective)
+    assert network.node_temperature_of("vessel") == pytest.approx(
+        expected_first, rel=1.0e-12
+    )
+
+    temperatures = [network.node_temperature_of("vessel")]
+    for _ in range(99):
+        network.step(time_step)
+        temperatures.append(network.node_temperature_of("vessel"))
+    times = time_step * np.arange(1, 101)
+    analytic = hot_temperature + (
+        initial_temperature - hot_temperature
+    ) * np.exp(-times / time_constant)
+    deviation = np.abs(np.array(temperatures) - analytic) / (
+        hot_temperature - initial_temperature
+    )
+    assert deviation.max() < 0.05
+    assert np.all(np.diff(temperatures) > 0.0), "heating must be monotone"
+    # Thermal expansion of the heated vessel acts as a mass source in the
+    # node balance and must lift the vessel pressure off the fixed point.
+    assert network.node_pressure_of("vessel") > initial_pressure
 
 
 def test_internal_node_unknown_index():
