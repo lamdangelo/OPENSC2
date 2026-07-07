@@ -151,9 +151,10 @@ def assert_fields_match(reference: np.ndarray, coupled: np.ndarray,
     )
 
 
-def assert_conductors_match(baseline: Simulation, coupled: Simulation):
-    baseline_conductor = baseline.list_of_Conductors[0]
-    coupled_conductor = coupled.list_of_Conductors[0]
+def assert_conductors_match(baseline: Simulation, coupled: Simulation,
+                            conductor_index: int = 0):
+    baseline_conductor = baseline.list_of_Conductors[conductor_index]
+    coupled_conductor = coupled.list_of_Conductors[conductor_index]
 
     for base_comp, coup_comp in zip(
         baseline_conductor.inventory.fluids.collection,
@@ -422,6 +423,152 @@ def boost_heat_pulse(conductor_document) -> None:
             operations["heat_flux_position_start"] = 0.5
             operations["heat_flux_position_end"] = 8.0
             operations["heat_flux_amplitude"] = 5000
+
+
+# ----------------------------------------------------------------------- #
+# Stage 3: several conductors coupled to one network                       #
+# ----------------------------------------------------------------------- #
+
+# Identifier renames of the cloned second conductor (component identifiers
+# must be unique across the whole simulation).
+SECOND_CONDUCTOR_RENAMES = {
+    "CHAN_1": "CHAN_3",
+    "CHAN_2": "CHAN_4",
+    "STR_MIX_1": "STR_MIX_2",
+    "Z_JACKET_1": "Z_JACKET_2",
+}
+
+
+def duplicate_conductor(run_directory: Path) -> None:
+    """Clone the (already shortened) CONDUCTOR_1 input as CONDUCTOR_2 with
+    renamed component identifiers, and register it in simulation.yaml. The
+    two conductors have no thermal contact, so their physics stays
+    independent unless a hydraulic network couples them."""
+    conductor_document = yaml.safe_load(
+        (run_directory / "conductor_CONDUCTOR_1.yaml").read_text()
+    )
+    conductor_document["conductor"]["identifier"] = "CONDUCTOR_2"
+    for component in conductor_document["components"]:
+        component["identifier"] = SECOND_CONDUCTOR_RENAMES[
+            component["identifier"]
+        ]
+    conductor_document["coupling_component_order"] = [
+        SECOND_CONDUCTOR_RENAMES.get(name, name)
+        for name in conductor_document["coupling_component_order"]
+    ]
+    for coupling_record in conductor_document["couplings"]:
+        coupling_record["between"] = [
+            SECOND_CONDUCTOR_RENAMES.get(name, name)
+            for name in coupling_record["between"]
+        ]
+    (run_directory / "conductor_CONDUCTOR_2.yaml").write_text(
+        yaml.safe_dump(conductor_document, sort_keys=False)
+    )
+    simulation_document = yaml.safe_load(
+        (run_directory / "simulation.yaml").read_text()
+    )
+    simulation_document["conductors"].append(
+        {"file": "conductor_CONDUCTOR_2.yaml"}
+    )
+    (run_directory / "simulation.yaml").write_text(
+        yaml.safe_dump(simulation_document, sort_keys=False)
+    )
+
+
+# Both conductors discharge one channel into the same manifold node, which
+# drains through an almost ideal valve into a reservoir at the imposed
+# outlet pressure: the degenerate limit of a genuinely multi-conductor
+# network (the two banded systems meet in the shared Schur complement).
+TWO_CONDUCTOR_NETWORK_SECTION = {
+    "fluid_type": "helium",
+    "nodes": [
+        {
+            "identifier": "shared_manifold",
+            "kind": "internal",
+            "initial_pressure": OUTLET_PRESSURE,
+            "initial_temperature": 4.5,
+        },
+        {
+            "identifier": "recovery_bath",
+            "kind": "reservoir",
+            "pressure": OUTLET_PRESSURE,
+            "temperature": 4.5,
+        },
+    ],
+    "branches": [
+        {
+            "identifier": "recovery_line",
+            "kind": "valve",
+            "from": "shared_manifold",
+            "to": "recovery_bath",
+            "linear_resistance": VALVE_RESISTANCE,
+        },
+    ],
+    "ports": [
+        {
+            "node": "shared_manifold",
+            "conductor": "CONDUCTOR_1",
+            "channel": "CHAN_1",
+            "end": "outlet",
+        },
+        {
+            "node": "shared_manifold",
+            "conductor": "CONDUCTOR_2",
+            "channel": "CHAN_3",
+            "end": "outlet",
+        },
+    ],
+}
+
+
+def test_two_conductors_share_a_network_node(tmp_path):
+    """Two conductors coupled to one network through a shared manifold: in
+    the degenerate limit both must match the fixed-boundary baseline, and
+    the recovery line must carry the sum of both outlet flows."""
+    baseline_directory = prepare_run_directory(tmp_path, "baseline")
+    duplicate_conductor(baseline_directory)
+    coupled_directory = prepare_run_directory(
+        tmp_path, "coupled", network_section=TWO_CONDUCTOR_NETWORK_SECTION
+    )
+    duplicate_conductor(coupled_directory)
+
+    baseline = run_simulation(baseline_directory)
+    coupled = run_simulation(coupled_directory)
+
+    for conductor_index in (0, 1):
+        assert_conductors_match(baseline, coupled, conductor_index)
+
+    # Shared-node mass balance: the recovery line carries the sum of the
+    # two ported outlet flows (densities frozen one step back, hence the
+    # modest tolerance against the freshly recomputed flows).
+    network = coupled.hydraulic_network
+    outlet_flow_sum = sum(
+        next(
+            f_comp
+            for f_comp in conductor.inventory.fluids.collection
+            if f_comp.identifier == channel
+        ).coolant.node_fields.mass_flow_rate[-1]
+        for conductor, channel in zip(
+            coupled.list_of_Conductors, ("CHAN_1", "CHAN_3")
+        )
+    )
+    np.testing.assert_allclose(
+        network.branch_mass_flow_of("recovery_line"),
+        outlet_flow_sum,
+        rtol=1.0e-3,
+    )
+
+    # The network state file is written exactly once per step, into the
+    # directory of the first coupled conductor.
+    output_file = Path(
+        coupled.dict_path["Output_Time_evolution_CONDUCTOR_1_dir"]
+    ) / "hydraulic_network_te.tsv"
+    frame = pd.read_csv(output_file, sep="\t")
+    assert len(frame) == 21  # t = 0 plus 20 fixed steps of 0.1 s
+    assert not (
+        Path(coupled.dict_path["Output_Time_evolution_CONDUCTOR_2_dir"])
+        / "hydraulic_network_te.tsv"
+    ).exists()
 
 
 def total_channel_intake(simulation: Simulation) -> float:

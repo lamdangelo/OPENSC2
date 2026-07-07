@@ -216,9 +216,13 @@ class HydraulicNetwork:
         # Record of the state time evolution (node pressures and branch
         # mass flow rates), buffered like Coolant.time_evol_io and flushed
         # to file by utility_functions.output.save_network_simulation_time.
+        # With several coupled conductors the file is written exactly once
+        # per time step, into the directory of the conductor named here
+        # (assigned by coupling.build_coupled_network).
         self.time_evolution_record = {
             header: list() for header in self.time_evolution_headers()
         }
+        self.output_conductor_identifier = None
 
         # Time integration history: two solution levels (BDF2 and the local
         # truncation error estimation of a later stage read the second one).

@@ -48,7 +48,6 @@ from hydraulics.momentum_equation import (
 )
 from hydraulics.network.coupling import (
     apply_network_port_boundary_conditions,
-    solve_coupled_step,
 )
 from thermal.thermal_flags import HeatExcitation
 
@@ -299,9 +298,19 @@ def evaluate_time_accuracy_eigenvalue(conductor):
         elif RES < 0.0:
             X2 = conductor.time_accuracy_eigenvalue
 
-def step(conductor, environment, qsource, num_step):
+def assemble_thermal_hydraulic_system(conductor, qsource):
 
-    """
+    """Assembly phase of one transient step: build and assemble all element
+    matrices, combine them with the time-integration coefficients, apply
+    the boundary conditions (including the hydraulic network port overlay)
+    and equilibrate the rows.
+
+    Returns the tuple (system_matrix, known_term_vector,
+    row_scaling_factors); the solve and the post-solve bookkeeping are
+    performed by the caller -- a plain banded solve in :func:`step`, or the
+    bordered field + network solve in
+    hydraulics.network.coupling.solve_coupled_conductors_step.
+
     ##############################################################################
         SUBROUTINE STEP(XCOORD,TMPTCO ,TMPTJK ,PRSSREH1,PRSSREH2,DENSTYH1,
        &                DENSTYH2,TMPTHEH1,TMPTHEH2,PRSSREB,DENSTYB,
@@ -321,7 +330,6 @@ def step(conductor, environment, qsource, num_step):
     """
 
     path = conductor.file_paths.external_flow
-    TINY = 1.0e-5
 
     # CLUCA ADDNOD = MAXNOD*(ICOND-1)
 
@@ -657,6 +665,42 @@ def step(conductor, environment, qsource, num_step):
     # SCALE THE LOAD VECTOR
     known_term_vector = known_term_vector / row_scaling_factors
 
+    return system_matrix, known_term_vector, row_scaling_factors
+
+
+def step(conductor, environment, qsource, num_step):
+    """One transient step of an uncoupled conductor: assemble, one banded
+    solve, post-solve bookkeeping.
+
+    Conductors with hydraulic network ports are advanced jointly with the
+    network by hydraulics.network.coupling.solve_coupled_conductors_step,
+    which wraps the same assemble/finalize phases around the bordered
+    solve. ``environment`` and ``num_step`` are kept for call-site
+    compatibility (the assembly reads everything it needs from the
+    conductor object).
+    """
+    if conductor.network_ports:
+        raise ValueError(
+            f"Conductor {conductor.identifier} has hydraulic network ports "
+            "and must be advanced through solve_coupled_conductors_step."
+        )
+    system_matrix, known_term_vector, row_scaling_factors = (
+        assemble_thermal_hydraulic_system(conductor, qsource)
+    )
+    solution = solve_thermal_banded_system(
+        conductor, system_matrix, known_term_vector
+    )
+    finalize_step(conductor, solution, known_term_vector, row_scaling_factors)
+
+
+def finalize_step(conductor, solution, known_term_vector,
+                  row_scaling_factors):
+    """Post-solve phase of one transient step: local-truncation-error
+    estimate, solution history shift, sanity checks, solution norms and
+    reorganization of the solution into the component fields."""
+
+    TINY = 1.0e-5
+
     old_temperature_gauss = {
         obj.identifier: obj.coolant.gauss_fields.temperature
         for obj in conductor.inventory.fluids.collection
@@ -667,22 +711,6 @@ def step(conductor, environment, qsource, num_step):
             for obj in conductor.inventory.solids.collection
         }
     )
-
-    # Compute the solution at the current time step: a plain banded solve,
-    # or the bordered field + network solve when the conductor has
-    # hydraulic network ports (which also advances the network state).
-    if conductor.network_ports:
-        solution = solve_coupled_step(
-            conductor,
-            conductor.network_ports[0].network,
-            system_matrix,
-            known_term_vector,
-            row_scaling_factors,
-        )
-    else:
-        solution = solve_thermal_banded_system(
-            conductor, system_matrix, known_term_vector
-        )
 
     # Estimate the local truncation error of this step from the deviation of
     # the solution from its linear extrapolation in time; must run before the

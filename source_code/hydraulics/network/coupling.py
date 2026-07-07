@@ -1,6 +1,6 @@
-"""Stage 1 of the hydraulic field-circuit coupling: conductor channel ends
-coupled to lumped-network nodes through a monolithic bordered (Schur
-complement) solve around the banded thermal-hydraulic system.
+"""Hydraulic field-circuit coupling: conductor channel ends coupled to
+lumped-network nodes through a monolithic bordered (Schur complement)
+solve around the banded thermal-hydraulic systems.
 
 Every coupled port is pressure-driven, mirroring the imposed-pressure
 boundary condition it replaces: after the standard boundary conditions are
@@ -21,21 +21,26 @@ velocity -- the same Picard linearization as everywhere else). The port
 flow is the Lagrange multiplier enforcing pressure continuity, exactly as
 terminal currents are in field-circuit coupling for electromagnetics.
 
-The coupled linear system
+The coupled linear system (one banded block A_k per coupled conductor)
 
-    [ A  B ] [x_field]   [b    ]
-    [ C  D ] [x_net  ] = [f_net]
+    [ A_1        B_1 ] [x_1  ]   [b_1  ]
+    [      A_2   B_2 ] [x_2  ] = [b_2  ]
+    [ C_1  C_2    D  ] [x_net]   [f_net]
 
-is solved by bordering: one banded solve with the stacked right-hand sides
-[b | B] (A is nonsingular on its own, the continuity rows keep their unit
-diagonal), then the small dense Schur system (D - C A^-1 B) x_net = f_net -
-C A^-1 b, then back-substitution. The banded structure, the row scaling and
-the one-linear-solve-per-step architecture of the field solver all survive
-untouched.
+is solved by bordering: one banded solve per conductor with the stacked
+right-hand sides [b_k | B_k] (each A_k is nonsingular on its own, the
+continuity rows keep their unit diagonal), then one small dense Schur
+system (D - sum_k C_k A_k^-1 B_k) x_net = f_net - sum_k C_k A_k^-1 b_k
+closing all conductors and the network together, then back-substitution
+per conductor. The banded structures, the row scaling and the
+one-linear-solve-per-step architecture of the field solver all survive
+untouched; conductors coupled to one network meet only in the Schur
+complement, and must therefore share the time step and the integration
+method (enforced by the simulation loop and by the network build).
 
-Stage-1 restrictions (enforced at resolution time): all ports belong to one
-conductor, and each port end must be one where the channel's own boundary
-condition imposes pressure (the port takes over exactly that row).
+Restriction enforced at resolution time: each port end must be one where
+the channel's own boundary condition imposes pressure (the port takes over
+exactly that row).
 """
 
 import warnings
@@ -134,13 +139,6 @@ def resolve_network_coupling(network: HydraulicNetwork, conductors: list):
     conductor_by_identifier = {
         conductor.identifier: conductor for conductor in conductors
     }
-    coupled_conductors = {port.conductor for port in network.inputs.ports}
-    if len(coupled_conductors) > 1:
-        raise NotImplementedError(
-            "Hydraulic network ports span several conductors "
-            f"({sorted(coupled_conductors)}); coupling multiple conductors "
-            "to one network is stage 3 of the coupling plan."
-        )
     for port_input in network.inputs.ports:
         conductor = conductor_by_identifier.get(port_input.conductor)
         if conductor is None:
@@ -249,8 +247,9 @@ def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
     """Build, resolve and initialize the hydraulic network declared in the
     ``hydraulic_network:`` section of simulation.yaml.
 
-    The network inherits the time integration method of the conductor it
-    couples to, so the coupled step has one consistent discretization."""
+    The network inherits the (common, validated) time integration method
+    of the conductors it couples to, so the coupled step has one
+    consistent discretization."""
     inputs = HydraulicNetworkInput.from_mapping(mapping)
     if not inputs.ports:
         raise ValueError(
@@ -258,25 +257,39 @@ def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
             "never be advanced. Declare at least one port or remove the "
             "section."
         )
-    coupled_identifier = inputs.ports[0].conductor
-    conductor = next(
-        (
-            candidate
-            for candidate in simulation.list_of_Conductors
-            if candidate.identifier == coupled_identifier
-        ),
-        None,
-    )
-    if conductor is None:
+    coupled_identifiers = {port.conductor for port in inputs.ports}
+    coupled_conductors = [
+        conductor
+        for conductor in simulation.list_of_Conductors
+        if conductor.identifier in coupled_identifiers
+    ]
+    missing = coupled_identifiers - {
+        conductor.identifier for conductor in coupled_conductors
+    }
+    if missing:
         raise ValueError(
-            f"Network port references unknown conductor "
-            f"{coupled_identifier!r}."
+            f"Network port(s) reference unknown conductor(s) "
+            f"{sorted(missing)}."
         )
-    network = HydraulicNetwork(
-        inputs, method=conductor.inputs.thermohydraulic_method
-    )
+    # The coupled step has one consistent time discretization: all coupled
+    # conductors and the network share the integration method.
+    methods = {
+        conductor.inputs.thermohydraulic_method
+        for conductor in coupled_conductors
+    }
+    if len(methods) > 1:
+        raise ValueError(
+            "All conductors coupled to the hydraulic network must share "
+            "the same thermohydraulic method; found "
+            f"{sorted(method.name for method in methods)}."
+        )
+    network = HydraulicNetwork(inputs, method=methods.pop())
     resolve_network_coupling(network, simulation.list_of_Conductors)
-    warn_on_partially_ported_parallel_groups(network, conductor)
+    for conductor in coupled_conductors:
+        warn_on_partially_ported_parallel_groups(network, conductor)
+    # The network state time evolution is written once per time step, into
+    # the Time_evolution directory of the first coupled conductor.
+    network.output_conductor_identifier = coupled_conductors[0].identifier
     # Initialize the branch flows from the declared node pressures without
     # relocating the pressures themselves: the coupled channels were
     # initialized against those values, and moving a port node to the
@@ -324,29 +337,10 @@ def apply_network_port_boundary_conditions(
     return known_term, system_matrix
 
 
-def solve_coupled_step(
-    conductor,
-    network: HydraulicNetwork,
-    system_matrix: np.ndarray,
-    known_term: np.ndarray,
-    row_scaling_factors: np.ndarray,
-) -> np.ndarray:
-    """One monolithic field + network solve (see module docstring).
-
-    Called in place of the plain banded solve; expects the system matrix
-    and known term after boundary conditions and row scaling. Freezes the
-    network properties at the old state, advances the network state and
-    returns the field solution."""
-    # Deferred import: transient_solution_functions imports this module.
-    from utility_functions.transient_solution_functions import (
-        solve_thermal_banded_system,
-    )
-
-    network.update_properties()
-    network_matrix, network_known = network.assemble_transient(
-        conductor.time_step
-    )
-
+def _coupling_blocks(conductor, network: HydraulicNetwork,
+                     row_scaling_factors: np.ndarray) -> tuple:
+    """Border columns B (field rows x network unknowns) and coupling block
+    C (network rows x field unknowns) of one conductor's ports."""
     number_of_equations = conductor.equation_counts.total_equations
     border = np.zeros((number_of_equations, network.number_of_unknowns))
     coupling = np.zeros((network.number_of_unknowns, number_of_equations))
@@ -367,33 +361,86 @@ def solve_coupled_step(
     # The field rows were equilibrated after the boundary conditions; the
     # border columns belong to those rows and scale identically.
     border /= row_scaling_factors[:, np.newaxis]
+    return border, coupling
 
-    # Solve for the network increment delta = x_net - x_net_old rather than
-    # x_net itself: with the raw continuity right-hand side (zero) the
-    # particular field solution corresponds to zero port pressure -- a state
-    # far from the final one -- and recovering the answer subtracts two
-    # large near-cancelling vectors, losing several digits. Shifted by the
-    # old network state, the particular solve runs at p_port = p_node_old
-    # (essentially the true state) and the border correction stays small.
+
+def solve_coupled_conductors_step(conductors: list,
+                                  network: HydraulicNetwork,
+                                  qsource_by_identifier: dict):
+    """One monolithic time step of every network-coupled conductor and the
+    network (see module docstring).
+
+    Each conductor is assembled with the standard phase functions, solved
+    against the stacked right-hand sides [b_k | B_k] with its own banded
+    factorization, and contributes C_k A_k^-1 B_k to the shared dense Schur
+    complement of the network unknowns; one small dense solve then closes
+    all conductors and the network simultaneously, and the network state is
+    advanced exactly once. The simulation loop must have harmonized the
+    time step of the coupled conductors beforehand.
+
+    The network is solved for the increment delta = x_net - x_net_old
+    rather than x_net itself: with the raw continuity right-hand side
+    (zero) the particular field solutions would correspond to zero port
+    pressure -- a state far from the final one -- and recovering the answer
+    would subtract two large near-cancelling vectors, losing several
+    digits. Shifted by the old network state, the particular solves run at
+    p_port = p_node_old (essentially the true state) and the border
+    corrections stay small."""
+    # Deferred import: transient_solution_functions imports this module.
+    from utility_functions.transient_solution_functions import (
+        assemble_thermal_hydraulic_system,
+        finalize_step,
+        solve_thermal_banded_system,
+    )
+
+    time_steps = {conductor.time_step for conductor in conductors}
+    if len(time_steps) > 1:
+        raise ValueError(
+            "Network-coupled conductors must share the time step; got "
+            f"{sorted(time_steps)}."
+        )
+    time_step = conductors[0].time_step
+
+    network.update_properties()
+    network_matrix, network_known = network.assemble_transient(time_step)
     old_network_state = network.state_vector()
-    stacked_solution = solve_thermal_banded_system(
-        conductor,
-        system_matrix,
-        np.column_stack((known_term - border @ old_network_state, border)),
-    )
-    particular = stacked_solution[:, 0]
-    border_influence = stacked_solution[:, 1:]
 
-    schur_matrix = network_matrix - coupling @ border_influence
-    network_increment = np.linalg.solve(
-        schur_matrix,
-        network_known
-        - network_matrix @ old_network_state
-        - coupling @ particular,
-    )
-    field_solution = particular - border_influence @ network_increment
+    schur_matrix = network_matrix.copy()
+    schur_known = network_known - network_matrix @ old_network_state
+    conductor_solves = []
+    for conductor in conductors:
+        system_matrix, known_term, row_scaling_factors = (
+            assemble_thermal_hydraulic_system(
+                conductor, qsource_by_identifier[conductor.identifier]
+            )
+        )
+        border, coupling = _coupling_blocks(
+            conductor, network, row_scaling_factors
+        )
+        stacked_solution = solve_thermal_banded_system(
+            conductor,
+            system_matrix,
+            np.column_stack(
+                (known_term - border @ old_network_state, border)
+            ),
+        )
+        particular = stacked_solution[:, 0]
+        border_influence = stacked_solution[:, 1:]
+        schur_matrix -= coupling @ border_influence
+        schur_known -= coupling @ particular
+        conductor_solves.append(
+            (conductor, known_term, row_scaling_factors, particular,
+             border_influence)
+        )
 
-    network.advance(
-        old_network_state + network_increment, conductor.time_step
-    )
-    return field_solution
+    network_increment = np.linalg.solve(schur_matrix, schur_known)
+
+    for (conductor, known_term, row_scaling_factors, particular,
+         border_influence) in conductor_solves:
+        finalize_step(
+            conductor,
+            particular - border_influence @ network_increment,
+            known_term,
+            row_scaling_factors,
+        )
+    network.advance(old_network_state + network_increment, time_step)

@@ -11,7 +11,10 @@ from conductor.input_loader import ConductorInputLoader
 from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
 from environment.environment import Environment
-from hydraulics.network.coupling import build_coupled_network
+from hydraulics.network.coupling import (
+    build_coupled_network,
+    solve_coupled_conductors_step,
+)
 from utility_functions.auxiliary_functions import (
     with_read_csv,
     with_read_excel,
@@ -349,9 +352,26 @@ class Simulation:
         ):
             self.num_step = self.num_step + 1
             time_step = np.zeros(self.numObj)
-            for ii, conductor in enumerate(self.list_of_Conductors):
+            # List of the conductors coupled to the hydraulic network: they
+            # advance together with it (one shared linear solve per step).
+            coupled_conductors = [
+                conductor
+                for conductor in self.list_of_Conductors
+                if conductor.network_ports
+            ]
+            for conductor in self.list_of_Conductors:
                 # Call function Get_time_step to select new time step (cdp, 08/2020)
                 get_time_step(conductor, self.transient_input, self.num_step)
+            # Conductors coupled to the hydraulic network share the network
+            # unknowns and must advance with a common time step: force the
+            # smallest proposed one on all of them.
+            if coupled_conductors:
+                shared_time_step = min(
+                    conductor.time_step for conductor in coupled_conductors
+                )
+                for conductor in coupled_conductors:
+                    conductor.time_step = shared_time_step
+            for ii, conductor in enumerate(self.list_of_Conductors):
                 time_step[ii] = conductor.time_step
                 # Increase time (cdp, 08/2020)
                 conductor.cond_time.append(
@@ -407,13 +427,29 @@ class Simulation:
                 conductor.operating_conditions_th(self)
                 
                 conductor.build_heat_source(self)
-                # call step to solve the problem @ new timestep (cdp, 07/2020)
-                step(
-                    conductor,
-                    self.environment,
-                    self.dict_qsource[conductor.identifier],
-                    self.num_step,
+                # call step to solve the problem @ new timestep; conductors
+                # coupled to the hydraulic network are solved jointly with
+                # the network below, once every coupled conductor has been
+                # prepared (cdp, 07/2020)
+                if not conductor.network_ports:
+                    step(
+                        conductor,
+                        self.environment,
+                        self.dict_qsource[conductor.identifier],
+                        self.num_step,
+                    )
+            # End for conductor: preparation and uncoupled solves.
+
+            if coupled_conductors:
+                # One monolithic solve of all network-coupled conductors
+                # and the network; advances the network state exactly once.
+                solve_coupled_conductors_step(
+                    coupled_conductors,
+                    self.hydraulic_network,
+                    self.dict_qsource,
                 )
+
+            for conductor in self.list_of_Conductors:
                 # Loop on FluidComponent (cdp, 10/2020)
                 for fluid_comp in conductor.inventory.fluids.collection:
                     # compute density and mass flow rate in nodal points with the

@@ -981,10 +981,14 @@ def save_network_simulation_time(simulation, conductor):
     conductor's time base. Mirrors the inlet/outlet quantities record: the
     header is written once at initialization, then the buffered rows are
     appended every ``Conductor.CHUNCK_SIZE`` recorded times or when the end
-    of the transient is reached. No-op for conductors without network
-    ports."""
+    of the transient is reached. With several coupled conductors the state
+    is recorded exactly once per time step, by the designated output
+    conductor; no-op for every other conductor."""
     network = simulation.hydraulic_network
-    if network is None or not conductor.network_ports:
+    if (
+        network is None
+        or conductor.identifier != network.output_conductor_identifier
+    ):
         return
     file_name = os.path.join(
         simulation.dict_path[f"Output_Time_evolution_{conductor.identifier}_dir"],
