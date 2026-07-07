@@ -213,6 +213,13 @@ class HydraulicNetwork:
         self.branch_dynamic_viscosity = np.zeros(number_of_branches)
         self.update_properties()
 
+        # Record of the state time evolution (node pressures and branch
+        # mass flow rates), buffered like Coolant.time_evol_io and flushed
+        # to file by utility_functions.output.save_network_simulation_time.
+        self.time_evolution_record = {
+            header: list() for header in self.time_evolution_headers()
+        }
+
         # Time integration history: two solution levels (BDF2 and the local
         # truncation error estimation of a later stage read the second one).
         self._solution_history = np.tile(self._pack_state()[:, None], (1, 2))
@@ -238,6 +245,43 @@ class HydraulicNetwork:
         """Current state in unknown-vector layout
         [internal node pressures | branch mass flows]."""
         return self._pack_state()
+
+    def time_evolution_headers(self) -> list:
+        """Column headers of the state time-evolution record: time, the
+        pressure of every node (reservoirs included, documenting the
+        references) and the mass flow rate of every branch. Node
+        temperatures are prescribed inputs until the network-side energy
+        transport stage and are not recorded."""
+        return (
+            ["time (s)"]
+            + [
+                f"pressure_{node.identifier} (Pa)"
+                for node in self.node_inputs
+            ]
+            + [
+                f"mass_flow_rate_{branch.identifier} (kg/s)"
+                for branch in self.branch_inputs
+            ]
+        )
+
+    def record_time_evolution(self, time: float):
+        """Append the current state to the time-evolution record buffer."""
+        record = self.time_evolution_record
+        record["time (s)"].append(float(time))
+        for node in self.node_inputs:
+            record[f"pressure_{node.identifier} (Pa)"].append(
+                self.node_pressure_of(node.identifier)
+            )
+        for branch in self.branch_inputs:
+            record[f"mass_flow_rate_{branch.identifier} (kg/s)"].append(
+                self.branch_mass_flow_of(branch.identifier)
+            )
+
+    def clear_time_evolution_record(self):
+        """Empty the record buffer (after a flush to file)."""
+        self.time_evolution_record = {
+            header: list() for header in self.time_evolution_headers()
+        }
 
     def internal_node_unknown_index(self, identifier: str) -> int:
         """Position of an internal node's pressure in the unknown vector

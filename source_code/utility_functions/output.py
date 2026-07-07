@@ -972,6 +972,54 @@ def save_simulation_time(simulation, conductor):
 # end function Save_simulation_time (cdp, 08/2020)
 
 
+def save_network_simulation_time(simulation, conductor):
+    """Save the time evolution of the hydraulic network state (node
+    pressures and branch mass flow rates) coupled to this conductor.
+
+    The file ``hydraulic_network_te.tsv`` lives in the conductor's
+    Time_evolution directory, since the network advances on that
+    conductor's time base. Mirrors the inlet/outlet quantities record: the
+    header is written once at initialization, then the buffered rows are
+    appended every ``Conductor.CHUNCK_SIZE`` recorded times or when the end
+    of the transient is reached. No-op for conductors without network
+    ports."""
+    network = simulation.hydraulic_network
+    if network is None or not conductor.network_ports:
+        return
+    file_name = os.path.join(
+        simulation.dict_path[f"Output_Time_evolution_{conductor.identifier}_dir"],
+        "hydraulic_network_te.tsv",
+    )
+    headers = network.time_evolution_headers()
+    if simulation.num_step == 0:
+        # Write the header only once, at initialization.
+        pd.DataFrame(columns=headers).to_csv(
+            file_name,
+            sep="\t",
+            index=False,
+            header=True,
+        )
+    network.record_time_evolution(conductor.cond_time[-1])
+    buffered_times = len(network.time_evolution_record["time (s)"])
+    end_of_transient = (
+        abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
+        / simulation.transient_input["TEND"]
+        <= 1e-6
+    )
+    if buffered_times == conductor.CHUNCK_SIZE or end_of_transient:
+        pd.DataFrame(
+            network.time_evolution_record, columns=headers, dtype=float
+        ).to_csv(
+            file_name,
+            sep="\t",
+            mode="a",
+            chunksize=conductor.CHUNCK_SIZE,
+            index=False,
+            header=False,
+        )
+        network.clear_time_evolution_record()
+
+
 def save_time_evolution_on_file(conductor, time_evolution, file_name, tend, ind_zcoord):
     """Flush a field's time-evolution record to file, if conditions are
     satisfied: either the record buffer is full (Conductor.CHUNCK_SIZE

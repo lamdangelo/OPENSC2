@@ -21,6 +21,7 @@ import utility_functions.simulation_paths as simulation_paths
 from utility_functions.output import (
     save_simulation_space,
     reorganize_spatial_distribution,
+    save_network_simulation_time,
     save_simulation_time,
     save_properties,
 )
@@ -305,6 +306,10 @@ class Simulation:
                 self.hydraulic_network = build_coupled_network(
                     self, network_mapping
                 )
+                # Write the header of the network time-evolution file and
+                # record the initial state (num_step is still 0 here).
+                for conductor in self.list_of_Conductors:
+                    save_network_simulation_time(self, conductor)
 
     # end method Conductor_initialization
 
@@ -474,6 +479,9 @@ class Simulation:
                 # Save variables time evolution at given spatial coordinates \
                 # (cdp, 08/2020)
                 save_simulation_time(self, conductor)
+                # Save the hydraulic network state time evolution (no-op
+                # for conductors without network ports).
+                save_network_simulation_time(self, conductor)
                 # call sensor to plot results at any time the user asks (cdp, 07/2020)
             # End for conductor (cdp, 07/2020)
         # end while (cdp, 07/2020)

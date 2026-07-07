@@ -515,6 +515,32 @@ def test_bdf2_is_more_accurate_than_backward_euler():
     )
 
 
+def test_time_evolution_record():
+    network, *_ = filling_network(MethodFlag.BACKWARD_EULER)
+    assert network.time_evolution_headers() == [
+        "time (s)",
+        "pressure_bath (Pa)",
+        "pressure_vessel (Pa)",
+        "mass_flow_rate_fill (kg/s)",
+    ]
+    network.record_time_evolution(0.0)
+    network.step(0.5)
+    network.record_time_evolution(0.5)
+
+    record = network.time_evolution_record
+    assert record["time (s)"] == [0.0, 0.5]
+    assert record["pressure_vessel (Pa)"][1] == network.node_pressure_of(
+        "vessel"
+    )
+    assert record["mass_flow_rate_fill (kg/s)"][1] == (
+        network.branch_mass_flow_of("fill")
+    )
+    network.clear_time_evolution_record()
+    assert all(
+        len(values) == 0 for values in network.time_evolution_record.values()
+    )
+
+
 def test_internal_node_unknown_index():
     network = build_network(
         [reservoir("bath", 5.0e5), internal("vessel", 5.0e5, volume=1.0e-3)],

@@ -25,6 +25,7 @@ import copy
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import yaml
 
 from simulation import Simulation
@@ -493,3 +494,28 @@ def test_pump_loop_redistributes_flow_into_bypass(tmp_path):
         for name, run in runs.items()
     }
     assert supply_pressure["pulsed"] > supply_pressure["control"]
+
+    # The network state time evolution is written next to the channel time
+    # evolutions: header + one row per time level (t = 0 and 25 fixed steps
+    # of 0.1 s), with the last row matching the in-memory final state.
+    output_file = Path(
+        runs["pulsed"].dict_path["Output_Time_evolution_CONDUCTOR_1_dir"]
+    ) / "hydraulic_network_te.tsv"
+    frame = pd.read_csv(output_file, sep="\t")
+    network = runs["pulsed"].hydraulic_network
+    assert list(frame.columns) == network.time_evolution_headers()
+    assert len(frame) == 26
+    np.testing.assert_allclose(
+        frame["time (s)"].iloc[-1], REDISTRIBUTION_END_TIME, rtol=1.0e-12
+    )
+    np.testing.assert_allclose(
+        frame["pressure_supply (Pa)"].iloc[-1],
+        supply_pressure["pulsed"],
+        rtol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        frame["mass_flow_rate_bypass (kg/s)"].iloc[-1],
+        bypass["pulsed"],
+        rtol=1.0e-12,
+    )
+    assert (frame["pressure_bath (Pa)"] == OUTLET_PRESSURE).all()
