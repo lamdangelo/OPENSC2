@@ -32,6 +32,164 @@ class SolidComponent:
 
     # end method __init__ (cdp, 11/2020)
 
+    def get_transverse_coupling(self, conductor, simulation):
+        """Nonlocal transverse-conduction linear power (W/m) at nodal points.
+
+        File-driven heat exchange between winding-geometry-adjacent
+        positions (turn-to-turn and layer-to-layer contact through the
+        insulation) that the 1D metric cannot see. Each CSV row of
+        ``operations.transverse_coupling_file`` (no header) is a patch:
+
+            x_low, x_high, partner_conductor, partner_component,
+            partner_x_start, partner_x_end, conductance_per_metre
+            [, temperature_exponent, reference_temperature,
+               saturation_temperature]
+
+        Local nodes with x in [x_low, x_high] map linearly onto the
+        partner interval (a decreasing interval encodes reversed
+        orientation) and exchange
+
+            q(x) = g_eff * (T_partner(x_p) - T_local(x))   [W/m],
+
+        with g in W/(m*K). The three optional trailing columns model the
+        temperature dependence of the insulation conductivity:
+
+            g_eff = g * (min(T_mean, T_sat) / T_ref) ** n,
+
+        with T_mean the arithmetic mean of the two coupled temperatures
+        (defaults n = 0: constant conductance). Patches may overlap (a
+        node can face a layer neighbour and two turn neighbours
+        simultaneously); contributions accumulate. Both temperatures are those at source-build time:
+        network-coupled conductors are all prepared before any solve of
+        the step, so the exchange uses previous-step fields on both
+        sides and every patch pair (listed on both partners with the
+        same conductance) is exactly antisymmetric - no spurious energy.
+        The result is stored in
+        ``node_fields.transverse_coupling_linear_power`` (nodes, 1) and
+        added to the Gauss-point sources in ``thermal.heat_sources``.
+        """
+        if not hasattr(self, "_transverse_patches"):
+            self.node_fields.transverse_coupling_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+            self._transverse_patches = self._build_transverse_patches(
+                conductor, simulation
+            )
+            # First call happens during conductor initialization, before
+            # the solid temperature fields exist: allocate only.
+            return
+        if not self._transverse_patches:
+            return
+        power = self.node_fields.transverse_coupling_linear_power
+        power[:, 0] = 0.0
+        local_temperature = self.node_fields.temperature.ravel()
+        for patch in self._transverse_patches:
+            indices = patch["indices"]
+            partner = patch["partner"]
+            if partner is None:
+                # Fixed-temperature boundary partner (e.g. the winding-pack
+                # casing acting as a cold heat sink on the edge layers). The
+                # exchange is one-sided: heat leaves the winding into an
+                # infinite reservoir held at ``boundary_temperature``.
+                partner_temperature = patch["boundary_temperature"]
+            else:
+                partner_temperature = np.interp(
+                    patch["partner_x"],
+                    partner["coordinates"],
+                    partner["component"].node_fields.temperature.ravel(),
+                )
+            conductance = patch["conductance"]
+            if patch["temperature_exponent"] != 0.0:
+                mean_temperature = np.minimum(
+                    0.5 * (
+                        partner_temperature + local_temperature[indices]
+                    ),
+                    patch["saturation_temperature"],
+                )
+                conductance = conductance * (
+                    mean_temperature / patch["reference_temperature"]
+                ) ** patch["temperature_exponent"]
+            power[indices, 0] += conductance * (
+                partner_temperature - local_temperature[indices]
+            )
+
+    def _build_transverse_patches(self, conductor, simulation):
+        """Parse the coupling file and cache per-patch node maps."""
+        from pathlib import Path
+
+        file_name = getattr(
+            self.operations, "transverse_coupling_file", ""
+        )
+        if not file_name:
+            return []
+        path = Path(file_name)
+        if not path.is_absolute():
+            base = Path(conductor.file_paths.structure_elements_path).parent
+            path = base / file_name
+        components = {}
+        for other in simulation.list_of_Conductors:
+            for collection in (
+                other.inventory.strands.collection,
+                other.inventory.jackets.collection,
+            ):
+                for component in collection:
+                    components[(other.identifier, component.identifier)] = {
+                        "component": component,
+                        "coordinates": other.mesh.node_coordinates,
+                    }
+        coordinates = conductor.mesh.node_coordinates
+        patches = []
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [entry.strip() for entry in line.split(",")]
+            x_low, x_high = float(parts[0]), float(parts[1])
+            # A row whose partner conductor is the reserved token BOUNDARY
+            # couples the local nodes to a fixed-temperature reservoir
+            # (partner_component holds the boundary temperature in K); the
+            # partner_x columns are unused. Used for the casing edge sink.
+            is_boundary = parts[2] == "BOUNDARY"
+            if is_boundary:
+                boundary_temperature = float(parts[3])
+                partner = None
+            else:
+                partner_key = (parts[2], parts[3])
+                if partner_key not in components:
+                    raise KeyError(
+                        f"transverse coupling of {self.identifier}: unknown "
+                        f"partner {partner_key[0]}/{partner_key[1]}"
+                    )
+                partner = components[partner_key]
+            partner_x_start, partner_x_end = float(parts[4]), float(parts[5])
+            conductance = float(parts[6])
+            mask = (coordinates >= x_low) & (coordinates <= x_high)
+            if not mask.any():
+                continue
+            fraction = (coordinates[mask] - x_low) / (x_high - x_low)
+            patches.append(
+                {
+                    "indices": np.flatnonzero(mask),
+                    "partner_x": partner_x_start
+                    + fraction * (partner_x_end - partner_x_start),
+                    "conductance": conductance,
+                    "temperature_exponent": (
+                        float(parts[7]) if len(parts) > 7 else 0.0
+                    ),
+                    "reference_temperature": (
+                        float(parts[8]) if len(parts) > 8 else 1.0
+                    ),
+                    "saturation_temperature": (
+                        float(parts[9]) if len(parts) > 9 else np.inf
+                    ),
+                    "partner": partner,
+                    "boundary_temperature": (
+                        boundary_temperature if is_boundary else None
+                    ),
+                }
+            )
+        return patches
+
     def initialize_heat_flux_schedule(self, simulation):
         """Initialize the imposed-heat-flux on/off time-step schedule from the
         component's operations, if a square-wave heat excitation is defined.
