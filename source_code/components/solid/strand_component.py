@@ -56,6 +56,137 @@ class StrandComponent(SolidComponent):
 
     KIND = "Strand"
 
+    # Vacuum magnetic permeability (T·m/A) for the coupling-loss model.
+    MU0 = 4.0e-7 * np.pi
+
+    def get_coupling_loss(self, conductor):
+        """AC coupling-loss linear power (W/m) at nodal points.
+
+        Interfilament + interstrand coupling only, as a lumped effective-
+        time-constant model: the dissipated power per unit composite-strand
+        volume is
+
+            p = (n·tau_eff / mu0) · (dB/dt)²
+
+        with ``n·tau_eff = operations.coupling_loss_time_constant``
+        (COUPLING_LOSS_TIME_CONSTANT, in s; 0 disables the source). The
+        linear power is p times the strand cross-section. The copper-matrix
+        eddy loss is NOT folded in here; it is a separate source term
+        (see the copper eddy-current loss) so the two contributions can be
+        calibrated and diagnosed independently.
+
+        dB/dt comes from the shared ``_field_rate`` helper (nodal field at
+        the previous thermal step), so any field model — proportional-to-
+        current, from file, linear transient — drives the source
+        consistently. The result is stored in
+        ``node_fields.coupling_loss_linear_power`` as a (nodes, 1) column
+        and added to the Gauss-point sources Q1/Q2 in
+        ``thermal.heat_sources``.
+        """
+        if not hasattr(self.node_fields, "coupling_loss_linear_power"):
+            self.node_fields.coupling_loss_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+        field_rate = self._field_rate(conductor)
+        if self.operations.coupling_loss_time_constant <= 0.0:
+            return
+        self.node_fields.coupling_loss_linear_power[:, 0] = (
+            self.operations.coupling_loss_time_constant
+            / self.MU0
+            * field_rate**2
+            * self.inputs.cross_section
+        )
+
+    def _eddy_conductivity(self, conductor):
+        """Nodal electrical conductivity sigma(T, B) [S/m] of the strand
+        copper matrix for the eddy-current loss (get_eddy_loss).
+
+        Field- and RRR-dependent (NIST copper), so the strand's copper eddy
+        loss is a separate, physically distinct source from the SC
+        interfilament/interstrand coupling loss (get_coupling_loss). Only
+        reached when the copper eddy geometry constant is set.
+        """
+        from properties_of_materials.electrical_conductivity import (
+            electrical_conductivity_of,
+        )
+
+        temperature = self.node_fields.temperature.ravel()
+        field = np.asarray(self.node_fields.B_field).ravel()
+        return electrical_conductivity_of(
+            self.inputs.stabilizer_material,
+            temperature,
+            magnetic_field=field,
+            residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+        )
+
+    def _critical_current_density(self, temperature, magnetic_field):
+        """Critical (non-copper) current density Jc(T, B) [A/m^2] for the
+        hysteresis loss, dispatched on ``superconducting_material``. Mirrors
+        the Jc branch of eval_sol_comp_properties for the NbTi fits."""
+        material = self.inputs.superconducting_material
+        if material == "nbti-w7x":
+            return critical_current_density_nbti_w7x(
+                temperature,
+                magnetic_field,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_current_scaling_constant,
+                self.inputs.critical_temperature_at_0T,
+            )
+        if material == "nbti":
+            return critical_current_density_nbti(
+                temperature,
+                magnetic_field,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_current_scaling_constant,
+                self.inputs.critical_temperature_at_0T,
+            )
+        raise NotImplementedError(
+            f"hysteresis loss has no Jc dispatch for superconducting_material "
+            f"'{material}'"
+        )
+
+    def get_hysteresis_loss(self, conductor):
+        """Hysteresis (persistent-current magnetization) linear power [W/m].
+
+        Fully-penetrated critical-state loss of the superconductor
+        filaments:
+
+            p = (2 / 3pi) * Jc(B, T) * d_f * |dB/dt|
+
+        per unit superconductor volume, with ``d_f =
+        operations.filament_diameter`` (0 disables). The linear power is p
+        times the superconductor cross-section (strand ``cross_section`` /
+        (1 + ``stabilizer_to_sc_ratio``)). Unlike the coupling and eddy
+        losses (both ~ (dB/dt)^2), the hysteresis loss is proportional to
+        |dB/dt|, so its deposited energy is set by the field swing, not the
+        rate. dB/dt comes from the shared ``_field_rate`` helper; Jc from
+        the strand critical surface. Stored in
+        ``node_fields.hysteresis_loss_linear_power`` and added to the
+        Gauss-point sources in ``thermal.heat_sources``.
+        """
+        if not hasattr(self.node_fields, "hysteresis_loss_linear_power"):
+            self.node_fields.hysteresis_loss_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+        field_rate = self._field_rate(conductor)
+        if self.operations.filament_diameter <= 0.0:
+            return
+        temperature = self.node_fields.temperature.ravel()
+        field = np.asarray(self.node_fields.B_field).ravel()
+        critical_current_density = self._critical_current_density(
+            temperature, field
+        )
+        superconductor_cross_section = self.inputs.cross_section / (
+            1.0 + self.inputs.stabilizer_to_sc_ratio
+        )
+        self.node_fields.hysteresis_loss_linear_power[:, 0] = (
+            (2.0 / (3.0 * np.pi))
+            * critical_current_density
+            * self.operations.filament_diameter
+            * np.abs(field_rate)
+            * superconductor_cross_section
+        )
+
     def get_magnetic_field_gradient(self, conductor, nodal=True):
 
         """

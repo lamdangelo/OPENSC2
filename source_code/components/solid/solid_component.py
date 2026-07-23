@@ -552,14 +552,17 @@ class SolidComponent:
                         self.node_fields.B_field * conductor.inputs.initial_current
                     )
                 if (
-                    conductor.inputs.current_mode != CurrentMode.CURRENT_IS_CONSTANT
+                    self.operations.magnetic_field_scales_with_current
+                    and conductor.inputs.current_mode != CurrentMode.CURRENT_IS_CONSTANT
                     and conductor.inputs.initial_current > 0
                 ):
-                    #### bfield e' un self e' un vettore
+                    # Proportional field model for spatially resolved
+                    # profiles: the file holds B(x) at the initial current,
+                    # the field follows the actual transport current (as
+                    # LINEAR_WITH_TRANSIENT does for linear profiles).
                     self.node_fields.B_field = (
                         self.node_fields.B_field
-                        * conductor.inputs.initial_current
-                        / conductor.inputs.initial_current
+                        * self._conductor_current_ratio(conductor)
                     )
             elif self.operations.magnetic_field_bc_mode is BFieldDefinitionType.CONSTANT_OR_LINEAR:
                 self.node_fields.B_field = np.linspace(
@@ -848,6 +851,79 @@ class SolidComponent:
         )
         self.node_fields.total_power_el_cond = np.zeros(
             conductor.mesh.number_of_nodes
+        )
+
+    def _field_rate(self, conductor):
+        """Nodal dB/dt [T/s] from the field at the previous thermal step.
+
+        Computed once per thermal step and cached on the component, so
+        several field-rate-driven heat sources (AC coupling loss and the
+        jacket/copper eddy-current losses) share one consistent rate
+        without each advancing the stored field independently. Returns a
+        zero array on the first evaluation (no previous field yet) and
+        whenever the step size is non-positive. ``node_fields.B_field`` is
+        refreshed by the electromagnetic update at every thermal step, so
+        any field model drives the rate consistently.
+        """
+        time = conductor.cond_time[-1]
+        if getattr(self, "_field_rate_time", None) == time:
+            # Already evaluated this step; return the cached rate so
+            # multiple loss terms see the same value.
+            return self._field_rate_value
+        if not hasattr(self, "_field_rate_field_old"):
+            # First evaluation: seed the history, no rate available yet.
+            self._field_rate_value = np.zeros_like(self.node_fields.B_field)
+        else:
+            time_step = time - self._field_rate_time_old
+            if time_step <= 0.0:
+                self._field_rate_value = np.zeros_like(self.node_fields.B_field)
+            else:
+                self._field_rate_value = (
+                    self.node_fields.B_field - self._field_rate_field_old
+                ) / time_step
+        self._field_rate_field_old = np.copy(self.node_fields.B_field)
+        self._field_rate_time_old = time
+        self._field_rate_time = time
+        return self._field_rate_value
+
+    def _eddy_conductivity(self, conductor):
+        """Electrical conductivity sigma [S/m] at the nodes for the eddy
+        loss. Overridden per component with the relevant metal (Al jacket,
+        Cu strand matrix); the base has no default metal."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not define an eddy-current "
+            "conductivity; override _eddy_conductivity to enable "
+            "get_eddy_loss."
+        )
+
+    def get_eddy_loss(self, conductor):
+        """Eddy-current linear power (W/m) at nodal points.
+
+        Induced-eddy dissipation from the changing field:
+
+            p_linear = sigma(T[,B]) * (dB/dt)^2 * C
+
+        with ``C = operations.eddy_loss_geometry_constant`` [m^4] the
+        second moment of the conducting cross-section about its centroid
+        (0 disables the source). ``sigma`` is supplied by the
+        component-specific ``_eddy_conductivity`` (Al6063 for the jacket,
+        copper for the strand matrix), and dB/dt comes from the shared
+        ``_field_rate`` helper. The result is stored in
+        ``node_fields.eddy_loss_linear_power`` as a (nodes, 1) column and
+        added to the Gauss-point sources in ``thermal.heat_sources``.
+        """
+        if not hasattr(self.node_fields, "eddy_loss_linear_power"):
+            self.node_fields.eddy_loss_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+        field_rate = self._field_rate(conductor)
+        if self.operations.eddy_loss_geometry_constant <= 0.0:
+            return
+        conductivity = self._eddy_conductivity(conductor)
+        self.node_fields.eddy_loss_linear_power[:, 0] = (
+            conductivity
+            * field_rate**2
+            * self.operations.eddy_loss_geometry_constant
         )
 
     def get_joule_power_along(self, conductor: object):
