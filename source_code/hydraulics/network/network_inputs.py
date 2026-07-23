@@ -114,6 +114,10 @@ class NetworkBranchInput:
     # VALVE: dp = linear_resistance * mdot + quadratic_resistance * mdot*|mdot|.
     linear_resistance: float = 0.0  # Pa/(kg/s)
     quadratic_resistance: float = 0.0  # Pa/(kg/s)^2
+    # Optional check-valve behaviour: when the previous-step flow is
+    # negative, the branch presents this (large) linear resistance
+    # instead of its forward law. None = symmetric valve.
+    reverse_linear_resistance: Optional[float] = None  # Pa/(kg/s)
 
     # PUMP
     characteristic: Optional[PumpCharacteristic] = None
@@ -158,7 +162,9 @@ _PIPE_KEYS = _BRANCH_COMMON_KEYS | {
     "length", "hydraulic_diameter", "cross_section", "roughness",
     "friction_factor_model", "friction_multiplier",
 }
-_VALVE_KEYS = _BRANCH_COMMON_KEYS | {"linear_resistance", "quadratic_resistance"}
+_VALVE_KEYS = _BRANCH_COMMON_KEYS | {
+    "linear_resistance", "quadratic_resistance", "reverse_linear_resistance"
+}
 _PUMP_KEYS = _BRANCH_COMMON_KEYS | {"characteristic"}
 _PUMP_CHARACTERISTIC_KEYS = {
     "head_at_zero_flow", "linear_coefficient", "quadratic_coefficient"
@@ -248,10 +254,14 @@ def _parse_branch(mapping: dict) -> NetworkBranchInput:
         )
     if kind is NetworkBranchKind.VALVE:
         _reject_unknown_keys(mapping, _VALVE_KEYS, context)
+        reverse = mapping.get("reverse_linear_resistance")
         return NetworkBranchInput(
             **common,
             linear_resistance=float(mapping.get("linear_resistance", 0.0)),
             quadratic_resistance=float(mapping.get("quadratic_resistance", 0.0)),
+            reverse_linear_resistance=(
+                float(reverse) if reverse is not None else None
+            ),
         )
     # PUMP
     _reject_unknown_keys(mapping, _PUMP_KEYS, context)

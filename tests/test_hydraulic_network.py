@@ -666,6 +666,82 @@ def test_internal_node_unknown_index():
         network.internal_node_unknown_index("bath")
 
 
+def test_quadratic_valve_tangent_linearization_relaxes_monotonically():
+    # Starting a quadratic valve from rest with weak inertance makes the
+    # first step overshoot enormously (zero frozen resistance). With the
+    # secant freeze R = K|mdot_old| consecutive steps flip-flop between
+    # overshoot and near-zero; the tangent (Newton) linearization must
+    # instead approach the fixed point monotonically (it is Newton's
+    # method for the square root) and land on mdot = sqrt(dp/K).
+    pressure_drop = 1.0e5
+    quadratic_resistance = 1.0e9
+    network = build_network(
+        [reservoir("high", 6.0e5), reservoir("low", 5.0e5)],
+        [
+            {
+                "identifier": "venturi",
+                "kind": "valve",
+                "from": "high",
+                "to": "low",
+                "quadratic_resistance": quadratic_resistance,
+                "inertance": 100.0,
+            }
+        ],
+    )
+    exact = np.sqrt(pressure_drop / quadratic_resistance)
+    time_step = 0.1
+
+    network.step(time_step)
+    flows = [network.branch_mass_flow_of("venturi")]
+    assert flows[0] > 100.0 * exact  # the provoked overshoot
+
+    for _ in range(80):
+        network.step(time_step)
+        flows.append(network.branch_mass_flow_of("venturi"))
+    distances = np.abs(np.array(flows) - exact)
+    assert np.all(np.diff(distances) <= 1.0e-12), (
+        "flow must relax monotonically toward the valve characteristic"
+    )
+    assert flows[-1] == pytest.approx(exact, rel=1.0e-6)
+
+
+def test_set_reservoir_state_drives_flow_and_temperature():
+    # A driver-prescribed reservoir schedule: after raising the supply
+    # pressure and temperature between steps, the algebraic valve flow
+    # follows the new pressure difference at once and the (zero-volume)
+    # junction takes the new upstream temperature through the enthalpy
+    # balance.
+    resistance = 1.0e9
+    network = build_network(
+        [
+            reservoir("supply", 6.0e5, temperature=4.5),
+            internal("junction", 5.5e5),
+            reservoir("sink", 5.0e5),
+        ],
+        [
+            valve("feed", "supply", "junction", linear_resistance=resistance),
+            valve("drain", "junction", "sink", linear_resistance=resistance),
+        ],
+    )
+    network.solve_steady_state()
+    assert network.branch_mass_flow_of("feed") == pytest.approx(
+        1.0e5 / (2 * resistance), rel=1.0e-9
+    )
+    assert network.node_temperature_of("junction") == pytest.approx(4.5)
+
+    network.set_reservoir_state("supply", pressure=7.0e5, temperature=4.8)
+    network.step(1.0e-3)
+    assert network.branch_mass_flow_of("feed") == pytest.approx(
+        2.0e5 / (2 * resistance), rel=1.0e-9
+    )
+    assert network.node_temperature_of("junction") == pytest.approx(
+        4.8, rel=1.0e-9
+    )
+
+    with pytest.raises(ValueError, match="not a reservoir"):
+        network.set_reservoir_state("junction", pressure=6.0e5)
+
+
 def test_coupled_node_rows_are_backward_euler_under_crank_nicolson():
     # A node flagged as coupled (its balance receives an implicit conductor
     # port flow) must be discretized with backward Euler even when the

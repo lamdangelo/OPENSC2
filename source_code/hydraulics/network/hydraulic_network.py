@@ -218,6 +218,13 @@ class HydraulicNetwork:
         # sources and for the steady initialization with frozen port flows.
         self.external_mass_sources = {}
 
+        # Optional inflow temperature (K) of an external mass source, by
+        # node identifier. A declared temperature makes the (positive)
+        # source carry enthalpy in the node balance of
+        # update_node_temperatures; undeclared sources stay thermally
+        # neutral as before.
+        self.external_source_temperatures = {}
+
         # Identifiers of internal nodes whose mass balance receives an
         # implicit conductor port flow (filled by the port resolution).
         # Their rows are enforced fully implicitly by assemble_transient:
@@ -270,6 +277,31 @@ class HydraulicNetwork:
 
     def node_temperature_of(self, identifier: str) -> float:
         return float(self.node_temperature[self.node_index[identifier]])
+
+    def set_reservoir_state(
+        self,
+        identifier: str,
+        pressure: float = None,
+        temperature: float = None,
+    ):
+        """Update the fixed state of a reservoir node.
+
+        Time-dependent boundary schedules are realized by the caller
+        (driver) between steps: the reservoir pressure acts as a fixed
+        source in the branch momentum rows and the reservoir temperature
+        as the upstream state of the node enthalpy balances, both frozen
+        over the step about to be taken.
+        """
+        node_index = self.node_index[identifier]
+        if node_index not in self.reservoir_node_indices:
+            raise ValueError(
+                f"Node {identifier!r} is not a reservoir; only reservoir "
+                "states can be prescribed."
+            )
+        if pressure is not None:
+            self.node_pressure[node_index] = pressure
+        if temperature is not None:
+            self.node_temperature[node_index] = temperature
 
     def state_vector(self) -> np.ndarray:
         """Current state in unknown-vector layout
@@ -393,15 +425,27 @@ class HydraulicNetwork:
         ]
 
     def _branch_resistance_and_source(self) -> tuple:
-        """Picard-linearized resistance R_b and pressure source dp_source_b
-        of every branch, frozen at the previous flow and properties.
+        """Linearized resistance R_b and pressure source dp_source_b of
+        every branch, frozen at the previous flow and properties.
 
         Pipe: dp = 2 f l rho v|v| / D_h in the flow variable, so
         R = 2 f(Re_old) l |mdot_old| / (D_h rho A^2), the lumped twin of the
         2 f |v| / D_h diagonal of build_smat_fluid_momentum (the friction
         multiplier applies to the total factor, as in
         Channel.evaluate_friction_factors). Pump: the droop terms act as a
-        (stabilizing) resistance and the zero-flow head as a source."""
+        (stabilizing) resistance and the zero-flow head as a source.
+
+        Quadratic characteristics (valve dp = K mdot|mdot| and the pump
+        quadratic droop) use the TANGENT (Newton) linearization
+            dp ~ 2 K |mdot_old| mdot - K mdot_old |mdot_old|,
+        not the secant K |mdot_old| mdot: the secant makes consecutive
+        steps flip-flop around the characteristic when the flow moves far
+        from the frozen state in one step (observed as a 1/(2 dt)
+        sawtooth on the venturi branches during quench expulsion). The
+        tangent has the same fixed point - at convergence both reduce to
+        K mdot|mdot| - but relaxes geometrically (it is Newton's method
+        for the square root), one tangent step per time step in the
+        linearize-at-old-state architecture."""
         number_of_branches = len(self.branch_inputs)
         resistance = np.zeros(number_of_branches)
         source = np.zeros(number_of_branches)
@@ -431,17 +475,36 @@ class HydraulicNetwork:
                     / (diameter * self.branch_density[b] * area ** 2)
                 )
             elif branch.kind is NetworkBranchKind.VALVE:
+                if (
+                    branch.reverse_linear_resistance is not None
+                    and self.branch_mass_flow[b] < 0.0
+                ):
+                    # Check valve: reverse flow sees a large linear
+                    # resistance (switched on the previous-step sign).
+                    resistance[b] = branch.reverse_linear_resistance
+                    source[b] = 0.0
+                    continue
                 resistance[b] = (
                     branch.linear_resistance
-                    + branch.quadratic_resistance * flow_magnitude
+                    + 2.0 * branch.quadratic_resistance * flow_magnitude
+                )
+                source[b] = (
+                    branch.quadratic_resistance
+                    * self.branch_mass_flow[b]
+                    * flow_magnitude
                 )
             elif branch.kind is NetworkBranchKind.PUMP:
                 characteristic = branch.characteristic
                 resistance[b] = (
                     characteristic.linear_coefficient
-                    + characteristic.quadratic_coefficient * flow_magnitude
+                    + 2.0 * characteristic.quadratic_coefficient * flow_magnitude
                 )
-                source[b] = characteristic.head_at_zero_flow
+                source[b] = (
+                    characteristic.head_at_zero_flow
+                    + characteristic.quadratic_coefficient
+                    * self.branch_mass_flow[b]
+                    * flow_magnitude
+                )
         return resistance, source
 
     def _assemble_raw(self) -> tuple:
@@ -653,9 +716,11 @@ class HydraulicNetwork:
         with cp * (T_up - T_n) as the Picard approximation of
         h_in - h_node (branch cp frozen at the branch upstream state, node
         heat capacity at the node state). Outflows carry the node
-        temperature and cancel; external mass sources have no declared
-        temperature and are treated as thermally neutral (entering at the
-        node temperature). A zero-volume node reduces to the algebraic
+        temperature and cancel; an external mass source is thermally
+        neutral (entering at the node temperature) unless an inflow
+        temperature is declared in external_source_temperatures, in which
+        case the positive source carries enthalpy like a port inflow.
+        A zero-volume node reduces to the algebraic
         flow-weighted inflow mixture; a node with neither storage nor
         inflow keeps its temperature. Reservoir temperatures are fixed
         boundary values.
@@ -718,6 +783,18 @@ class HydraulicNetwork:
                 known_term[local] += (
                     mass_flow * specific_heat * temperature
                 )
+        for identifier, temperature in self.external_source_temperatures.items():
+            mass_flow = self.external_mass_sources.get(identifier, 0.0)
+            if mass_flow <= 0.0:
+                continue
+            local = local_of.get(self.node_index[identifier])
+            if local is None:
+                continue
+            specific_heat = self.node_isobaric_specific_heat[
+                self.node_index[identifier]
+            ]
+            matrix[local, local] += mass_flow * specific_heat
+            known_term[local] += mass_flow * specific_heat * temperature
         # Every off-diagonal entry comes with a matching diagonal one, so a
         # zero diagonal means an empty balance (no storage, no inflow):
         # hold the temperature.

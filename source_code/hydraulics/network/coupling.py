@@ -1,6 +1,7 @@
 """Hydraulic field-circuit coupling: conductor channel ends coupled to
-lumped-network nodes through a monolithic bordered (Schur complement)
-solve around the banded thermal-hydraulic systems.
+lumped-network nodes through a bordered (Schur complement) solve around the
+banded thermal-hydraulic systems -- monolithic in the hydraulic variables
+(see the energy-coupling note below).
 
 Every coupled port is pressure-driven, mirroring the imposed-pressure
 boundary condition it replaces: after the standard boundary conditions are
@@ -15,11 +16,24 @@ node pressure lands in a border column. The port mass flow
     mdot_into_node = sigma * rho_old * A * v_port,   sigma = +1 at x = L,
                                                              -1 at x = 0
 
-enters the node mass balance implicitly through the coupling block (rho
-frozen at the old state, so the flow is linear in the unknown port
-velocity -- the same Picard linearization as everywhere else). The port
-flow is the Lagrange multiplier enforcing pressure continuity, exactly as
-terminal currents are in field-circuit coupling for electromagnetics.
+enters the node mass balance through the coupling block (rho frozen at the
+old state, so the flow is linear in the unknown port velocity -- the same
+Picard linearization as everywhere else).
+
+Physically the port mass flow is conjugate to the pressure-continuity
+constraint -- the role a Lagrange multiplier plays (a terminal current in
+electromagnetic field-circuit coupling). It is not, however, carried as a
+multiplier unknown here: the constraint is imposed directly on the port
+pressure row, and the flow fed to the node is the velocity trace
+sigma*rho_old*A*v_port evaluated from the port velocity DOF -- the
+*consistent* flux. That trace equals the *conservative* flux (the residual
+of the port node's own discrete continuity equation, i.e. the mass the
+node must supply to close its balance) only to discretization order. The
+difference is an O(h) mass-conservation defect, and the network node also
+misses the channel end half-cell's compliance; both are negligible at
+production mesh sizes, where the declared manifold volume dominates the
+channel end half-cell by orders of magnitude (V_halfcell/V_node <~ 1e-4 on
+the committed cases), and both vanish under mesh refinement.
 
 The coupled linear system (one banded block A_k per coupled conductor)
 
@@ -29,18 +43,39 @@ The coupled linear system (one banded block A_k per coupled conductor)
 
 is solved by bordering: one banded solve per conductor with the stacked
 right-hand sides [b_k | B_k] (each A_k is nonsingular on its own, the
-continuity rows keep their unit diagonal), then one small dense Schur
-system (D - sum_k C_k A_k^-1 B_k) x_net = f_net - sum_k C_k A_k^-1 b_k
-closing all conductors and the network together, then back-substitution
-per conductor. The banded structures, the row scaling and the
-one-linear-solve-per-step architecture of the field solver all survive
-untouched; conductors coupled to one network meet only in the Schur
-complement, and must therefore share the time step and the integration
-method (enforced by the simulation loop and by the network build).
+continuity rows keep their unit diagonal; only the border columns of the
+nodes the conductor is actually ported to are carried, the rest being
+zero), then one small dense Schur system
+(D - sum_k C_k A_k^-1 B_k) x_net = f_net - sum_k C_k A_k^-1 b_k closing all
+conductors and the network together, then back-substitution per conductor.
+The banded structures, the row scaling and the one-linear-solve-per-step
+architecture of the field solver all survive untouched; conductors coupled
+to one network meet only in the Schur complement.
 
-Restriction enforced at resolution time: each port end must be one where
-the channel's own boundary condition imposes pressure (the port takes over
-exactly that row).
+Energy coupling is staggered, not monolithic. The port *temperature* is
+imposed from the *previous* step's network node temperature at assembly
+time (:func:`apply_network_port_boundary_conditions`), and
+``HydraulicNetwork.update_node_temperatures`` runs *after* the solve with
+the new-state port flows. So while the pressures and velocities are solved
+monolithically, the field and network energy equations are coupled
+Gauss-Seidel with a one-step lag. This is benign for slow thermal
+transport but is a modelling choice worth revisiting for a quench front
+arriving at an outlet port, where the node temperature lags the front by
+one step.
+
+Restrictions:
+    * Each port end must be one where the channel's own boundary condition
+      imposes pressure (the port takes over exactly that row); enforced at
+      resolution time.
+    * All conductors coupled to one network share the time step and the
+      integration method (enforced by the simulation loop and the network
+      build). This makes the coupled step multirate-locked: a single
+      quenching conductor forced to a small step drags every conductor
+      coupled to the same network down to that step, even those far from
+      any transient. It is the deliberate trade-off of this tightly-coupled
+      monolithic scheme against a partitioned/co-simulation approach (which
+      would let each conductor keep its own step, at the cost of an
+      interface iteration or a coupling error per exchange).
 """
 
 import warnings
@@ -337,21 +372,92 @@ def apply_network_port_boundary_conditions(
     return known_term, system_matrix
 
 
+@dataclass
+class _CouplingStructure:
+    """Sparse form of one conductor's border B and coupling block C.
+
+    B (field rows x network unknowns) is nonzero only in the columns of the
+    nodes this conductor is ported to -- typically two -- so only those
+    columns are stored and solved for; the rest are exact zeros. C (network
+    rows x field unknowns) is nonzero only at the ported node rows and, in
+    each, only at the port velocity columns, so it is stored as coefficient
+    triplets rather than a dense (network x field) array.
+
+    The dropped columns/rows are exact zeros, so the reduced products equal
+    the dense ones up to BLAS summation-order (last-bit) reordering -- far
+    below the roundoff already inherent in the stacked-right-hand-side path.
+
+    Layout:
+        * ``ported_columns``: the network unknown indices B touches, sorted
+          ascending so the reduced sum runs over the same nonzero columns in
+          the same order the full B @ x would.
+        * ``border_reduced``: (field rows x len(ported_columns)) B restricted
+          to those columns, already row-scaled.
+        * ``coupling_nodes`` / ``coupling_velocity_columns`` /
+          ``coupling_coefficients``: one triplet per port,
+          C[node, velocity_column] += coefficient. Ordered by velocity
+          column so the scatter-add accumulates each node's contributions in
+          the same ascending-column order a dense C @ x would.
+    """
+    ported_columns: np.ndarray
+    border_reduced: np.ndarray
+    coupling_nodes: np.ndarray
+    coupling_velocity_columns: np.ndarray
+    coupling_coefficients: np.ndarray
+    number_of_network_unknowns: int
+
+    def coupling_times(self, vectors: np.ndarray) -> np.ndarray:
+        """C @ vectors, where ``vectors`` is the field solution (shape
+        (n_eq,)) or several field columns (shape (n_eq, k)); returns a
+        length-(network unknowns) vector or (network unknowns, k) block with
+        the port contributions scattered onto the ported node rows."""
+        contributions = (
+            self.coupling_coefficients.reshape(
+                (-1,) + (1,) * (vectors.ndim - 1)
+            )
+            * vectors[self.coupling_velocity_columns]
+        )
+        result = np.zeros(
+            (self.number_of_network_unknowns,) + vectors.shape[1:]
+        )
+        np.add.at(result, self.coupling_nodes, contributions)
+        return result
+
+
 def _coupling_blocks(conductor, network: HydraulicNetwork,
-                     row_scaling_factors: np.ndarray) -> tuple:
-    """Border columns B (field rows x network unknowns) and coupling block
-    C (network rows x field unknowns) of one conductor's ports."""
+                     row_scaling_factors: np.ndarray) -> _CouplingStructure:
+    """Sparse border B and coupling block C of one conductor's ports (see
+    :class:`_CouplingStructure`).
+
+    B carries the -1 on the network node pressure of each port's continuity
+    row; C carries -sigma * rho_old * A on each port's velocity column,
+    feeding mdot_into_node = sigma * rho_old * A * v_port into the node mass
+    balance (rho frozen at the old state, so the flow is linear in the
+    unknown port velocity -- the same Picard linearization as everywhere
+    else)."""
     number_of_equations = conductor.equation_counts.total_equations
-    border = np.zeros((number_of_equations, network.number_of_unknowns))
-    coupling = np.zeros((network.number_of_unknowns, number_of_equations))
-    for port in conductor.network_ports:
+    ports = conductor.network_ports
+    ported_columns = np.unique(
+        [port.node_unknown_index for port in ports]
+    ).astype(int)
+    local_of_node = {
+        int(column): local for local, column in enumerate(ported_columns)
+    }
+    border_reduced = np.zeros((number_of_equations, ported_columns.size))
+    coupling_nodes = np.empty(len(ports), dtype=int)
+    coupling_velocity_columns = np.empty(len(ports), dtype=int)
+    coupling_coefficients = np.empty(len(ports))
+    for k, port in enumerate(ports):
         pressure_row = port.pressure_index % number_of_equations
         velocity_column = port.velocity_index % number_of_equations
         # Continuity row: p_port - p_node = 0.
-        border[pressure_row, port.node_unknown_index] = -1.0
-        # Node mass balance: ... - mdot_into_node = q, with
-        # mdot_into_node = sigma * rho_old * A * v_port.
-        coupling[port.node_unknown_index, velocity_column] += (
+        border_reduced[pressure_row, local_of_node[port.node_unknown_index]] = (
+            -1.0
+        )
+        coupling_nodes[k] = port.node_unknown_index
+        coupling_velocity_columns[k] = velocity_column
+        # Node mass balance: ... - mdot_into_node = q.
+        coupling_coefficients[k] = (
             -port.flow_orientation_sign
             * port.fluid_component.coolant.node_fields.total_density[
                 port.end_node_slice
@@ -360,8 +466,19 @@ def _coupling_blocks(conductor, network: HydraulicNetwork,
         )
     # The field rows were equilibrated after the boundary conditions; the
     # border columns belong to those rows and scale identically.
-    border /= row_scaling_factors[:, np.newaxis]
-    return border, coupling
+    border_reduced /= row_scaling_factors[:, np.newaxis]
+    # Order the coupling triplets by velocity column so the scatter-add in
+    # coupling_times accumulates each node's contributions in the same
+    # ascending-column order a dense C @ x would.
+    order = np.argsort(coupling_velocity_columns, kind="stable")
+    return _CouplingStructure(
+        ported_columns=ported_columns,
+        border_reduced=border_reduced,
+        coupling_nodes=coupling_nodes[order],
+        coupling_velocity_columns=coupling_velocity_columns[order],
+        coupling_coefficients=coupling_coefficients[order],
+        number_of_network_unknowns=network.number_of_unknowns,
+    )
 
 
 def solve_coupled_conductors_step(conductors: list,
@@ -372,11 +489,13 @@ def solve_coupled_conductors_step(conductors: list,
 
     Each conductor is assembled with the standard phase functions, solved
     against the stacked right-hand sides [b_k | B_k] with its own banded
-    factorization, and contributes C_k A_k^-1 B_k to the shared dense Schur
-    complement of the network unknowns; one small dense solve then closes
-    all conductors and the network simultaneously, and the network state is
-    advanced exactly once. The simulation loop must have harmonized the
-    time step of the coupled conductors beforehand.
+    factorization (only the border columns of the nodes the conductor is
+    ported to are carried; the rest of B_k is zero), and contributes
+    C_k A_k^-1 B_k to the shared dense Schur complement of the network
+    unknowns; one small dense solve then closes all conductors and the
+    network simultaneously, and the network state is advanced exactly once.
+    The simulation loop must have harmonized the time step of the coupled
+    conductors beforehand.
 
     The network is solved for the increment delta = x_net - x_net_old
     rather than x_net itself: with the raw continuity right-hand side
@@ -414,32 +533,43 @@ def solve_coupled_conductors_step(conductors: list,
                 conductor, qsource_by_identifier[conductor.identifier]
             )
         )
-        border, coupling = _coupling_blocks(
-            conductor, network, row_scaling_factors
-        )
+        blocks = _coupling_blocks(conductor, network, row_scaling_factors)
+        ported_columns = blocks.ported_columns
+        # Solve only against the border columns of the nodes this conductor
+        # is ported to; the other columns of B are exact zeros and would
+        # return zero solves. old_network_state is restricted to the same
+        # columns for the increment shift of the particular right-hand side.
         stacked_solution = solve_thermal_banded_system(
             conductor,
             system_matrix,
             np.column_stack(
-                (known_term - border @ old_network_state, border)
+                (
+                    known_term
+                    - blocks.border_reduced @ old_network_state[ported_columns],
+                    blocks.border_reduced,
+                )
             ),
         )
         particular = stacked_solution[:, 0]
         border_influence = stacked_solution[:, 1:]
-        schur_matrix -= coupling @ border_influence
-        schur_known -= coupling @ particular
+        # Schur accumulation, restricted to the ported node columns/rows: the
+        # dropped entries are zero, so this reproduces the dense update.
+        schur_matrix[:, ported_columns] -= blocks.coupling_times(
+            border_influence
+        )
+        schur_known -= blocks.coupling_times(particular)
         conductor_solves.append(
             (conductor, known_term, row_scaling_factors, particular,
-             border_influence)
+             border_influence, ported_columns)
         )
 
     network_increment = np.linalg.solve(schur_matrix, schur_known)
 
     for (conductor, known_term, row_scaling_factors, particular,
-         border_influence) in conductor_solves:
+         border_influence, ported_columns) in conductor_solves:
         finalize_step(
             conductor,
-            particular - border_influence @ network_increment,
+            particular - border_influence @ network_increment[ported_columns],
             known_term,
             row_scaling_factors,
         )
