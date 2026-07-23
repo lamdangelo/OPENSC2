@@ -214,11 +214,18 @@ def make_plots(simulation, kind="Space_distr"):
     for cond in simulation.list_of_Conductors:
         dict_values[cond.identifier] = {}  # dictionary declaration (cdp, 09/2020)
         if kind == "Space_distr":
-            # unify the array (cdp, 11/2020)
-            kind_save = np.around(cond.Space_save, simulation.n_digit_time)
             root_load_path = simulation.dict_path[
                 f"Output_Spatial_distribution_{cond.identifier}_dir"
             ]
+            # The spatial files hold one column per PERFORMED save: a run
+            # stopped before TEND has fewer saves than scheduled in
+            # Space_save (the file columns and legend labels then carry
+            # the actual save times, including the stop-time save).
+            from utility_functions.output import _performed_saves
+
+            kind_save, _ = _performed_saves(
+                cond, root_load_path, simulation.n_digit_time
+            )
             des = "sd"
             root_save_path = simulation.dict_path[
                 f"Figures_Spatial_distribution_{cond.identifier}_dir"

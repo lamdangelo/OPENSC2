@@ -41,8 +41,13 @@ class Simulation:
     # Current working directory
     CWD = os.getcwd()
 
-    def __init__(self, base_path):
+    def __init__(self, base_path, step_callback=None):
 
+        # Optional per-step hook, called at the top of every transient
+        # iteration with the simulation as argument (drivers use it for
+        # time-dependent boundary schedules, event detection and source
+        # switching). A truthy return value stops the transient.
+        self.step_callback = step_callback
         # Current working directory: SCMagnetCode (cdp, 10/2020)
         # self.cwd = os.getcwd()
         # Ask User the name of the cable. (cdp, 10/2020)
@@ -350,6 +355,10 @@ class Simulation:
             < self.transient_input["TEND"] - 1e-5 * self.transient_input["STPMIN"]
             and stoptime == 0
         ):
+            if self.step_callback is not None and self.step_callback(self):
+                # The driver requested the end of the transient.
+                stoptime = 1
+                break
             self.num_step = self.num_step + 1
             time_step = np.zeros(self.numObj)
             # List of the conductors coupled to the hydraulic network: they
@@ -521,6 +530,13 @@ class Simulation:
                 # call sensor to plot results at any time the user asks (cdp, 07/2020)
             # End for conductor (cdp, 07/2020)
         # end while (cdp, 07/2020)
+        # Final flush of the partially filled time-evolution buffers: a
+        # run stopped before TEND (e.g. by the step callback) never
+        # satisfies the TEND-based flush condition and would silently
+        # lose up to CHUNCK_SIZE recorded steps per file.
+        for conductor in self.list_of_Conductors:
+            save_simulation_time(self, conductor, flush_only=True)
+            save_network_simulation_time(self, conductor, flush_only=True)
         print("End simulation called " + self.transient_input["SIMULATION"] + "\n")
 
     # end method Conductor_solution (cdp, 09/2020)
