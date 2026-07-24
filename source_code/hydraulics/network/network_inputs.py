@@ -50,6 +50,13 @@ class NetworkBranchKind(Enum):
     VALVE = "valve"
     # Source branch with the characteristic of PumpCharacteristic.
     PUMP = "pump"
+    # Pressure-triggered by-pass with hysteresis (quench protection):
+    # blocked until the monitored node exceeds trip_pressure, then a
+    # one-directional valve with the given open-state resistances until
+    # the monitored pressure falls below reseat_pressure. State is
+    # switched once per step on the previous-step pressures (as the
+    # check valve switches on the previous-step flow sign).
+    RELIEF_VALVE = "relief_valve"
 
 
 def get_network_branch_kind(flag: str) -> NetworkBranchKind:
@@ -119,6 +126,12 @@ class NetworkBranchInput:
     # instead of its forward law. None = symmetric valve.
     reverse_linear_resistance: Optional[float] = None  # Pa/(kg/s)
 
+    # RELIEF_VALVE trigger: opens at trip_pressure, reseats below
+    # reseat_pressure, both read at monitored_node (None = from_node).
+    trip_pressure: Optional[float] = None  # Pa
+    reseat_pressure: Optional[float] = None  # Pa
+    monitored_node: Optional[str] = None
+
     # PUMP
     characteristic: Optional[PumpCharacteristic] = None
 
@@ -164,6 +177,10 @@ _PIPE_KEYS = _BRANCH_COMMON_KEYS | {
 }
 _VALVE_KEYS = _BRANCH_COMMON_KEYS | {
     "linear_resistance", "quadratic_resistance", "reverse_linear_resistance"
+}
+_RELIEF_VALVE_KEYS = _BRANCH_COMMON_KEYS | {
+    "linear_resistance", "quadratic_resistance",
+    "trip_pressure", "reseat_pressure", "monitored_node",
 }
 _PUMP_KEYS = _BRANCH_COMMON_KEYS | {"characteristic"}
 _PUMP_CHARACTERISTIC_KEYS = {
@@ -262,6 +279,18 @@ def _parse_branch(mapping: dict) -> NetworkBranchInput:
             reverse_linear_resistance=(
                 float(reverse) if reverse is not None else None
             ),
+        )
+    if kind is NetworkBranchKind.RELIEF_VALVE:
+        _reject_unknown_keys(mapping, _RELIEF_VALVE_KEYS, context)
+        _require_keys(mapping, {"trip_pressure", "reseat_pressure"}, context)
+        monitored = mapping.get("monitored_node")
+        return NetworkBranchInput(
+            **common,
+            linear_resistance=float(mapping.get("linear_resistance", 0.0)),
+            quadratic_resistance=float(mapping.get("quadratic_resistance", 0.0)),
+            trip_pressure=float(mapping["trip_pressure"]),
+            reseat_pressure=float(mapping["reseat_pressure"]),
+            monitored_node=str(monitored) if monitored is not None else None,
         )
     # PUMP
     _reject_unknown_keys(mapping, _PUMP_KEYS, context)
@@ -396,6 +425,37 @@ class HydraulicNetworkInput:
                     raise ValueError(
                         f"{context}: valve needs a positive linear_resistance "
                         "or quadratic_resistance."
+                    )
+            elif branch.kind is NetworkBranchKind.RELIEF_VALVE:
+                if (
+                    branch.linear_resistance < 0.0
+                    or branch.quadratic_resistance < 0.0
+                ):
+                    raise ValueError(
+                        f"{context}: relief-valve resistances must be "
+                        "non-negative."
+                    )
+                if branch.linear_resistance + branch.quadratic_resistance == 0.0:
+                    raise ValueError(
+                        f"{context}: relief valve needs a positive open-state "
+                        "linear_resistance or quadratic_resistance."
+                    )
+                if branch.reseat_pressure <= 0.0:
+                    raise ValueError(
+                        f"{context}: reseat_pressure must be positive."
+                    )
+                if branch.trip_pressure <= branch.reseat_pressure:
+                    raise ValueError(
+                        f"{context}: trip_pressure must exceed reseat_pressure "
+                        "(the hysteresis band)."
+                    )
+                if (
+                    branch.monitored_node is not None
+                    and branch.monitored_node not in node_by_identifier
+                ):
+                    raise ValueError(
+                        f"{context}: monitored_node "
+                        f"{branch.monitored_node!r} is not a network node."
                     )
             elif branch.kind is NetworkBranchKind.PUMP:
                 characteristic = branch.characteristic

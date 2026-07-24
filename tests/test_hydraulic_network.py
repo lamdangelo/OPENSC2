@@ -798,3 +798,102 @@ def test_crank_nicolson_enforces_junction_constraint_exactly():
         assert abs(inflow - outflow) <= 1.0e-14 + 1.0e-10 * abs(inflow)
     # The vessel must have moved towards the bath pressure.
     assert network.node_pressure_of("vessel") > 5.02e5
+
+
+def test_relief_valve_trips_and_reseats_with_hysteresis():
+    # Quench-protection relief valve (first-class branch kind): blocked
+    # until the monitored node crosses trip_pressure, then a
+    # one-directional by-pass until the pressure falls below
+    # reseat_pressure. The supply reservoir stands in for the pressure
+    # transient: raise it above trip, the by-pass conducts; lower it into
+    # the hysteresis band, it stays open; below reseat, it blocks again.
+    # Soft feed vs stiff relief: the manifold tracks the supply closely
+    # even while the relief conducts, so the hysteresis band is probed
+    # by the supply schedule (a stiff feed would blow the manifold down
+    # on opening - the chattering regime, not tested here).
+    resistance = 1.0e4
+    relief = {
+        "identifier": "relief",
+        "kind": "relief_valve",
+        "from": "manifold",
+        "to": "sink",
+        "linear_resistance": 1.0e6,
+        "trip_pressure": 6.5e5,
+        "reseat_pressure": 6.1e5,
+    }
+    network = build_network(
+        [
+            reservoir("supply", 6.0e5),
+            internal("manifold", 6.0e5, volume=1.0e-3),
+            reservoir("sink", 5.0e5),
+        ],
+        [
+            valve("feed", "supply", "manifold", linear_resistance=resistance),
+            relief,
+        ],
+    )
+    time_step = 1.0e-2
+    # Below trip: the relief carries (essentially) nothing.
+    network.step(time_step)
+    assert not network.relief_valve_open[network.branch_index["relief"]]
+    assert abs(network.branch_mass_flow_of("relief")) < 1.0e-6  # ~dp/1e12 leak
+
+    # Drive the manifold above trip through the supply reservoir; the
+    # state switches on the previous-step pressure, so it takes one step
+    # to see the new pressure and one more to conduct fully.
+    network.set_reservoir_state("supply", pressure=7.0e5)
+    for _ in range(50):
+        network.step(time_step)
+    assert network.relief_valve_open[network.branch_index["relief"]]
+    open_flow = network.branch_mass_flow_of("relief")
+    assert open_flow > 1.0e-3
+
+    # Into the hysteresis band (between reseat and trip): stays open.
+    network.set_reservoir_state("supply", pressure=6.3e5)
+    for _ in range(50):
+        network.step(time_step)
+    assert network.relief_valve_open[network.branch_index["relief"]]
+
+    # Below reseat: blocks again.
+    network.set_reservoir_state("supply", pressure=5.9e5)
+    for _ in range(50):
+        network.step(time_step)
+    assert not network.relief_valve_open[network.branch_index["relief"]]
+    assert abs(network.branch_mass_flow_of("relief")) < 1.0e-6  # ~dp/1e12 leak
+
+
+def test_relief_valve_input_validation():
+    base = {
+        "identifier": "relief",
+        "kind": "relief_valve",
+        "from": "manifold",
+        "to": "sink",
+        "linear_resistance": 1.0e6,
+        "trip_pressure": 6.5e5,
+        "reseat_pressure": 6.1e5,
+    }
+    nodes = [
+        reservoir("supply", 6.0e5),
+        internal("manifold", 6.0e5, volume=1.0e-3),
+        reservoir("sink", 5.0e5),
+    ]
+    feed = valve("feed", "supply", "manifold", linear_resistance=1.0e9)
+
+    inverted = dict(base, trip_pressure=6.0e5)
+    with pytest.raises(ValueError, match="hysteresis"):
+        HydraulicNetworkInput.from_mapping(
+            network_mapping(nodes, [feed, inverted])
+        )
+
+    unresisted = dict(base)
+    del unresisted["linear_resistance"]
+    with pytest.raises(ValueError, match="open-state"):
+        HydraulicNetworkInput.from_mapping(
+            network_mapping(nodes, [feed, unresisted])
+        )
+
+    bad_monitor = dict(base, monitored_node="nowhere")
+    with pytest.raises(ValueError, match="monitored_node"):
+        HydraulicNetworkInput.from_mapping(
+            network_mapping(nodes, [feed, bad_monitor])
+        )

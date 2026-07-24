@@ -67,6 +67,11 @@ from hydraulics.network.network_inputs import (
 # resistance; it also keeps the resistance nonzero at zero-flow startup.
 LAMINAR_REYNOLDS_FLOOR = 10.0
 
+# Linear resistance presented by a closed (or reverse-flowing) relief
+# valve, Pa/(kg/s): effectively no flow, same order as the check-valve
+# reverse resistances used in the facility models.
+RELIEF_VALVE_BLOCKED_RESISTANCE = 1.0e12
+
 # Flow seeded into branches that start the steady-state Picard iteration at
 # exactly zero flow: a purely quadratic resistance (or pure droop pump)
 # linearized at zero flow would make the first iteration matrix singular.
@@ -178,6 +183,20 @@ class HydraulicNetwork:
         self.number_of_unknowns = (
             self.internal_node_indices.size + number_of_branches
         )
+        # Relief valves: per-branch open/closed state (hysteresis) and the
+        # node whose pressure triggers them (default: the from-node).
+        self.relief_valve_open = {
+            b: False
+            for b, branch in enumerate(self.branch_inputs)
+            if branch.kind is NetworkBranchKind.RELIEF_VALVE
+        }
+        self._relief_monitored_node = {
+            b: self.node_index[
+                self.branch_inputs[b].monitored_node
+                or self.branch_inputs[b].from_node
+            ]
+            for b in self.relief_valve_open
+        }
 
         # State (reservoir entries of node_pressure stay at their fixed
         # values; only the internal entries are unknowns).
@@ -482,6 +501,41 @@ class HydraulicNetwork:
                     # Check valve: reverse flow sees a large linear
                     # resistance (switched on the previous-step sign).
                     resistance[b] = branch.reverse_linear_resistance
+                    source[b] = 0.0
+                    continue
+                resistance[b] = (
+                    branch.linear_resistance
+                    + 2.0 * branch.quadratic_resistance * flow_magnitude
+                )
+                source[b] = (
+                    branch.quadratic_resistance
+                    * self.branch_mass_flow[b]
+                    * flow_magnitude
+                )
+            elif branch.kind is NetworkBranchKind.RELIEF_VALVE:
+                # Trip/reseat with hysteresis on the previous-step
+                # monitored pressure (assembly runs once per step, so
+                # the state switches at most once per step, like the
+                # check valve on the previous-step flow sign).
+                monitored_pressure = self.node_pressure[
+                    self._relief_monitored_node[b]
+                ]
+                if (
+                    not self.relief_valve_open[b]
+                    and monitored_pressure >= branch.trip_pressure
+                ):
+                    self.relief_valve_open[b] = True
+                elif (
+                    self.relief_valve_open[b]
+                    and monitored_pressure < branch.reseat_pressure
+                ):
+                    self.relief_valve_open[b] = False
+                if not self.relief_valve_open[b] or (
+                    self.branch_mass_flow[b] < 0.0
+                ):
+                    # Closed, or reverse flow: relief valves are
+                    # one-directional by construction.
+                    resistance[b] = RELIEF_VALVE_BLOCKED_RESISTANCE
                     source[b] = 0.0
                     continue
                 resistance[b] = (
