@@ -28,6 +28,7 @@ from utility_functions.output import (
     save_simulation_time,
     save_properties,
 )
+from utility_functions.checkpoint import restore_from_checkpoint, write_checkpoint
 from utility_functions.plots import (
     plot_properties,
     make_plots,
@@ -80,6 +81,11 @@ class Simulation:
                 index_col=0,
                 usecols=["Variable name", "Value"],
             )["Value"].to_dict()
+            # Checkpointing settings are YAML-only (the Excel front end is
+            # deprecated): force the defaults so both input paths always
+            # yield the two keys.
+            self.transient_input["RESTART"] = False
+            self.transient_input["AUTOSAVE_INTERVAL"] = None
         self.flag_start = False
         # Optional lumped hydraulic network coupled to conductor channel
         # ends; built in conductor_initialization from the YAML input
@@ -124,6 +130,12 @@ class Simulation:
         self.simulation_folders_manager(target_directory=self.basePath)  # create folders
         self.save_input_files()  # create metadata
         self.conductor_initialization()  # initialize conductors
+        if self.transient_input["RESTART"]:
+            # Resume from the newest autosaved checkpoint: the deterministic
+            # initialization above rebuilt every object, now overwrite the
+            # evolving state and truncate the outputs to the checkpoint time
+            # (see utility_functions/checkpoint.py).
+            restore_from_checkpoint(self)
         self.conductor_solution()  # solve the numerical problem
         self.conductor_post_processing()  # do post-processing
 
@@ -341,13 +353,17 @@ class Simulation:
             # (cdp, 10/2020)
             # list_values = list(conductor.dict_Space_save.values())
             # Save of the solution spatial distribution at 0.0 s (cdp, 12/2020)
-            save_simulation_space(
-                conductor,
-                self.dict_path[
-                    f"Output_Spatial_distribution_{conductor.identifier}_dir"
-                ],
-                abs(self.n_digit_time),
-            )
+            # On restart the t = 0 save already exists and i_save points at
+            # the next pending save time: saving here would stamp a bogus
+            # distribution and skip a scheduled save.
+            if not self.transient_input["RESTART"]:
+                save_simulation_space(
+                    conductor,
+                    self.dict_path[
+                        f"Output_Spatial_distribution_{conductor.identifier}_dir"
+                    ],
+                    abs(self.n_digit_time),
+                )
         # end for ii (cdp, 10/2020)
         # while loop to solve transient at each timestep (cdp, 07/2020)
         while (
@@ -529,6 +545,19 @@ class Simulation:
                 save_network_simulation_time(self, conductor)
                 # call sensor to plot results at any time the user asks (cdp, 07/2020)
             # End for conductor (cdp, 07/2020)
+
+            autosave_interval = self.transient_input["AUTOSAVE_INTERVAL"]
+            if (
+                autosave_interval is not None
+                and self.num_step % autosave_interval == 0
+            ):
+                # Flush the time-evolution buffers first, so the output
+                # files are complete up to the checkpoint time and the
+                # checkpoint itself never has to carry buffered rows.
+                for conductor in self.list_of_Conductors:
+                    save_simulation_time(self, conductor, flush_only=True)
+                    save_network_simulation_time(self, conductor, flush_only=True)
+                write_checkpoint(self)
         # end while (cdp, 07/2020)
         # Final flush of the partially filled time-evolution buffers: a
         # run stopped before TEND (e.g. by the step callback) never

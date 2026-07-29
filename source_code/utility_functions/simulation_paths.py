@@ -244,6 +244,15 @@ def manage_simulation_folders(simulation: object, target_directory: str = None) 
     )
     os.makedirs(simulation.dict_path["Save_input"], exist_ok=True)
 
+    # Path of the autosave checkpoints (utility_functions/checkpoint.py).
+    # Path only: the directory is created lazily by the checkpoint writer,
+    # so runs without AUTOSAVE_INTERVAL leave the output tree untouched.
+    simulation.dict_path["Checkpoints_dir"] = os.path.join(
+        simulation.dict_path["Sub_dir"],
+        simulation.transient_input["SIMULATION"],
+        "Checkpoints",
+    )
+
 # End function manage_simulation_folders.
 
 def resolve_file_name_capitalization(base_path: str, file_name: str) -> str:

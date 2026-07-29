@@ -723,6 +723,31 @@ def save_simulation_time(simulation, conductor, flush_only=False):
             for ii in range(1, conductor.Time_save.size)
         }
     )
+    # A restarted run re-executes this initialization call with
+    # simulation.num_step == 0: the in-memory time-evolution records must be
+    # initialized as usual, but the header writes (mode "w", they would wipe
+    # the files) and the t = 0 record are skipped - the files on disk
+    # already hold the history up to the checkpoint, truncated there by
+    # utility_functions/checkpoint.py.
+    if simulation.num_step == 0 and bool(
+        simulation.transient_input.get("RESTART")
+    ):
+        for f_comp in conductor.inventory.fluids.collection:
+            for field_name in f_comp.coolant.TIME_EVOLUTION_FIELDS:
+                f_comp.coolant.node_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord)
+            f_comp.channel.friction_factor_time_evolution.initialize(ind_zcoord)
+        for s_comp in conductor.inventory.solids.collection:
+            for field_name in s_comp.TIME_EVOLUTION_FIELDS:
+                s_comp.node_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord)
+            for field_name in s_comp.TIME_EVOLUTION_GAUSS_FIELDS:
+                s_comp.gauss_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord_gauss)
+        return
     # construct file header only once (cdp, 08/2020)
     if simulation.num_step == 0:
         headers = ["time (s)"]
@@ -1063,6 +1088,12 @@ def save_network_simulation_time(simulation, conductor, flush_only=False):
         network is None
         or conductor.identifier != network.output_conductor_identifier
     ):
+        return
+    if simulation.num_step == 0 and bool(
+        simulation.transient_input.get("RESTART")
+    ):
+        # Restarted run: the file already holds the history up to the
+        # checkpoint - skip the header rewrite and the initial record.
         return
     file_name = os.path.join(
         simulation.dict_path[f"Output_Time_evolution_{conductor.identifier}_dir"],
