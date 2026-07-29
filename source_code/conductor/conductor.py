@@ -21,6 +21,7 @@ from typing_extensions import Self
 # import classes
 from components.component_collection import ComponentInventory
 from electromagnetics.electromagnetic_flags import CurrentMode
+from hydraulics.hydraulic_flags import HydraulicFormulation
 from conductor.conductor_mesh import MeshType
 from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from conductor.solver_structures import (
@@ -147,6 +148,13 @@ class Conductor:
         # filled by hydraulics.network.coupling.resolve_network_coupling);
         # empty when the conductor is not coupled to a network.
         self.network_ports = []
+
+        # Resolved hydraulic formulation of the 1D channel unknowns
+        # (never AUTO): overwritten at setup by the resolution step in
+        # Simulation.conductor_initialization from the declared input value
+        # (see hydraulics/formulation.py). The preset keeps directly
+        # constructed conductors (tests) on the classical velocity path.
+        self.hydraulic_formulation = HydraulicFormulation.VELOCITY
 
 
     # end method __init__ (cdp, 11/2020)
@@ -770,10 +778,18 @@ class Conductor:
 
         # Assign initial values to the time integration solution (cdp, 10/2020)
         for jj, fluid_comp in enumerate(self.inventory.fluids.collection):
-            # velocity (cdp, 10/2020)
-            self.time_integration.solution[
-                jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
-            ] = fluid_comp.coolant.node_fields.velocity
+            if self.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+                # Mass-flow formulation: the first fluid slot holds the mass
+                # flow rate (available here as rho*A*v of the initial state,
+                # exact by construction).
+                self.time_integration.solution[
+                    jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
+                ] = fluid_comp.coolant.node_fields.mass_flow_rate
+            else:
+                # velocity (cdp, 10/2020)
+                self.time_integration.solution[
+                    jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
+                ] = fluid_comp.coolant.node_fields.velocity
             # pressure (cdp, 10/2020)
             self.time_integration.solution[
                 jj

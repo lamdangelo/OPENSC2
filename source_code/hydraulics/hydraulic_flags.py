@@ -69,3 +69,28 @@ def get_hydraulic_bc(flag: int) -> HydraulicBC:
         return HydraulicBC.IMPOSE_INLET_VELOCITY_OUTLET_PRESSURE
     else:
         raise ValueError(f"Hydraulic BC flag {flag} not known.")
+
+
+class HydraulicFormulation(Enum):
+    """Primary variables of the 1D channel hydraulics.
+
+    VELOCITY solves the classical (v, p, T) primitive-variable system;
+    MASS_FLOW solves the similarity-transformed (mdot, p, T) system, whose
+    first fluid unknown per channel is the mass flow rate mdot = rho*A*v
+    (the native coupling variable of the hydraulic network). AUTO is the
+    input default and resolves at setup time: network coupling declared ->
+    MASS_FLOW, otherwise VELOCITY (see hydraulics/formulation.py).
+    """
+    AUTO = "auto"
+    VELOCITY = "velocity"
+    MASS_FLOW = "mass_flow"
+
+
+def get_hydraulic_formulation(flag: str) -> HydraulicFormulation:
+    try:
+        return HydraulicFormulation(str(flag).lower())
+    except ValueError:
+        raise ValueError(
+            f"Unknown hydraulic formulation {flag!r}: valid values are "
+            "'auto', 'velocity' and 'mass_flow'."
+        )

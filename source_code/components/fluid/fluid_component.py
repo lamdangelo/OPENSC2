@@ -25,6 +25,7 @@ from components.fluid.fluid_component_inputs import (
 from hydraulics.hydraulic_flags import (
     HydraulicBC,
     FlowDirection,
+    HydraulicFormulation,
 )
 
 from hydraulics.channel import Channel
@@ -337,6 +338,26 @@ class FluidComponent(Component):
 
         return known,sysmat
 
+    def _boundary_flow_value(
+        self,
+        conductor:object,
+        mass_flow_rate:float,
+        boundary_density:float,
+        )->float:
+        """Known-term value of the imposed-flow Dirichlet row.
+
+        In the mass-flow formulation the first fluid slot is the mass flow
+        rate itself, so the boundary condition is exact. In the velocity
+        formulation the slot is the velocity and the imposed mass flow is
+        converted with the boundary density of the current property state
+        (lagged by one step with respect to the solution being solved).
+        """
+        if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+            return mass_flow_rate
+        return (
+            mass_flow_rate / boundary_density / self.channel.inputs.cross_section
+        )
+
     def impose_inl_p_out_v(
         self,
         ndarrays:tuple,
@@ -405,7 +426,9 @@ class FluidComponent(Component):
             sysmat[:,out_v_idx.forward] = 0.0
             # main diagonal.
             sysmat[main_d_idx,out_v_idx.forward] = 1.0
-            known[out_v_idx.forward] = (mfr_out / density[-1] / cross_section)
+            known[out_v_idx.forward] = self._boundary_flow_value(
+                conductor, mfr_out, density[-1]
+            )
             # p_inl
             sysmat[:,inl_p_idx.forward] = 0.0
             # main diagonal.
@@ -425,7 +448,9 @@ class FluidComponent(Component):
             sysmat[:,out_v_idx.backward] = 0.0
             # main diagonal.
             sysmat[main_d_idx,out_v_idx.backward] = 1.0
-            known[out_v_idx.backward] = (mfr_out / density[0] / cross_section)
+            known[out_v_idx.backward] = self._boundary_flow_value(
+                conductor, mfr_out, density[0]
+            )
             # p_inl
             sysmat[:,inl_p_idx.backward] = 0.0
             # main diagonal.
@@ -509,7 +534,9 @@ class FluidComponent(Component):
             sysmat[:,inl_v_idx.forward] = 0.0
             # main diagonal.
             sysmat[main_d_idx,inl_v_idx.forward] = 1.0
-            known[inl_v_idx.forward] = (mfr_inl / density[0] / cross_section)
+            known[inl_v_idx.forward] = self._boundary_flow_value(
+                conductor, mfr_inl, density[0]
+            )
             # p_out
             sysmat[:,out_p_idx.forward] = 0.0
             # main diagonal.
@@ -529,7 +556,9 @@ class FluidComponent(Component):
             sysmat[:,inl_v_idx.backward] = 0.0
             # main diagonal.
             sysmat[main_d_idx,inl_v_idx.backward] = 1.0
-            known[inl_v_idx.backward] = (mfr_inl / density[-1] / cross_section)
+            known[inl_v_idx.backward] = self._boundary_flow_value(
+                conductor, mfr_inl, density[-1]
+            )
             # p_out
             sysmat[:,out_p_idx.backward] = 0.0
             # main diagonal.

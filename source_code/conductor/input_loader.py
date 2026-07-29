@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 
 import conductor.conductor_flags as cf
 import electromagnetics.electromagnetic_flags as emf
+from hydraulics.hydraulic_flags import get_hydraulic_formulation
 
 from conductor.conductor_inputs import (
     ConductorInputs, 
@@ -239,6 +240,9 @@ class ConductorInputLoader:
             outlet_heated_zone_end=raw_inputs["XJENOUT"],
             thermohydraulic_method=cf.MethodFlag.get_method_flag(raw_inputs["METHOD"]),
             upwind=bool(raw_inputs.get("UPWIND", False)),
+            hydraulic_formulation=get_hydraulic_formulation(
+                raw_inputs.get("HYDRAULIC_FORMULATION", "auto")
+            ),
             external_free_convection_correlation=cf.ExternalFreeConvectionCorrelation.get_external_free_convection_correlation_flag(
                 raw_inputs["external_free_convection_correlation"]
             ),

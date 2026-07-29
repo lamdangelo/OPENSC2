@@ -18,6 +18,7 @@ from electromagnetics.electromagnetic_flags import (
     ElectricSolver,
     ElectricConductanceMode,
 )
+from hydraulics.hydraulic_flags import HydraulicFormulation
 from conductor.coupling import CouplingMatrix
 
 
@@ -44,9 +45,14 @@ class ConductorInputs:
     outlet_heated_zone_start: float  # XJBEOUT - start of the heated zone in the outlet joint
     outlet_heated_zone_end: float  # XJENOUT - end of the heated zone in the outlet joint
 
-    # Solver data 
+    # Solver data
     thermohydraulic_method: MethodFlag # METHOD - numerical method for the thermohydraulic problem
     upwind: bool # UPWIND - whether to use upwind scheme for the spatial discretization of the thermohydraulic problem
+    # HYDRAULIC_FORMULATION - declared primary variables of the channel
+    # hydraulics (auto | velocity | mass_flow); AUTO resolves at setup time
+    # (see hydraulics/formulation.py). YAML-only option: absent (and on the
+    # deprecated Excel front end) it stays AUTO.
+    hydraulic_formulation: HydraulicFormulation
     external_free_convection_correlation: ExternalFreeConvectionCorrelation  
     electric_method: MethodFlag  # ELECTRIC_METHOD - numerical method for the electric problem
     electric_time_step: float 

@@ -42,6 +42,8 @@ from thermal.energy_equation import (
     build_svec_env_jacket_interface,
     build_known_therm_vector,
 )
+from hydraulics.formulation import transform_gauss_matrices_to_mass_flow
+from hydraulics.hydraulic_flags import HydraulicFormulation
 from hydraulics.momentum_equation import (
     build_smat_fluid_momentum,
     build_smat_fluid_interface_momentum,
@@ -546,6 +548,14 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
         )
         # END S VECTOR: solid components equation.
 
+    if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+        # Similarity transform of the assembled Gauss-point matrices to the
+        # (mdot, p, T) fluid unknowns (see hydraulics/formulation.py). The
+        # mass-capacity block is invariant (identity on the fluid rows) and
+        # the fluid rows of the source vector are identically zero, so both
+        # stay untouched.
+        transform_gauss_matrices_to_mass_flow(gauss_point_matrices, conductor)
+
     # COMPUTE THE MASS AND CAPACITY MATRIX
     # array smart
     element_matrices.mass_capacity = build_elmmat(
@@ -906,15 +916,30 @@ def evaluate_local_truncation_error_ratio(
     ndf = conductor.equation_counts.degrees_of_freedom_per_node
     eq_idx = conductor.equation_index
 
-    def field_ratio(field_index: int, field_name: str) -> float:
+    def field_ratio(
+        field_index: int, field_name: str, floor: float = None
+    ) -> float:
         field_deviation = deviation[field_index::ndf]
         field_magnitude = max(
             np.abs(new_solution[field_index::ndf]).max(),
-            FIELD_MAGNITUDE_FLOORS[field_name],
+            FIELD_MAGNITUDE_FLOORS[field_name] if floor is None else floor,
         )
         return float(
             np.sqrt(np.mean(field_deviation ** 2)) / field_magnitude
         )
+
+    def flow_slot_floor(f_comp) -> float:
+        """Magnitude floor of the first fluid slot. In the mass-flow
+        formulation the slot holds mdot, whose floor is the dimensional
+        image rho*A*(1 m/s) of the velocity floor - preserving the
+        controller's aggressiveness across formulations and channel sizes."""
+        if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+            return (
+                FIELD_MAGNITUDE_FLOORS["velocity"]
+                * f_comp.channel.inputs.cross_section
+                * float(np.max(f_comp.coolant.node_fields.total_density))
+            )
+        return None
 
     worst_ratio = 0.0
     for f_comp in conductor.inventory.fluids.collection:
@@ -922,7 +947,13 @@ def evaluate_local_truncation_error_ratio(
             worst_ratio = max(
                 worst_ratio,
                 field_ratio(
-                    getattr(eq_idx[f_comp.identifier], field_name), field_name
+                    getattr(eq_idx[f_comp.identifier], field_name),
+                    field_name,
+                    floor=(
+                        flow_slot_floor(f_comp)
+                        if field_name == "velocity"
+                        else None
+                    ),
                 ),
             )
     for s_comp in conductor.inventory.solids.collection:
@@ -1127,10 +1158,27 @@ def reorganize_th_solution(
     eq_idx = conductor.equation_index
     # Reorganize thermal hydraulic solution.
     for f_comp in conductor.inventory.fluids.collection:
-        # velocity
-        f_comp.coolant.node_fields.velocity = sysvar[
-            eq_idx[f_comp.identifier].velocity::ndf,0
-        ].copy()
+        if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+            # Mass-flow formulation: the first fluid slot holds the native
+            # mass flow rate. The velocity written here is provisional
+            # (lagged density, exactly the frozen-coefficient state of the
+            # step just solved); the definitive v = mdot / (rho_new A)
+            # follows in the per-step refresh of conductor_solution.
+            f_comp.coolant.node_fields.mass_flow_rate = sysvar[
+                eq_idx[f_comp.identifier].velocity::ndf,0
+            ].copy()
+            f_comp.coolant.node_fields.velocity = (
+                f_comp.coolant.node_fields.mass_flow_rate
+                / (
+                    f_comp.channel.inputs.cross_section
+                    * f_comp.coolant.node_fields.total_density
+                )
+            )
+        else:
+            # velocity
+            f_comp.coolant.node_fields.velocity = sysvar[
+                eq_idx[f_comp.identifier].velocity::ndf,0
+            ].copy()
         # pressure
         f_comp.coolant.node_fields.pressure = sysvar[
             eq_idx[f_comp.identifier].pressure::ndf,0

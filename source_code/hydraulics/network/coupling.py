@@ -18,7 +18,10 @@ node pressure lands in a border column. The port mass flow
 
 enters the node mass balance through the coupling block (rho frozen at the
 old state, so the flow is linear in the unknown port velocity -- the same
-Picard linearization as everywhere else).
+Picard linearization as everywhere else). Under the mass-flow hydraulic
+formulation (see hydraulics/formulation.py) the ported slot holds the mass
+flow rate itself: the coupling coefficient reduces to the exact +-sigma and
+the frozen-density caveat disappears from this block.
 
 Physically the port mass flow is conjugate to the pressure-continuity
 constraint -- the role a Lagrange multiplier plays (a terminal current in
@@ -83,7 +86,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from hydraulics.hydraulic_flags import FlowDirection, HydraulicBC
+from hydraulics.hydraulic_flags import (
+    FlowDirection,
+    HydraulicBC,
+    HydraulicFormulation,
+)
 from hydraulics.network.hydraulic_network import HydraulicNetwork
 from hydraulics.network.network_inputs import (
     HydraulicNetworkInput,
@@ -136,8 +143,22 @@ class ResolvedPort:
         return -1 if self.mesh_end_is_last_node else 0
 
     def mass_flow_into_node(self) -> float:
-        """Port mass flow entering the network node at the current state."""
+        """Port mass flow entering the network node at the current state.
+
+        In the mass-flow formulation this is the native channel unknown
+        itself (written back by reorganize_th_solution), exactly consistent
+        with the coupling block of the monolithic solve; in the velocity
+        formulation it is reconstructed as rho*A*v with the frozen density.
+        """
         fields = self.fluid_component.coolant.node_fields
+        if (
+            self.fluid_component.coolant.hydraulic_formulation
+            is HydraulicFormulation.MASS_FLOW
+        ):
+            return (
+                self.flow_orientation_sign
+                * fields.mass_flow_rate[self.end_node_slice]
+            )
         return (
             self.flow_orientation_sign
             * fields.total_density[self.end_node_slice]
@@ -318,6 +339,18 @@ def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
             "the same thermohydraulic method; found "
             f"{sorted(method.name for method in methods)}."
         )
+    # Same uniformity requirement for the resolved hydraulic formulation:
+    # the coupling blocks of the shared Schur solve assume one consistent
+    # meaning of the ported flow slot.
+    formulations = {
+        conductor.hydraulic_formulation for conductor in coupled_conductors
+    }
+    if len(formulations) > 1:
+        raise ValueError(
+            "All conductors coupled to the hydraulic network must resolve "
+            "to the same hydraulic formulation; found "
+            f"{sorted(formulation.value for formulation in formulations)}."
+        )
     network = HydraulicNetwork(inputs, method=methods.pop())
     resolve_network_coupling(network, simulation.list_of_Conductors)
     for conductor in coupled_conductors:
@@ -457,13 +490,22 @@ def _coupling_blocks(conductor, network: HydraulicNetwork,
         coupling_nodes[k] = port.node_unknown_index
         coupling_velocity_columns[k] = velocity_column
         # Node mass balance: ... - mdot_into_node = q.
-        coupling_coefficients[k] = (
-            -port.flow_orientation_sign
-            * port.fluid_component.coolant.node_fields.total_density[
-                port.end_node_slice
-            ]
-            * port.fluid_component.channel.inputs.cross_section
-        )
+        if (
+            port.fluid_component.coolant.hydraulic_formulation
+            is HydraulicFormulation.MASS_FLOW
+        ):
+            # The port slot is the native mass flow rate: the coupling
+            # coefficient is exact (+-1), with no frozen-density Picard
+            # linearization left on this block.
+            coupling_coefficients[k] = -port.flow_orientation_sign
+        else:
+            coupling_coefficients[k] = (
+                -port.flow_orientation_sign
+                * port.fluid_component.coolant.node_fields.total_density[
+                    port.end_node_slice
+                ]
+                * port.fluid_component.channel.inputs.cross_section
+            )
     # The field rows were equilibrated after the boundary conditions; the
     # border columns belong to those rows and scale identically.
     border_reduced /= row_scaling_factors[:, np.newaxis]

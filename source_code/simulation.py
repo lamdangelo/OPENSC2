@@ -19,6 +19,8 @@ from utility_functions.auxiliary_functions import (
     with_read_csv,
     with_read_excel,
 )
+from hydraulics.formulation import resolve_hydraulic_formulation
+from hydraulics.hydraulic_flags import HydraulicFormulation
 from utility_functions.transient_solution_functions import get_time_step, step
 import utility_functions.simulation_paths as simulation_paths
 from utility_functions.output import (
@@ -206,6 +208,39 @@ class Simulation:
     # end method Conductor_instance
 
     def conductor_initialization(self):
+        # Resolve the declared hydraulic formulation of every conductor
+        # before any initialization work: the solution seeding inside
+        # cond.initialization already depends on it. A conductor counts as
+        # network-coupled when the (YAML-only) hydraulic_network section
+        # declares a port on it; the network itself is built further below,
+        # after the conductor loop.
+        ported_conductor_identifiers = set()
+        if self.yaml_registry is not None:
+            network_mapping = self.yaml_registry.hydraulic_network()
+            if network_mapping is not None:
+                ported_conductor_identifiers = {
+                    port.get("conductor")
+                    for port in network_mapping.get("ports", [])
+                }
+        for cond in self.list_of_Conductors:
+            coupling_enabled = cond.identifier in ported_conductor_identifiers
+            cond.hydraulic_formulation = resolve_hydraulic_formulation(
+                cond.inputs.hydraulic_formulation, coupling_enabled
+            )
+            for fluid_comp in cond.inventory.fluids.collection:
+                fluid_comp.coolant.hydraulic_formulation = (
+                    cond.hydraulic_formulation
+                )
+            declared = cond.inputs.hydraulic_formulation
+            reason = (
+                f"auto: network coupling {'declared' if coupling_enabled else 'absent'}"
+                if declared is HydraulicFormulation.AUTO
+                else "explicit input"
+            )
+            print(
+                f"Conductor {cond.identifier}: hydraulic formulation "
+                f"'{cond.hydraulic_formulation.value}' ({reason}).\n"
+            )
         for cond in self.list_of_Conductors:
             # ** INITIALIZATION **
             # s time @ which simulation is started (cdp, 07/2020)
@@ -479,9 +514,18 @@ class Simulation:
                 for fluid_comp in conductor.inventory.fluids.collection:
                     # compute density and mass flow rate in nodal points with the
                     # updated FluidComponent temperature and velocity (nodal = True by default)
-                    fluid_comp.coolant._compute_density_and_mass_flow_rates_nodal_gauss(
-                        conductor
-                    )
+                    if (
+                        conductor.hydraulic_formulation
+                        is HydraulicFormulation.MASS_FLOW
+                    ):
+                        # Mass-flow formulation: the mass flow rate is the
+                        # native unknown; density from the new (p, T) and
+                        # the definitive velocity v = mdot / (rho A).
+                        fluid_comp.coolant._refresh_density_and_velocity_from_mass_flow()
+                    else:
+                        fluid_comp.coolant._compute_density_and_mass_flow_rates_nodal_gauss(
+                            conductor
+                        )
                     # Enthalpy balance: sum((mdot*w)_out - (mdot*w)_inl), used to check \
                     # the imposition of SolidComponent temperature initial spatial \
                     # distribution (cdp, 12/2020)

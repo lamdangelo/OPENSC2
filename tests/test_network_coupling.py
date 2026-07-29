@@ -26,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from simulation import Simulation
@@ -178,13 +179,33 @@ def assert_conductors_match(baseline: Simulation, coupled: Simulation,
         )
 
 
-def test_degenerate_network_matches_fixed_pressure_boundary(tmp_path):
+def pin_hydraulic_formulation(value: str):
+    """conductor_edits callback pinning the hydraulic formulation, so the
+    degenerate-limit comparison runs baseline and coupled on the SAME
+    discretization (the coupled deck would otherwise auto-resolve to
+    mass_flow while the uncoupled baseline stays on velocity)."""
+    def edit(conductor_document) -> None:
+        conductor_document["conductor"]["inputs"][
+            "hydraulic_formulation"
+        ] = value
+
+    return edit
+
+
+@pytest.mark.parametrize("formulation", ["velocity", "mass_flow"])
+def test_degenerate_network_matches_fixed_pressure_boundary(
+    tmp_path, formulation
+):
     baseline = run_simulation(
-        prepare_run_directory(tmp_path, "baseline")
+        prepare_run_directory(
+            tmp_path, "baseline",
+            conductor_edits=pin_hydraulic_formulation(formulation),
+        )
     )
     coupled = run_simulation(
         prepare_run_directory(
-            tmp_path, "coupled", network_section=NETWORK_SECTION
+            tmp_path, "coupled", network_section=NETWORK_SECTION,
+            conductor_edits=pin_hydraulic_formulation(formulation),
         )
     )
 
