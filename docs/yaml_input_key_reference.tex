@@ -39,6 +39,8 @@ symbolic member names planned as the next step. The multiplexed legacy
 \endhead
 \code{simulation.name} & SIMULATION & string; names the output folder \\
 \code{simulation.end\_time} & TEND & float, s \\
+\code{simulation.autosave\_interval} & AUTOSAVE\_INTERVAL & int $\ge 1$ or \code{none} (default): store a state checkpoint every $N$ accepted time steps (\code{Checkpoints/} next to \code{Output/}); YAML-only \\
+\code{simulation.restart} & RESTART & boolean, default false: resume an \emph{interrupted} run from its newest checkpoint (bit-identical continuation; refuses finalized runs and mismatched method/formulation); YAML-only \\
 \code{time\_stepping.method}\footnotemark & METHOD & \code{BE}, \code{CN}, \code{GAL}, \code{BDF2}, \code{AM4} \\
 \code{time\_stepping.adaptivity} & IADAPTIME & \code{FIXED} (0), \code{LEGACY\_EIGENVALUE} (1), \code{LEGACY\_EIGENVALUE\_SOLID\_ONLY} (2), \code{CS3U2\_SCHEDULE} (3), \code{ERROR\_CONTROLLED} (4) \\
 \code{time\_stepping.tolerance} & TOLTIME & float; relative local-truncation-error target (\code{ERROR\_CONTROLLED} only), default $10^{-3}$ \\
@@ -74,6 +76,7 @@ symbolic member names planned as the next step. The multiplexed legacy
 \code{electric\_method} & ELECTRIC\_METHOD & \code{BE}, \code{CN}, \code{GAL} ($\theta$ family; \code{BDF2} falls back to \code{BE}) \\
 \code{electric\_time\_step} & ELECTRIC\_TIME\_STEP & float, s (clamped to the thermal step) \\
 \code{upwind} & UPWIND & boolean \\
+\code{hydraulic\_formulation} & HYDRAULIC\_FORMULATION & \code{auto} (default), \code{velocity}, \code{mass\_flow}: primary variables of the channel hydraulics; \code{auto} $\Rightarrow$ \code{mass\_flow} when a \code{hydraulic\_network} port couples this conductor, else \code{velocity}; YAML-only \\
 \code{phi\_radiative}, \code{phi\_convective} & Phi\_rad, Phi\_conv & float \\
 \code{external\_free\_convection} \code{\_correlation} & (unchanged) & correlation name string \\
 \bottomrule
