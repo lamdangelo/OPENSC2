@@ -64,6 +64,17 @@ equivalence is required, the conjugation would have to be extended with
 the ∂M source terms (lagged ∂M/∂t, Gauss-point ∂M/∂x) — a deliberate
 follow-up, not part of this change.
 
+**Robustness on violent transients.** Both formulations have blow-up
+thresholds on the boosted CASE_1 pulse (INTIAL = 1, 50 elements,
+Δt = 0.1 s): the velocity path loses the inlet-temperature boundary
+condition under the backflow sign flip at ~500 W/m (invalid negative
+temperature), and the mass-flow path on the coupled bypass loop reaches an
+invalid negative pressure at the same 500 W/m pulse (t = 0.7 s) where the
+velocity path survives; at 300 W/m both complete. For production quench
+transients on network-coupled decks (which `auto` resolves to `mass_flow`)
+this means: validate the replay, and pin `hydraulic_formulation: velocity`
+in the deck if the mass-flow run proves fragile on the pulse of interest.
+
 Why the rest of the system is untouched:
 
 * the fluid transient block is the identity, and M⁻¹·I·M = I;

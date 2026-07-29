@@ -313,12 +313,22 @@ IDEAL_PUMP_LOOP_SECTION = {
 
 def test_degenerate_pump_loop_matches_pressure_drop_boundary(tmp_path):
     """Both ends of CHAN_1 coupled: in the ideal-pump limit the loop must
-    reproduce the INTIAL = 1 imposed-pressure-drop baseline."""
+    reproduce the INTIAL = 1 imposed-pressure-drop baseline. Pinned to the
+    velocity formulation on both runs: the coupled deck would otherwise
+    auto-resolve to mass_flow while the baseline stays on velocity, and
+    the loop's settling transient carries the known cross-formulation flow
+    difference (~1.2e-1 measured here) far above this test's roundoff
+    floor. The mass_flow coupled path is exercised by the parametrized
+    single-port degenerate test and by test_mass_flow_formulation."""
+    def edits(conductor_document):
+        impose_pressure_drop_on_both_channels(conductor_document)
+        pin_hydraulic_formulation("velocity")(conductor_document)
+
     baseline = run_simulation(
         prepare_run_directory(
             tmp_path,
             "baseline",
-            conductor_edits=impose_pressure_drop_on_both_channels,
+            conductor_edits=edits,
         )
     )
     coupled = run_simulation(
@@ -326,7 +336,7 @@ def test_degenerate_pump_loop_matches_pressure_drop_boundary(tmp_path):
             tmp_path,
             "coupled",
             network_section=IDEAL_PUMP_LOOP_SECTION,
-            conductor_edits=impose_pressure_drop_on_both_channels,
+            conductor_edits=edits,
         )
     )
 
@@ -557,10 +567,17 @@ def test_two_conductors_share_a_network_node(tmp_path):
     """Two conductors coupled to one network through a shared manifold: in
     the degenerate limit both must match the fixed-boundary baseline, and
     the recovery line must carry the sum of both outlet flows."""
-    baseline_directory = prepare_run_directory(tmp_path, "baseline")
+    # Pinned to the velocity formulation on both runs (the coupled deck
+    # would auto-resolve to mass_flow, the uncoupled baseline to velocity;
+    # the duplicate inherits the pin from the cloned conductor file).
+    baseline_directory = prepare_run_directory(
+        tmp_path, "baseline",
+        conductor_edits=pin_hydraulic_formulation("velocity"),
+    )
     duplicate_conductor(baseline_directory)
     coupled_directory = prepare_run_directory(
-        tmp_path, "coupled", network_section=TWO_CONDUCTOR_NETWORK_SECTION
+        tmp_path, "coupled", network_section=TWO_CONDUCTOR_NETWORK_SECTION,
+        conductor_edits=pin_hydraulic_formulation("velocity"),
     )
     duplicate_conductor(coupled_directory)
 
@@ -628,12 +645,21 @@ def test_heat_pulse_redistributes_and_pressurizes_the_loop(tmp_path):
     The pulse effect is isolated by comparing against a control run with
     the identical pump loop but the committed (inert, t = 6-10 s) heat
     pulse: both runs share the mild settling transient of the loop."""
+    # Pinned to the velocity formulation: under mass_flow the boosted
+    # 500 W/m pulse drives the coupled loop to an invalid negative
+    # pressure at t = 0.7 s (the mass-flow counterpart of the velocity
+    # path's own blow-up threshold on this pulse, see
+    # test_mass_flow_formulation.moderated_heat_pulse_edit); this test
+    # validates the coupled loop PHYSICS, which the velocity formulation
+    # reproduces as before.
     def control_edits(conductor_document):
         impose_pressure_drop_on_both_channels(conductor_document)
+        pin_hydraulic_formulation("velocity")(conductor_document)
 
     def pulsed_edits(conductor_document):
         impose_pressure_drop_on_both_channels(conductor_document)
         boost_heat_pulse(conductor_document)
+        pin_hydraulic_formulation("velocity")(conductor_document)
 
     runs = {}
     for name, edits in (("control", control_edits), ("pulsed", pulsed_edits)):
