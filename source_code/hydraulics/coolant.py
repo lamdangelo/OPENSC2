@@ -24,7 +24,13 @@ class Coolant():
 
     # Names of the nodal fields whose time evolution at user-selected spatial
     # coordinates is recorded (in the fields' PhysicalField.time_evolution).
-    TIME_EVOLUTION_FIELDS = ("velocity", "pressure", "temperature", "total_density")
+    TIME_EVOLUTION_FIELDS = (
+        "velocity",
+        "pressure",
+        "temperature",
+        "total_density",
+        "mass_flow_rate",
+    )
 
     # Mirror of the owning conductor's resolved hydraulic formulation
     # (overwritten at setup by Simulation.conductor_initialization): the

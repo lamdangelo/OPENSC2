@@ -126,8 +126,9 @@ def save_simulation_space(conductor, f_path, n_digit_time):
         "temperature",
         "total_density",
         "friction_factor",
+        "mass_flow_rate",
     )
-    header_chan = "zcoord (m)\tvelocity (m/s)\tpressure (Pa)\ttemperature (K)\ttotal_density (kg/m^3)\tfriction_factor (~)"
+    header_chan = "zcoord (m)\tvelocity (m/s)\tpressure (Pa)\ttemperature (K)\ttotal_density (kg/m^3)\tfriction_factor (~)\tmass_flow_rate (kg/s)"
     for fluid_comp in conductor.inventory.fluids.collection:
         file_path = os.path.join(
             f_path, f"{fluid_comp.identifier}_({conductor.cond_num_step})_sd.tsv"
@@ -375,6 +376,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         "temperature",
         "total_density",
         "friction_factor",
+        "mass_flow_rate",
     ]
     # list_sol_key = ["temperature", "total_density", "total_isobaric_specific_heat", "total_thermal_conductivity", \
     # "EXTFLX", "JHTFLX"]
