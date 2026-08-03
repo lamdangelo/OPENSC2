@@ -1,4 +1,4 @@
-# OPENSC² 2.0
+# OPENSC² Refactored Version
 
 ## OPENSC² in a nutshell
 
@@ -21,7 +21,7 @@ The **original developing team** includes Prof. L. Savoldi[^1], Prof. F. Freschi
 [^1]: Head of the [**MAHTEP** research group](http://www.mahtep.polito.it/).
 [^2]: PhD students @ the [**MAHTEP** research group](http://www.mahtep.polito.it/).
 
-The **refactoring developing team** includes Dr. Laura D'Angelo and Prof. Felix Warmer @ the Stellarator Reactor Studies research group[^3] at Max Planck Institute for Plasma Physics in Greifswald (Germany). More information about our refactoring and modernization work is found in [Refactoring and modernization](#refactoring-and-modernization). We can be contacted at:
+The **refactoring developing team** includes Dr. Laura D'Angelo @ the Stellarator Reactor Studies research group[^3] at Max Planck Institute for Plasma Physics in Greifswald (Germany) led by Prof. Felix Warmer. More information about our refactoring and modernization work is found in [Refactoring and modernization](#refactoring-and-modernization). We can be contacted at:
 
 * laura-anna-maria.dangelo@ipp.mpg.de
 * felix.warmer@ipp.mpg.de
