@@ -223,7 +223,7 @@ def make_plots(simulation, kind="Space_distr"):
             # the actual save times, including the stop-time save).
             from utility_functions.output import _performed_saves
 
-            kind_save, _ = _performed_saves(
+            kind_save, _, _ = _performed_saves(
                 cond, root_load_path, simulation.n_digit_time
             )
             des = "sd"

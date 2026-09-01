@@ -351,19 +351,37 @@ def save_simulation_space(conductor, f_path, n_digit_time):
 
 
 def _performed_saves(cond, f_path, n_digit_time):
-    """(actual save times, count) of the spatial saves that happened.
+    """(actual save times, count, per-save step numbers) of the spatial
+    saves that happened.
 
     Prefers Time_sd_actual.tsv (exact times, including a stop-time final
     save); falls back to the save counter i_save with the scheduled
-    Space_save times.
+    Space_save times.  The step numbers name the per-step files: the
+    scheduled saves recorded theirs in num_step_save, while the stop-time
+    final save has no scheduled slot and was written with the final step
+    counter -- indexing num_step_save beyond the performed scheduled
+    saves would alias the step-0 file (unwritten slots are 0) or run out
+    of bounds (early detection: every scheduled save already performed
+    plus the final save).
     """
+    scheduled_steps = np.asarray(cond.num_step_save, dtype=int)
+    performed_scheduled = min(
+        int(getattr(cond, "i_save", scheduled_steps.size)),
+        scheduled_steps.size,
+    )
     actual_file = os.path.join(f_path, "Time_sd_actual.tsv")
     if os.path.isfile(actual_file):
         actual_times = np.loadtxt(actual_file, skiprows=1, ndmin=1)
-        return np.around(actual_times, n_digit_time), actual_times.size
-    count = min(int(getattr(cond, "i_save", len(cond.Space_save))),
-                len(cond.Space_save))
-    return np.around(cond.Space_save, n_digit_time), count
+        count = actual_times.size
+        times = np.around(actual_times, n_digit_time)
+    else:
+        count = performed_scheduled
+        times = np.around(cond.Space_save, n_digit_time)
+    steps = list(scheduled_steps[:min(performed_scheduled, count)])
+    while len(steps) < count:
+        # The stop-time final save (at most one) carries the final step.
+        steps.append(int(cond.cond_num_step))
+    return times, count, steps
 
 
 def reorganize_spatial_distribution(cond, f_path, n_digit_time):
@@ -398,7 +416,9 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     # entries at their initial 0, which would alias the step-0 file and
     # crash after it has been consumed. Time_sd_actual.tsv records the
     # true save times, including the final stop-time save.
-    time, number_of_saves = _performed_saves(cond, f_path, n_digit_time)
+    time, number_of_saves, step_of_save = _performed_saves(
+        cond, f_path, n_digit_time
+    )
 
     # declare dictionary to store the spatial diccretizations only once.
     dict_zcoord = dict()
@@ -413,7 +433,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # SolidComponent collection.
             comp = cond.inventory.solids.collection[0]
 
-        file_name = f"{comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
+        file_name = f"{comp.identifier}_({step_of_save[ii]})_sd.tsv"
         file_load = os.path.join(f_path, file_name)
         if not os.path.isfile(file_load):
             # Missing per-step file (e.g. consumed by an earlier,
@@ -442,7 +462,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         dict_df = dict()
         dict_df_new = dict()
         for ii in range(number_of_saves):
-            file_name = f"{fluid_comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
+            file_name = f"{fluid_comp.identifier}_({step_of_save[ii]})_sd.tsv"
             file_load = os.path.join(f_path, file_name)
             if not os.path.isfile(file_load):
                 # A stop-time final save can coincide with a scheduled
@@ -504,9 +524,9 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         dict_df = dict()
         dict_df_new = dict()
         for ii in range(number_of_saves):
-            file_name = f"{s_comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
+            file_name = f"{s_comp.identifier}_({step_of_save[ii]})_sd.tsv"
             file_name_gauss = (
-                f"{s_comp.identifier}_({cond.num_step_save[ii]})_gauss_sd.tsv"
+                f"{s_comp.identifier}_({step_of_save[ii]})_gauss_sd.tsv"
             )
             file_load = os.path.join(f_path, file_name)
             file_load_gauss = os.path.join(f_path, file_name_gauss)
@@ -643,9 +663,11 @@ def reorganize_heat_sd(cond, f_path, radix_old, radix_new, n_digit_time):
     old = dict()
     new = dict()
     cols = list()
-    time, number_of_saves = _performed_saves(cond, f_path, n_digit_time)
+    time, number_of_saves, step_of_save = _performed_saves(
+        cond, f_path, n_digit_time
+    )
     for ii in range(number_of_saves):
-        file_name = f"{radix_old}_({cond.num_step_save[ii]})_sd.tsv"
+        file_name = f"{radix_old}_({step_of_save[ii]})_sd.tsv"
         file_load = os.path.join(f_path, file_name)
         # Check if file exist and if True load it.
         if os.path.isfile(file_load):
