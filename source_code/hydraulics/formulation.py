@@ -16,11 +16,15 @@ solver),
         |     0            0          1   |            |   0            0                 1      |
 
 (kappa_T isothermal compressibility, beta isobaric expansion coefficient),
-the transformed system is A' = M^-1 A M per Gauss point, identically for the
-upwind/diffusion and source-Jacobian blocks; eigenvalues {v, v+c, v-c} are
-invariant. The fluid transient block is the identity and M^-1 I M = I, so
-the mass-capacity matrix is untouched; the fluid rows of the load vector
-are identically zero, so it is untouched as well.
+the transformed system is A' = M^-1 A M per Gauss point for the blocks that
+act on state DERIVATIVES (flux Jacobian and upwind/diffusion - the chain
+rule dW = M dW' is exact); eigenvalues {v, v+c, v-c} are invariant.  The
+source-Jacobian block multiplies the STATE and transforms as
+S' = M^-1 S P with the Picard secant P = diag(1/(rho A), 1, 1) instead
+(see :func:`transform_source_block` for why the Jacobian is wrong there).
+The fluid transient block is the identity and M^-1 I M = I, so the
+mass-capacity matrix is untouched; the fluid rows of the load vector are
+identically zero, so it is untouched as well.
 
 M and M^-1 differ from the identity only in the mdot-row/v-column of each
 channel triple, so the global transform reduces to one row operation and
@@ -97,6 +101,44 @@ def conjugate_gauss_blocks(matrices, channels) -> None:
             matrix[:, :, v_idx] = column_v / rho_area[:, 0][:, None]
 
 
+def transform_source_block(matrix, channels) -> None:
+    """In-place transform S -> M^-1 S P of the Gauss-point source block.
+
+    The source term multiplies the STATE, not its derivative.  The chain
+    rule that makes M^-1 X M exact for the flux and diffusion blocks does
+    not apply here: Phi (the value map W = Phi(W')) is not degree-1
+    homogeneous, so the Jacobian M does NOT reproduce it --
+    (M W')_v = v * (1 + beta*T - kappa_T*p) != v at the very state M was
+    built from.  Conjugating S with M therefore evaluates the source at
+    that parasitic state, multiplying the effective channel friction by
+    (1 + beta*T - kappa_T*p) ~ 2.5 for supercritical helium at 6 K
+    (measured as an 18-27 % steady flow deficit on the AAB51 deck).  The
+    right factor must be the Picard SECANT P = diag(1/(rho*A), 1, 1),
+    which satisfies P W' = Phi(W') exactly at the frozen state; the left
+    factor M^-1 (a recombination of the equations) is unchanged.  Do not
+    "simplify" this back to a similarity transform.
+
+    Same argument/shape conventions as :func:`conjugate_gauss_blocks`;
+    the left phase runs over all channels before the right phase for the
+    same fluid-fluid interface reason.
+    """
+    channels = [
+        (v_idx, p_idx, t_idx, rho_area[:, None], v_kappa[:, None], v_beta[:, None])
+        for v_idx, p_idx, t_idx, rho_area, v_kappa, v_beta in channels
+    ]
+    # Left phase (M^-1 S): only the mdot row of each channel changes.
+    for v_idx, p_idx, t_idx, rho_area, v_kappa, v_beta in channels:
+        matrix[:, v_idx, :] = rho_area * (
+            matrix[:, v_idx, :]
+            + v_kappa * matrix[:, p_idx, :]
+            - v_beta * matrix[:, t_idx, :]
+        )
+    # Right phase (S P): only the v column of each channel changes, scaled
+    # by its own 1/(rho*A); the p and T columns of P are the identity.
+    for v_idx, p_idx, t_idx, rho_area, v_kappa, v_beta in channels:
+        matrix[:, :, v_idx] = matrix[:, :, v_idx] / rho_area[:, 0][:, None]
+
+
 def transform_gauss_matrices_to_mass_flow(gauss_point_matrices, conductor) -> None:
     """Transform the assembled Gauss-point matrices to (mdot, p, T) unknowns.
 
@@ -121,11 +163,14 @@ def transform_gauss_matrices_to_mass_flow(gauss_point_matrices, conductor) -> No
                 fields.velocity * fields.isobaric_expansion_coefficient,
             )
         )
+    # Derivative-acting blocks transform by the chain rule (similarity
+    # with the Jacobian M); the state-multiplying source block transforms
+    # with the Picard secant P on the right (see transform_source_block).
     conjugate_gauss_blocks(
         (
             gauss_point_matrices.flux_jacobian,
             gauss_point_matrices.diffusion,
-            gauss_point_matrices.source_jacobian,
         ),
         channels,
     )
+    transform_source_block(gauss_point_matrices.source_jacobian, channels)

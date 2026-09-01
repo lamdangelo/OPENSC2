@@ -186,8 +186,6 @@ def build_kmat_fluid(
     """
 
     # Alias
-    # Fluid velocity at every Gauss point.
-    velocity = np.abs(f_comp.coolant.gauss_fields.velocity)
     # Fluid speed of sound at every Gauss point.
     speed_of_sound = f_comp.coolant.gauss_fields.total_speed_of_sound
     # Length of every element of the spatial discretization.
@@ -195,6 +193,23 @@ def build_kmat_fluid(
     # Collection of fluid equation index (velocity, pressure and temperaure
     # equations).
     eq_idx = conductor.equation_index[f_comp.identifier]
+
+    # Stabilization speed: the upwind diffusion must not vanish where the
+    # local velocity does. A sharp front entering (near-)stagnant fluid -
+    # e.g. hot back-flow pushed from a pressurized header into a cold
+    # channel - would otherwise meet an essentially central scheme right at
+    # its steepest gradient and under/overshoot (negative temperatures).
+    # Use the larger endpoint node speed of each element (the Gauss average
+    # halves the speed seen by a one-element-wide front) and spread it one
+    # element to each side, so the stagnant side of a front is stabilized
+    # too. In smooth regions this differs from the Gauss-point speed by
+    # O(dz), so the extra diffusion is O(dz^2) and vanishes on refinement.
+    node_speed = np.abs(np.ravel(f_comp.coolant.node_fields.velocity))
+    element_speed = np.maximum(node_speed[:-1], node_speed[1:])
+    padded_speed = np.pad(element_speed, 1, mode="edge")
+    velocity = np.maximum(
+        np.maximum(padded_speed[:-2], padded_speed[1:-1]), padded_speed[2:]
+    )
 
     # Build array to assign diagonal coefficients.
     diag_idx = np.array(eq_idx)

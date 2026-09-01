@@ -265,26 +265,35 @@ def test_explicit_velocity_with_network_warns_and_wins(tmp_path):
 # --------------------------------------------------------------------------
 
 # Measured cross-formulation deviations (gentle 100 W/m pulse, 2 s,
-# final state) with a ~3x margin: pressure 6.4e-4, temperature 1.2-2.1e-2,
-# flow (v and mdot) 1.2-1.4e-1. The flow deviation is a KNOWN CONTINUOUS
-# difference of the frozen-M conjugation route, not a discretization
-# error: the exact change of variables W = M(W) W' produces
-# coefficient-derivative terms M^-1 (dM/dt + A dM/dx) W' that the frozen
-# similarity omits. They vanish in (near-)steady states - the coupled
-# degenerate limit agrees to 1e-6 and the steady axial uniformity to
-# <5e-3 - but during density transients they are O(v * drho/rho):
-# measured invariant under BOTH mesh refinement (50 -> 100 elements) AND
-# time-step refinement (0.1 -> 0.025 s), which is the fingerprint of an
-# omitted continuous term rather than an O(h) or O(dt) effect. See
-# docs/mass_flow_formulation_notes.md.
+# final state) with a ~3-4x margin: pressure 1.6-2.6e-5, temperature
+# 1.0-1.1e-4, flow (v and mdot) 2.1-2.8e-3, re-measured 2026-07-30 after
+# the source-block transform fix (hydraulics/formulation.py: the source
+# multiplies the STATE and transforms through the Picard secant P, not
+# the Jacobian M; the pre-fix similarity evaluated the source at the
+# parasitic state v*(1 + beta*T - kappa_T*p), an effective friction
+# multiplier of ~2.5 for supercritical helium, measured as flow
+# deviations of 1.2-1.4e-1 on this very deck and an 18-27 % steady flow
+# deficit on the AAB51 coupled deck).  THIS TEST IS THE PERMANENT
+# CROSS-FORMULATION REGRESSION: real helium EOS, nonzero throughflow,
+# pressure BCs - the configuration in which any parasite of that class
+# is visible.  The bounds below would fail a source-parasite regression
+# by ~two orders of magnitude.
+#
+# The remaining flow difference is a small REFINEMENT-STABLE floor
+# (50/100/200 elements), i.e. it does not converge away with h: it is
+# the cross-formulation difference of the per-step property/field-update
+# path (e.g. Gauss Reynolds formed from the native mdot vs from rho*v),
+# not an operator error.  Reported plainly: the original expectation of
+# observed-order convergence between formulations does NOT hold at this
+# floor; what holds is the floor's smallness and stability.
 AGREEMENT_BOUNDS = {
-    "pressure": 2.0e-3,
-    "temperature": 6.0e-2,
-    "velocity": 3.0e-1,
-    "mass_flow_rate": 3.0e-1,
+    "pressure": 1.0e-4,
+    "temperature": 5.0e-4,
+    "velocity": 1.0e-2,
+    "mass_flow_rate": 1.0e-2,
 }
-# The deviations must be refinement-STABLE (the continuous difference is
-# mesh-independent; growth under refinement would signal an instability).
+# The deviations must be refinement-STABLE (the floor is mesh-
+# independent; growth under refinement would signal an instability).
 REFINEMENT_STABILITY_FACTOR = 1.5
 
 
@@ -318,17 +327,24 @@ def cross_formulation_deviations(tmp_path, number_of_elements: int) -> dict:
 
 
 def test_cross_formulation_agreement_and_convergence(tmp_path):
-    coarse = cross_formulation_deviations(tmp_path, 50)
-    fine = cross_formulation_deviations(tmp_path, 100)
+    resolutions = (50, 100, 200)
+    deviations = {
+        n: cross_formulation_deviations(tmp_path, n) for n in resolutions
+    }
 
     report = "\n".join(
-        f"  {channel} {field_name}: 50 el {coarse[channel, field_name]:.3e}"
-        f" -> 100 el {fine[channel, field_name]:.3e}"
-        for channel, field_name in sorted(coarse)
+        f"  {channel} {field_name}: "
+        + " -> ".join(
+            f"{n} el {deviations[n][channel, field_name]:.3e}"
+            for n in resolutions
+        )
+        for channel, field_name in sorted(deviations[resolutions[0]])
     )
     print(f"\ncross-formulation deviations:\n{report}")
 
-    for (channel, field_name), deviation in coarse.items():
+    for (channel, field_name), deviation in deviations[
+        resolutions[0]
+    ].items():
         bound = AGREEMENT_BOUNDS[field_name]
         assert deviation < bound, (
             f"{channel} {field_name}: cross-formulation deviation "
@@ -336,15 +352,19 @@ def test_cross_formulation_agreement_and_convergence(tmp_path):
         )
         # Exact agreement would be suspicious: the formulations differ.
         assert deviation > 0.0
-    for (channel, field_name), coarse_deviation in coarse.items():
-        fine_deviation = fine[channel, field_name]
-        assert fine_deviation < REFINEMENT_STABILITY_FACTOR * max(
-            coarse_deviation, 1.0e-12
-        ), (
-            f"{channel} {field_name}: cross-formulation deviation GROWS "
-            f"under mesh refinement ({coarse_deviation:.3e} -> "
-            f"{fine_deviation:.3e})\n{report}"
-        )
+    for coarse_n, fine_n in zip(resolutions[:-1], resolutions[1:]):
+        for (channel, field_name), coarse_deviation in deviations[
+            coarse_n
+        ].items():
+            fine_deviation = deviations[fine_n][channel, field_name]
+            assert fine_deviation < REFINEMENT_STABILITY_FACTOR * max(
+                coarse_deviation, 1.0e-12
+            ), (
+                f"{channel} {field_name}: cross-formulation deviation "
+                f"GROWS under mesh refinement ({coarse_n} el "
+                f"{coarse_deviation:.3e} -> {fine_n} el "
+                f"{fine_deviation:.3e})\n{report}"
+            )
 
 
 # --------------------------------------------------------------------------
