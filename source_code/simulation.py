@@ -55,12 +55,13 @@ class Simulation:
         # Current working directory: SCMagnetCode (cdp, 10/2020)
         # self.cwd = os.getcwd()
         # Ask User the name of the cable. (cdp, 10/2020)
+        # Default results root, used only when no target directory is given
+        # to simulation_folders_manager (GUI flow); headless runs override it
+        # with the model directory. Created on demand, never eagerly.
         self.dict_path = dict(
             Current_work_dir=self.CWD,
             Results_dir=os.path.join(self.CWD, "..", "Simulations_results"),
         )
-        # Create directory Simulations_results if it does not exist yet
-        os.makedirs(self.dict_path["Results_dir"], exist_ok=True)
         self.basePath = base_path
         # loop inside self.basePath (cdp, 10/2020)
         input_files = os.listdir(self.basePath)

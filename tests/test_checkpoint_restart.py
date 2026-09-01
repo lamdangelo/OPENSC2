@@ -195,11 +195,11 @@ def test_restart_without_checkpoint_errors(tmp_path):
         Simulation(str(run_directory)).run()
 
 
-def test_restart_with_changed_method_finds_no_checkpoint(tmp_path):
-    """Changing the integration method also changes the output subtree
-    (<method>/<name>/...), so the restart of an edited deck fails with the
-    clear no-checkpoint error rather than the manifest method check (which
-    guards same-tree tampering, tested below at unit level)."""
+def test_restart_with_changed_method_errors_on_manifest(tmp_path):
+    """All methods share the simulation_results/<name>/... subtree, so the
+    checkpoint of the interrupted run is found and the restart of an edited
+    deck fails with the manifest integration-method check (also exercised
+    below at unit level)."""
     run_directory = prepare_run_directory(tmp_path, "method_mismatch", end_time=1.0)
     set_simulation_keys(run_directory, autosave_interval=2)
     interrupted = Simulation(
@@ -215,7 +215,7 @@ def test_restart_with_changed_method_finds_no_checkpoint(tmp_path):
         yaml.safe_dump(conductor_document, sort_keys=False)
     )
     set_simulation_keys(run_directory, restart=True)
-    with pytest.raises(FileNotFoundError, match="no checkpoint"):
+    with pytest.raises(ValueError, match="integration method"):
         Simulation(str(run_directory)).run()
 
 
