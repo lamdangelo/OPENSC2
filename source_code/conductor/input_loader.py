@@ -265,6 +265,9 @@ class ConductorInputLoader:
             inductance_mode=emf.InductanceMode.get_inductance_mode_flag(raw_inputs["INDUCTANCE_MODE"]),
             self_inductance_mode=emf.SelfInductanceMode.get_self_inductance_mode_flag(raw_inputs["SELF_INDUCTANCE_MODE"]),
             electric_solver=emf.ElectricSolver.get_electric_solver_flag(raw_inputs["ELECTRIC_SOLVER"]),
+            electric_current_consistency=bool(
+                raw_inputs.get("ELECTRIC_CURRENT_CONSISTENCY", False)
+            ),
         )
     
 
@@ -275,10 +278,13 @@ class ConductorInputLoader:
         Args:
             self (Self): conductor object.
         """
-        if isinstance(equipotential_coordinates, int):
+        if isinstance(equipotential_coordinates, (int, float)):
             return np.array([equipotential_coordinates], dtype=float)
         elif isinstance(equipotential_coordinates, str):
             return np.array(equipotential_coordinates.split(","), dtype=float)
+        elif isinstance(equipotential_coordinates, (list, tuple)):
+            # YAML decks provide the coordinates as a native sequence.
+            return np.array(equipotential_coordinates, dtype=float)
         else:
             raise ValueError(
                 f"Invalid type for EQUIPOTENTIAL_SURFACE_COORDINATE: {type(equipotential_coordinates)}."

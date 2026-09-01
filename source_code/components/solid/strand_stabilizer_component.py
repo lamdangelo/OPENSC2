@@ -197,4 +197,13 @@ class StrandStabilizerComponent(StrandComponent):
         self.gauss_fields.electric_resistance = (self.gauss_fields.electrical_resistivity_stabilizer
             * conductor.node_distance[("StrandComponent", self.identifier)]
             / self.inputs.cross_section)
+        # Ohmic: the differential resistance equals the resistance itself.
+        self._electric_resistance_strand_only = np.asarray(
+            self.gauss_fields.electric_resistance
+        ).copy()
         return self.gauss_fields.electric_resistance
+
+    def get_electric_resistance_derivative(self, conductor: object) -> np.ndarray:
+        """d(V_e)/d(I_e) per element: purely ohmic, equals the strand-only
+        resistance stored by the last get_electric_resistance call."""
+        return self._electric_resistance_strand_only

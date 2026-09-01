@@ -506,12 +506,21 @@ class Conductor:
             dtype=float,
         )
 
-        self.inductance_matrix = np.zeros(
-            (
-                self.total_elements_current_carriers,
-                self.total_elements_current_carriers,
+        # The dense inductance matrix exists only for the transient
+        # electric solver; for STEADY_STATE conductors it is never
+        # filled or read, and allocating it would be prohibitive for
+        # many-strand conductors ((strands x elements)^2 doubles).
+        from electromagnetics.electromagnetic_flags import ElectricSolver
+
+        if self.operations.electric_solver == ElectricSolver.TRANSIENT:
+            self.inductance_matrix = np.zeros(
+                (
+                    self.total_elements_current_carriers,
+                    self.total_elements_current_carriers,
+                )
             )
-        )
+        else:
+            self.inductance_matrix = None
 
         self.electric_conductance_matrix = csr_matrix(
             (self.total_nodes_current_carriers, self.total_nodes_current_carriers),
@@ -995,8 +1004,15 @@ class Conductor:
             # )
 
         # Build electric mass matrix (inductances only depend on the
-        # geometry, so they belong to the topology structures).
-        self.__build_electric_mass_matrix()
+        # geometry, so they belong to the topology structures). Only the
+        # transient electric solver has a mass-matrix term; the
+        # steady-state solve is purely resistive, and the inductance
+        # construction is prohibitively expensive for multi-strand
+        # conductors (element-pair-wise integrals), so skip it there.
+        from electromagnetics.electromagnetic_flags import ElectricSolver
+
+        if self.operations.electric_solver == ElectricSolver.TRANSIENT:
+            self.__build_electric_mass_matrix()
 
         # Assign equivalue surfaces
         self.__assign_equivalue_surfaces()
@@ -1067,8 +1083,23 @@ class Conductor:
         compute_voltage_sum(self)
 
     def electric_method(self):
-        """Solve the electric problem and post-process the solution."""
-        if self.cond_num_step == 0:
+        """Solve the electric problem and post-process the solution.
+
+        The first step is always the steady-state solve (initial
+        condition). Afterwards the ELECTRIC_SOLVER flag decides: the
+        TRANSIENT solver runs the inductive sub-stepping loop, while
+        STEADY_STATE repeats the quasi-static (purely resistive) solve
+        every thermal step — the appropriate model when the L/R
+        redistribution time is short against the thermal transient, and
+        the only feasible one for many-strand conductors (the transient
+        inductance matrix scales with the square of strand elements).
+        """
+        from electromagnetics.electromagnetic_flags import ElectricSolver
+
+        if (
+            self.cond_num_step == 0
+            or self.operations.electric_solver == ElectricSolver.STEADY_STATE
+        ):
             solve_steady_state(self)
         else:
             self.__get_electric_time_step()

@@ -346,8 +346,10 @@ class SolidComponent:
         }
 
         # Check consistency between flags conductor.inputs['I0_OP_MODE'] and
-        # self.operations.operating_current_mode.
-        if self.operations.operating_current_mode != None:
+        # self.operations.operating_current_mode. Components with mode
+        # "none" (e.g. pure stabilizer strands) carry no imposed current
+        # and are exempt.
+        if self.operations.operating_current_mode is not None:
             if (
                 conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FROM_FILE
                 and self.operations.operating_current_mode != CurrentMode.CURRENT_IS_FROM_FILE
@@ -377,7 +379,17 @@ class SolidComponent:
             self.__check_current_mode(conductor)
 
         # Get current.
-        if self.operations.operating_current_mode != None:
+        if self.operations.operating_current_mode is None:
+            # Mode "none" (e.g. pure stabilizer strand): no imposed
+            # transport current; zero-fill so downstream consumers of
+            # op_current see a well-defined field.
+            self.node_fields.op_current = np.zeros(
+                conductor.mesh.number_of_nodes
+            )
+            self.gauss_fields.op_current = np.zeros(
+                conductor.mesh.number_of_nodes - 1
+            )
+        elif self.operations.operating_current_mode != None:
             # The object carryes a current and its value is defied as below.
             if conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FROM_FILE:
 
@@ -484,6 +496,24 @@ class SolidComponent:
                 self.node_fields.op_current_sc = self.node_fields.op_current
                 self.gauss_fields.op_current_sc = self.gauss_fields.op_current
 
+        # Aliases read by get_electric_resistance. Default: the imposed
+        # operating current (bit-identical to the historical reads —
+        # same ndarray objects, so the SC-regime in-place mutations keep
+        # their exact legacy semantics). The steady-state
+        # current-consistency loop (electric_solver.solve_steady_state)
+        # rebinds them to the solved network current; re-running here at
+        # every operating_conditions_em() call also re-seeds iteration 1
+        # of that loop with the imposed current.
+        self.node_fields.current_for_resistance = self.node_fields.op_current
+        self.gauss_fields.current_for_resistance = self.gauss_fields.op_current
+        if hasattr(self.node_fields, "op_current_sc"):
+            self.node_fields.current_for_resistance_sc = (
+                self.node_fields.op_current_sc
+            )
+            self.gauss_fields.current_for_resistance_sc = (
+                self.gauss_fields.op_current_sc
+            )
+
     # end Get_I
 
     def _conductor_current_ratio(self, conductor) -> float:
@@ -511,9 +541,13 @@ class SolidComponent:
                 / conductor.inputs.initial_current
             )
 
+        # Strands without an imposed operating current (e.g. pure
+        # stabilizer components, mode "none") have no op_current field
+        # and carry no share of the imposed transport current.
         total_current = sum(
             strand.node_fields.op_current[0]
             for strand in conductor.inventory.strands.collection
+            if strand.operations.operating_current_mode is not None
         )
         return total_current / conductor.inputs.initial_current
 
@@ -1124,7 +1158,18 @@ class SolidComponent:
         Raises:
             ValueError: if self.operations.operating_current_mode is a string different from 'none'.
         """
-        if type(self.operations.operating_current_mode) == str:
+        if (
+            self.operations.operating_current_mode
+            is CurrentMode.CURRENT_NOT_DEFINED
+        ):
+            # Loaders that already translated the raw value deliver the
+            # CURRENT_NOT_DEFINED enum member; the canonical in-memory
+            # representation for "carries no imposed current" is None
+            # (checked as ``!= None`` throughout this class). Without
+            # this branch the member (int value 1) would fall into the
+            # ``== True`` repair below and be clobbered to a plain 1.
+            self.operations.operating_current_mode = None
+        elif type(self.operations.operating_current_mode) == str:
             self.operations.operating_current_mode = self.operations.operating_current_mode.lower()
             if self.operations.operating_current_mode == "none":
                 self.operations.operating_current_mode = None

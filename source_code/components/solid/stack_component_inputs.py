@@ -93,9 +93,14 @@ class StackComponentInputLoader:
         wb = self._read_sheet(self.input_file)
 
         # Collect tape layers: every key ending in "_material" has a paired key
-        # ending in "_thickness" with the same prefix.
+        # ending in "_thickness" with the same prefix. The bare
+        # "superconducting_material" key is the Jc-model selector, not a
+        # tape layer, and has no paired thickness.
         tape_layers: list[TapeLayer] = []
-        material_keys = [k for k in wb if k.endswith("material")]
+        material_keys = [
+            k for k in wb
+            if k.endswith("material") and k != "superconducting_material"
+        ]
         for mat_key in material_keys:
             prefix = mat_key[: -len("material")]  # e.g. "HTS_", "buffer_"
             thickness_key = prefix + "thickness"

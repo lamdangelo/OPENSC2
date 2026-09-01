@@ -416,6 +416,10 @@ class StrandComponent(SolidComponent):
     # End method get_tcs
 
     def eval_tcs(self, dict_dummy):
+        # NOTE: Tcs/margin diagnostics deliberately use the IMPOSED
+        # operating current (op_current), not the solved network current:
+        # they are evaluated in operating_conditions_em, before the
+        # steady-state current-consistency loop runs.
 
         # The scaling parameter c0 is converted to the physic definition if the 
         # ingegneristic definition is given as input. Therefore, for the 
@@ -675,6 +679,61 @@ class StrandComponent(SolidComponent):
             * electric_resistances[:, 1]
             / (electric_resistances.sum(axis=1))
         )
+
+    def get_electric_resistance_derivative(self, conductor: object) -> np.ndarray:
+        """Differential resistance d(V_e)/d(I_e) per Gauss element at the
+        operating point of the LAST get_electric_resistance call (consumes
+        the regime data stored there). Used by the Newton branch of the
+        steady-state electric solver.
+
+        Regimes (V odd in I, formulas even):
+        * superconducting: V = E0*L*(I/Ic)^n  ->  d = n * R_sc
+        * sharing (divider solution i_sc of i^n + (i - I)*psi = 0):
+          d = r_sc_diff || R_stab with r_sc_diff = n*E0*L/Ic*(i_sc/Ic)^(n-1)
+          (implicit differentiation of the divider equation)
+        * normal: d = R_stab (equals the stored strand-only resistance)
+        """
+        regimes = self._electric_regime_gauss
+        resistance = self._electric_resistance_strand_only
+        exponent = self.inputs.power_law_exponent
+        electric_field_criterion = self.inputs.flux_flow_electric_field
+
+        # Normal regime: d = R (the stored value IS R_stab there). Start
+        # from a copy and overwrite the current-dependent regimes.
+        derivative = resistance.copy()
+
+        sc = regimes["sc"]
+        derivative[sc] = exponent * resistance[sc]
+
+        sharing = regimes["sharing"]
+        if sharing.size:
+            length = conductor.node_distance[
+                ("StrandComponent", self.identifier)
+            ].to_numpy()[sharing]
+            critical_current = regimes["critical_current"][sharing]
+            sc_current = regimes["i_sc"][sharing]
+            sc_differential_resistance = (
+                exponent
+                * electric_field_criterion
+                * length
+                / critical_current
+                * (sc_current / critical_current) ** (exponent - 1)
+            )
+            stabilizer_resistance = np.asarray(
+                self.electric_resistance(
+                    conductor,
+                    "electrical_resistivity_stabilizer",
+                    "stab",
+                    sharing,
+                )
+            )
+            derivative[sharing] = (
+                sc_differential_resistance
+                * stabilizer_resistance
+                / (sc_differential_resistance + stabilizer_resistance)
+            )
+
+        return derivative
 
     def __manage_fixed_potental(self, length: float):
         """Method that deals with fixed potentials: converts fixed potential values to array if they are integers or strings and checks the coordinate where fixed potentials are assigned.

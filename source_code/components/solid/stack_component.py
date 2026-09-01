@@ -188,6 +188,15 @@ class StackComponent(StrandComponent):
             * self.inputs.stack_width
             * float(self.inputs.tape_identifier)
         )
+        # Same cross-section interface as StrandMixedComponent, consumed
+        # by Conductor.__get_total_cross_section and the electric
+        # resistance methods of the StrandComponent base class.
+        self.sc_cross_section = self.sc
+        self.cross_section = {
+            "total": self.inputs.cross_section,
+            "sc": self.sc,
+            "stab": self.stabilizer_cross_section,
+        }
 
     def __repr__(self):
         return f"{self.__class__.__name__}(Type: {self.name}, identifier: {self.identifier})"
@@ -509,6 +518,13 @@ class StackComponent(StrandComponent):
                 f"Arrays rho_el_stabilizer and critical_current must have the same shape.\n {rho_el_stabilizer.shape = };\n{critical_current.shape}.\n"
             )
 
+        if current.size == 0:
+            # No locations in current-sharing regime (e.g. fully
+            # superconducting stack); scipy's root finders reject empty
+            # arrays, so short-circuit with empty results.
+            empty = np.zeros(0)
+            return empty, empty
+
         # Evaluate constant value:
         # psi = rho_el_stab*I_c^n/(E_0*A_stab)
         psi = (
@@ -654,17 +670,17 @@ class StackComponent(StrandComponent):
 
         # Get index that correspond to superconducting regime.
         ind_sc_node = np.nonzero(
-            self.node_fields.op_current_sc / critical_current_node < 0.95
+            self.node_fields.current_for_resistance_sc / critical_current_node < 0.95
         )[0]
         ind_sc_gauss = np.nonzero(
-            self.gauss_fields.op_current_sc / critical_current_gauss < 0.95
+            self.gauss_fields.current_for_resistance_sc / critical_current_gauss < 0.95
         )[0]
         # Get index that correspond to current sharing regime.
         ind_sh_node = np.nonzero(
-            self.node_fields.op_current_sc / critical_current_node >= 0.95
+            self.node_fields.current_for_resistance_sc / critical_current_node >= 0.95
         )[0]
         ind_sh_gauss = np.nonzero(
-            self.gauss_fields.op_current_sc / critical_current_gauss >= 0.95
+            self.gauss_fields.current_for_resistance_sc / critical_current_gauss >= 0.95
         )[0]
 
         # Initialize electric resistance arrays in both nodal and Gauss points;
@@ -683,8 +699,8 @@ class StackComponent(StrandComponent):
 
         # Strand current in superconducting regime is the one carriend by the
         # superconducting material only.
-        self.node_fields.op_current[ind_sc_node] = self.node_fields.op_current_sc[ind_sc_node]
-        self.gauss_fields.op_current[ind_sc_gauss] = self.gauss_fields.op_current_sc[ind_sc_gauss]
+        self.node_fields.current_for_resistance[ind_sc_node] = self.node_fields.current_for_resistance_sc[ind_sc_node]
+        self.gauss_fields.current_for_resistance[ind_sc_gauss] = self.gauss_fields.current_for_resistance_sc[ind_sc_gauss]
 
         # Initialize array of superconducting electrical resistivit in nodal and Gauss points to None.
         self.node_fields.electrical_resistivity_superconductor = np.full_like(
@@ -699,14 +715,14 @@ class StackComponent(StrandComponent):
         self.node_fields.electrical_resistivity_superconductor[
             ind_sc_node
         ] = self.superconductor_power_law(
-            self.node_fields.op_current_sc[ind_sc_node],
+            self.node_fields.current_for_resistance_sc[ind_sc_node],
             critical_current_node[ind_sc_node],
             self.node_fields.J_critical[ind_sc_node],
         )
         self.gauss_fields.electrical_resistivity_superconductor[
             ind_sc_gauss
         ] = self.superconductor_power_law(
-            self.gauss_fields.op_current_sc[ind_sc_gauss],
+            self.gauss_fields.current_for_resistance_sc[ind_sc_gauss],
             critical_current_gauss[ind_sc_gauss],
             self.gauss_fields.J_critical[ind_sc_gauss],
         )
@@ -715,102 +731,132 @@ class StackComponent(StrandComponent):
         self.gauss_fields.electric_resistance[
             ind_sc_gauss
         ] = self.electric_resistance(
-            conductor, "electrical_resistivity_superconductor", ind_sc_gauss
+            conductor, "electrical_resistivity_superconductor", "sc",
+            ind_sc_gauss
         )
 
         ## SHARING OR NORMAL REGIME ##
-
-        # Strand current in sharing regime is the one carried by the both the
-        # superconducting and the stabilizer materials.
-        # self.node_fields.op_current[ind_sh_node] = self.node_fields.op_current[ind_sh_node]
-        # self.gauss_fields.op_current[ind_sh_node] = self.node_fields.op_current[ind_sh_gauss]
+        # ind_sh_node / ind_sh_gauss hold the GLOBAL indices of the
+        # candidate region (current_for_resistance_sc / Ic >= 0.95). The current
+        # divider returns arrays sized like that subset, so every
+        # further partition is tracked with a LOCAL index into the
+        # subset and mapped back to global indices when writing into
+        # full-length fields (same bookkeeping as StrandMixedComponent).
+        candidates_node = ind_sh_node
+        candidates_gauss = ind_sh_gauss
 
         # Evaluate how the current is distributed solving the current divider
         # problem in both nodal and Gauss points.
         sc_current_node, stab_current_node = self.solve_current_divider(
-            self.node_fields.electrical_resistivity_stabilizer[ind_sh_node],
-            critical_current_node[ind_sh_node],
-            self.node_fields.op_current[ind_sh_node],
+            self.node_fields.electrical_resistivity_stabilizer[candidates_node],
+            critical_current_node[candidates_node],
+            self.node_fields.current_for_resistance[candidates_node],
         )
         sc_current_gauss, stab_current_gauss = self.solve_current_divider(
-            self.gauss_fields.electrical_resistivity_stabilizer[ind_sh_gauss],
-            critical_current_gauss[ind_sh_gauss],
-            self.gauss_fields.op_current[ind_sh_gauss],
+            self.gauss_fields.electrical_resistivity_stabilizer[candidates_gauss],
+            critical_current_gauss[candidates_gauss],
+            self.gauss_fields.current_for_resistance[candidates_gauss],
         )
 
-        # Get index of the normal region, to avoid division by 0 in evaluation
-        # of sc electrical resistivity with the power law.
-        ind_normal_node = np.nonzero(
+        # Partition the candidates into fully-normal locations (all the
+        # current in the stabilizer; excluded from the power law to
+        # avoid division by zero) and true current-sharing locations.
+        # Both are LOCAL indices into the candidate subset.
+        local_normal_node = np.nonzero(
             (
-                stab_current_node / self.node_fields.op_current[ind_sh_node]
+                stab_current_node
+                / self.node_fields.current_for_resistance[candidates_node]
                 > 0.999999
             )
             | (sc_current_node < 1.0)
         )[0]
-        ind_normal_gauss = np.nonzero(
+        local_normal_gauss = np.nonzero(
             (
-                stab_current_gauss / self.gauss_fields.op_current[ind_sh_gauss]
+                stab_current_gauss
+                / self.gauss_fields.current_for_resistance[candidates_gauss]
                 > 0.999999
             )
             | (sc_current_gauss < 1.0)
         )[0]
+        local_sh_node = np.setdiff1d(
+            np.arange(candidates_node.size), local_normal_node
+        )
+        local_sh_gauss = np.setdiff1d(
+            np.arange(candidates_gauss.size), local_normal_gauss
+        )
 
-        ## NORMAL REGIME ONLY ##
-        if ind_normal_node.any():
-            # Get the index of location of true current sharing region;
-            # overwrite ind_sh_node.
-            ind_sh_node = np.nonzero(
-                (
-                    stab_current_node / self.node_fields.op_current[ind_sh_node]
-                    <= 0.999999
-                )
-                | (sc_current_node >= 1.0)
-            )[0]
-        if ind_normal_gauss.any():
-            # Get the index of location of true current sharing region;
-            # overwrite ind_sh_gauss.
-            ind_sh_gauss = np.nonzero(
-                (
-                    stab_current_gauss / self.gauss_fields.op_current[ind_sh_gauss]
-                    <= 0.999999
-                )
-                | (sc_current_gauss >= 1.0)
-            )[0]
-            # Evaluate electic resistance in normal region (stabilizer only).
+        ## NORMAL REGIME ONLY (stabilizer carries everything) ##
+        if local_normal_gauss.size:
+            global_normal_gauss = candidates_gauss[local_normal_gauss]
             self.gauss_fields.electric_resistance[
-                ind_normal_gauss
+                global_normal_gauss
             ] = self.electric_resistance(
-                conductor, "electrical_resistivity_stabilizer", ind_normal_gauss
+                conductor, "electrical_resistivity_stabilizer", "stab",
+                global_normal_gauss
             )
 
         ## SHARING REGIME ONLY ##
         # Evaluate the electrical resistivity of the superconductor according
-        # to the power low in both nodal and Gauss points in Ohm*m.
-        self.node_fields.electrical_resistivity_superconductor[
-            ind_sh_node
-        ] = self.superconductor_power_law(
-            sc_current_node[ind_sh_node],
-            critical_current_node[ind_sh_node],
-            self.node_fields.J_critical[ind_sh_node],
-        )
-        self.gauss_fields.electrical_resistivity_superconductor[
-            ind_sh_gauss
-        ] = self.superconductor_power_law(
-            sc_current_gauss[ind_sh_gauss],
-            critical_current_gauss[ind_sh_gauss],
-            self.gauss_fields.J_critical[ind_sh_gauss],
-        )
+        # to the power law in both nodal and Gauss points in Ohm*m.
+        if local_sh_node.size:
+            global_sh_node = candidates_node[local_sh_node]
+            self.node_fields.electrical_resistivity_superconductor[
+                global_sh_node
+            ] = self.superconductor_power_law(
+                sc_current_node[local_sh_node],
+                critical_current_node[global_sh_node],
+                self.node_fields.J_critical[global_sh_node],
+            )
+        if local_sh_gauss.size:
+            global_sh_gauss = candidates_gauss[local_sh_gauss]
+            self.gauss_fields.electrical_resistivity_superconductor[
+                global_sh_gauss
+            ] = self.superconductor_power_law(
+                sc_current_gauss[local_sh_gauss],
+                critical_current_gauss[global_sh_gauss],
+                self.gauss_fields.J_critical[global_sh_gauss],
+            )
 
-        # Evaluate the equivalent electric resistance in Ohm.
-        self.gauss_fields.electric_resistance[
-            ind_sh_gauss
-        ] = self.parallel_electric_resistance(
-            conductor,
-            [
-                "electrical_resistivity_superconductor",
-                "electrical_resistivity_stabilizer",
-            ],
-            ind_sh_gauss,
+            # Evaluate the equivalent electric resistance in Ohm.
+            self.gauss_fields.electric_resistance[
+                global_sh_gauss
+            ] = self.parallel_electric_resistance(
+                conductor,
+                [
+                    "electrical_resistivity_superconductor",
+                    "electrical_resistivity_stabilizer",
+                ],
+                ["sc", "stab"],
+                global_sh_gauss,
+            )
+
+        # Persist regime data for the differential resistance (Newton
+        # consistency solver). "normal" is the complement of sc ∪ sharing so
+        # the three sets always partition the mesh. The strand-only
+        # resistance is copied BEFORE the caller folds parallel jackets into
+        # gauss_fields.electric_resistance.
+        regime_sharing_gauss = (
+            candidates_gauss[local_sh_gauss]
+            if local_sh_gauss.size
+            else np.empty(0, dtype=int)
+        )
+        sc_current_full = np.zeros(self.gauss_fields.temperature.shape)
+        if local_sh_gauss.size:
+            sc_current_full[regime_sharing_gauss] = sc_current_gauss[
+                local_sh_gauss
+            ]
+        self._electric_regime_gauss = {
+            "sc": ind_sc_gauss,
+            "sharing": regime_sharing_gauss,
+            "normal": np.setdiff1d(
+                np.arange(self.gauss_fields.temperature.size),
+                np.concatenate((ind_sc_gauss, regime_sharing_gauss)),
+            ),
+            "i_sc": sc_current_full,
+            "critical_current": critical_current_gauss,
+        }
+        self._electric_resistance_strand_only = (
+            self.gauss_fields.electric_resistance.copy()
         )
 
         return self.gauss_fields.electric_resistance

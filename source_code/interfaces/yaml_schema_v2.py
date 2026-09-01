@@ -50,6 +50,7 @@ CONDUCTOR_OPERATION_KEYS = {
     "inductance_mode": "INDUCTANCE_MODE",
     "self_inductance_mode": "SELF_INDUCTANCE_MODE",
     "maximum_iteration_number": "MAXIMUM_ITERATION_NUMBER",
+    "electric_current_consistency": "ELECTRIC_CURRENT_CONSISTENCY",
 }
 
 # Component inputs of every kind share one table (v2 names are unique).

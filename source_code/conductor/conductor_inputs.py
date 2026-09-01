@@ -105,6 +105,10 @@ class ConductorOperations:
     inductance_mode: InductanceMode  # INDUCTANCE_MODE : method to evaluate the indutance
     self_inductance_mode: SelfInductanceMode  # SELF_INDUCTANCE_MODE : method to evaluate the self-inductance
     electric_solver: ElectricSolver  # ELECTRIC_SOLVER : solver for the electric problem (steady-state or transient)
+    # ELECTRIC_CURRENT_CONSISTENCY : iterate the steady electric solve until
+    # the strand resistances are consistent with the solved currents
+    # (multi-strand current sharing); MAXIMUM_ITERATION_NUMBER is the cap.
+    electric_current_consistency: bool = False
 
 
 @dataclass
