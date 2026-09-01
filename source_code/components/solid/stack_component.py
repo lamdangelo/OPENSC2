@@ -609,7 +609,17 @@ class StackComponent(StrandComponent):
                     f"Arrays sc_current and so_current must have the same shape.\n {sc_current.shape = };\n{so_current.shape}.\n"
                 )
 
-        return sc_current ** self.inputs.power_law_exponent + (sc_current - so_current) * psi
+        # np.float64 arithmetic saturates to inf instead of raising the
+        # Python-float OverflowError (errno 34): scipy's bisect probes the
+        # residual with plain floats, and a wild Newton line-search trial
+        # current can push i**n past the float range before the Armijo
+        # rejection sees it. An inf residual keeps the correct sign, so
+        # bisection and the trial rejection both proceed normally.
+        with np.errstate(over="ignore"):
+            return (
+                np.float64(sc_current) ** self.inputs.power_law_exponent
+                + (sc_current - so_current) * psi
+            )
 
     def __d_sc_current_residual(
         self,
@@ -628,7 +638,13 @@ class StackComponent(StrandComponent):
            Union[float, np.ndarray]: residual derivative value
         """
 
-        return self.inputs.power_law_exponent * sc_current ** (self.inputs.power_law_exponent - 1) + psi
+        # Same overflow saturation as in __sc_current_residual.
+        with np.errstate(over="ignore"):
+            return (
+                self.inputs.power_law_exponent
+                * np.float64(sc_current) ** (self.inputs.power_law_exponent - 1)
+                + psi
+            )
 
     def __d2_sc_current_residual(
         self,
@@ -647,11 +663,13 @@ class StackComponent(StrandComponent):
            Union[float, np.ndarray]: second derivative of the residual.
         """
 
-        return (
-            self.inputs.power_law_exponent
-            * (self.inputs.power_law_exponent - 1)
-            * sc_current ** (self.inputs.power_law_exponent - 2)
-        )
+        # Same overflow saturation as in __sc_current_residual.
+        with np.errstate(over="ignore"):
+            return (
+                self.inputs.power_law_exponent
+                * (self.inputs.power_law_exponent - 1)
+                * np.float64(sc_current) ** (self.inputs.power_law_exponent - 2)
+            )
 
     def get_electric_resistance(self, conductor: object) -> np.ndarray:
         f"""Method that evaluate the electrical resistance in Gauss node only, used to build the electric_resistance_matrix.

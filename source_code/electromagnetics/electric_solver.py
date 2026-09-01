@@ -374,6 +374,13 @@ def _solve_steady_newton(conductor: object) -> None:
                 "best iterate."
             )
             break
+        if not np.all(np.isfinite(delta)):
+            warnings.warn(
+                "Steady electric current-consistency Newton step failed "
+                "(non-finite step from a near-singular Jacobian); keeping "
+                "the best iterate."
+            )
+            break
 
         # Backtracking line search on the reduced-residual 2-norm; the
         # trial residual is always the true residual (full resistance
@@ -381,14 +388,31 @@ def _solve_steady_newton(conductor: object) -> None:
         norm_previous = float(np.linalg.norm(residual_reduced))
         x_reduced = x[conductor.electric_retained_index]
         step = 1.0
+        norm_trial = np.inf
         for _ in range(STEADY_NEWTON_MAX_BACKTRACKS + 1):
             x_trial = scatter(x_reduced + step * delta, operator)
             residual_trial, operator_trial = residual(x_trial)
-            if float(np.linalg.norm(residual_trial)) <= (
+            norm_trial = float(np.linalg.norm(residual_trial))
+            if np.isfinite(norm_trial) and norm_trial <= (
                 1.0 - STEADY_NEWTON_ARMIJO * step
             ) * norm_previous:
                 break
             step *= 0.5
+        if not np.isfinite(norm_trial):
+            # Even the shortest step overflowed the power-law residual (a
+            # wildly scaled direction near a singular Jacobian at ~zero
+            # transport current). Adopting it would inject inf/NaN Joule
+            # power into the thermal solve, so keep the best iterate
+            # (rebinding its currents so K and the resistance fields stay
+            # consistent with the adopted solution).
+            warnings.warn(
+                "Steady electric current-consistency Newton line search "
+                "produced only non-finite residuals; keeping the best "
+                "iterate."
+            )
+            x = best_state
+            residual_reduced, operator = residual(x)
+            break
         # Adopt the last trial even on a stalled search: the cap plus
         # warning is the failure semantics, and the best iterate is
         # tracked separately.
