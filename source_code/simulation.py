@@ -31,6 +31,7 @@ from utility_functions.output import (
     save_properties,
 )
 from utility_functions.checkpoint import restore_from_checkpoint, write_checkpoint
+from utility_functions.simulation_log import SimulationSummary
 from utility_functions.plots import (
     plot_properties,
     make_plots,
@@ -128,6 +129,7 @@ class Simulation:
     
     def run(self):
         """Run the simulation workflow."""
+        self.simulation_summary = SimulationSummary()  # runtime timers start here
         self.conductor_instance()  # read input files
         self.simulation_folders_manager(target_directory=self.basePath)  # create folders
         self.save_input_files()  # create metadata
@@ -138,8 +140,13 @@ class Simulation:
             # evolving state and truncate the outputs to the checkpoint time
             # (see utility_functions/checkpoint.py).
             restore_from_checkpoint(self)
+            # Re-seed the summary extrema from the restored state; the
+            # checkpoint-time hot-spot row is already in the truncated file.
+            for cond in self.list_of_Conductors:
+                self.simulation_summary.update(self, cond, record_hotspot=False)
         self.conductor_solution()  # solve the numerical problem
         self.conductor_post_processing()  # do post-processing
+        self.simulation_summary.write(self)  # simulation.log + hot-spot flush
 
 
     def __count_sigfigs(self,num:Union[int,float]):
@@ -275,6 +282,11 @@ class Simulation:
             # plot conductor initialization spatial distribution (cdp, 12/2020)
             plot_properties(self, cond)
             save_simulation_time(self, cond)
+            if not self.transient_input["RESTART"]:
+                # Seed the summary extrema and hot-spot log with the t = 0
+                # state; on restart the seeding happens after the checkpoint
+                # restore instead.
+                self.simulation_summary.update(self, cond)
             # ** END INITIALIZATION **
         # end for cond (cdp, 12/202)
         # dictionary declaration (cdp,07/2020)
@@ -581,6 +593,7 @@ class Simulation:
                         abs(self.n_digit_time),
                     )
                 # end if isave
+                self.simulation_summary.update(self, conductor)
                 # Save variables time evolution at given spatial coordinates \
                 # (cdp, 08/2020)
                 save_simulation_time(self, conductor)
@@ -601,6 +614,7 @@ class Simulation:
                 for conductor in self.list_of_Conductors:
                     save_simulation_time(self, conductor, flush_only=True)
                     save_network_simulation_time(self, conductor, flush_only=True)
+                self.simulation_summary.flush_hotspots(self)
                 write_checkpoint(self)
         # end while (cdp, 07/2020)
         # Final flush of the partially filled time-evolution buffers: a
