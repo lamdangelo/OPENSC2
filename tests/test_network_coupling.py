@@ -753,3 +753,101 @@ def test_heat_pulse_redistributes_and_pressurizes_the_loop(tmp_path):
         rtol=1.0e-12,
     )
     assert (frame["temperature_bath (K)"] == 4.5).all()
+
+
+# ---------------------------------------------------------------------------
+# Unit test of the port boundary-condition overlay: the inflow temperature
+# must relax from the channel end temperature toward the node temperature
+# with the swept fraction |v| dt / dz of the boundary element, so a flow
+# reversal against a much hotter node does not inject a step change in one
+# time step (which rings the consistent-mass scheme into negative
+# temperatures at the neighbouring node).
+# ---------------------------------------------------------------------------
+def make_port_stub(
+    end_velocity, end_temperature, node_temperature, mesh_end_is_last_node
+):
+    from types import SimpleNamespace
+
+    nodes = 5
+    velocity = np.full(nodes, end_velocity)
+    temperature = np.full(nodes, end_temperature)
+    port = SimpleNamespace(
+        pressure_index=3,
+        temperature_index=7,
+        mesh_end_is_last_node=mesh_end_is_last_node,
+        end_node_slice=-1 if mesh_end_is_last_node else 0,
+        node_identifier="header",
+        network=SimpleNamespace(
+            node_temperature=np.array([node_temperature]),
+            node_index={"header": 0},
+        ),
+        fluid_component=SimpleNamespace(
+            coolant=SimpleNamespace(
+                node_fields=SimpleNamespace(
+                    velocity=velocity, temperature=temperature
+                )
+            )
+        ),
+    )
+    conductor = SimpleNamespace(
+        band=SimpleNamespace(number_of_subdiagonals=2),
+        network_ports=[port],
+        mesh=SimpleNamespace(element_lengths=np.full(4, 0.01)),
+        time_step=1.0e-3,
+    )
+    return conductor, port
+
+
+def overlay(conductor, port):
+    from hydraulics.network.coupling import (
+        apply_network_port_boundary_conditions,
+    )
+
+    known_term = np.zeros(12)
+    system_matrix = np.zeros((5, 12))
+    return apply_network_port_boundary_conditions(
+        conductor, known_term, system_matrix
+    )
+
+
+def test_port_inflow_temperature_relaxes_with_swept_fraction():
+    # Inflow at the first node (v > 0), hot node against a cold channel:
+    # v dt / dz = 0.6e-3 / 0.01 = 0.06 of the 22.6 K jump per step.
+    conductor, port = make_port_stub(
+        end_velocity=0.6,
+        end_temperature=6.4,
+        node_temperature=29.0,
+        mesh_end_is_last_node=False,
+    )
+    known_term, system_matrix = overlay(conductor, port)
+    expected = 6.4 + 0.06 * (29.0 - 6.4)
+    assert known_term[port.temperature_index] == pytest.approx(expected)
+    assert system_matrix[2, port.temperature_index] == 1.0
+    # Pressure row is always the continuity constraint.
+    assert known_term[port.pressure_index] == 0.0
+    assert system_matrix[2, port.pressure_index] == 1.0
+
+
+def test_port_inflow_temperature_hard_dirichlet_when_cell_swept():
+    # |v| dt >= dz recovers the hard Dirichlet on the node temperature
+    # (here at the last node, so inflow means v < 0).
+    conductor, port = make_port_stub(
+        end_velocity=-15.0,
+        end_temperature=6.4,
+        node_temperature=29.0,
+        mesh_end_is_last_node=True,
+    )
+    known_term, _ = overlay(conductor, port)
+    assert known_term[port.temperature_index] == pytest.approx(29.0)
+
+
+def test_port_outflow_leaves_temperature_row_untouched():
+    conductor, port = make_port_stub(
+        end_velocity=-0.6,
+        end_temperature=6.4,
+        node_temperature=29.0,
+        mesh_end_is_last_node=False,
+    )
+    known_term, system_matrix = overlay(conductor, port)
+    assert known_term[port.temperature_index] == 0.0
+    assert system_matrix[2, port.temperature_index] == 0.0

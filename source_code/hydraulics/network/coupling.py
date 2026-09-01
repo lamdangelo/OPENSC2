@@ -66,6 +66,20 @@ transport but is a modelling choice worth revisiting for a quench front
 arriving at an outlet port, where the node temperature lags the front by
 one step.
 
+The inflow temperature is not imposed as a hard Dirichlet on the node
+value: on flow reversal at a port (e.g. a channel that first expels hot
+back-flow into a header a quench has heated, then re-admits it) that
+would inject a many-kelvin step at the boundary within a single time
+step, and the consistent-mass Galerkin scheme answers a temporal step
+with a spatial ringing that can drive the neighbouring node below 0 K.
+Instead the imposed value relaxes from the channel's own end temperature
+toward the node temperature at the physical renewal rate of the boundary
+cell, ``v * dt / dz`` (:func:`apply_network_port_boundary_conditions`):
+the boundary fluid cannot heat up faster than inflow actually replaces
+it. The blend is built from current fields only (no extra state), so
+checkpoint/restart identity is preserved, and it reduces to the hard
+Dirichlet whenever ``v * dt >= dz``.
+
 Restrictions:
     * Each port end must be one where the channel's own boundary condition
       imposes pressure (the port takes over exactly that row); enforced at
@@ -378,9 +392,19 @@ def apply_network_port_boundary_conditions(
     The port-end pressure row becomes the continuity constraint (identity
     on the port pressure, zero right-hand side; the network node column is
     added as a border by solve_coupled_step). The port-end temperature row
-    is imposed from the network node temperature whenever the flow enters
-    the channel there, with the same velocity-sign test as the standard
-    temperature boundary conditions."""
+    is imposed whenever the flow enters the channel there, with the same
+    velocity-sign test as the standard temperature boundary conditions.
+
+    The imposed value is not the node temperature itself but the channel
+    end temperature relaxed toward it by the swept fraction of the
+    boundary element, ``min(1, |v| dt / dz)``: inflow can only change the
+    boundary fluid as fast as it renews the boundary cell. This keeps a
+    flow reversal against a much hotter node (quench back-flow re-entry)
+    from injecting a step change in one time step, which rings the
+    consistent-mass scheme into negative temperatures at the neighbouring
+    node; steady inflow still converges to the node temperature on the
+    cell-transit time scale, and ``|v| dt >= dz`` recovers the hard
+    Dirichlet exactly."""
     main_diagonal = conductor.band.number_of_subdiagonals
     for port in conductor.network_ports:
         system_matrix[:, port.pressure_index] = 0.0
@@ -395,12 +419,28 @@ def apply_network_port_boundary_conditions(
             else end_velocity > 0.0
         )
         if inflow:
+            node_temperature = port.network.node_temperature[
+                port.network.node_index[port.node_identifier]
+            ]
+            end_temperature = float(
+                port.fluid_component.coolant.node_fields.temperature[
+                    port.end_node_slice
+                ]
+            )
+            element_length = conductor.mesh.element_lengths[
+                -1 if port.mesh_end_is_last_node else 0
+            ]
+            swept_fraction = min(
+                1.0,
+                float(np.abs(end_velocity))
+                * conductor.time_step
+                / element_length,
+            )
             system_matrix[:, port.temperature_index] = 0.0
             system_matrix[main_diagonal, port.temperature_index] = 1.0
             known_term[port.temperature_index] = (
-                port.network.node_temperature[
-                    port.network.node_index[port.node_identifier]
-                ]
+                end_temperature
+                + swept_fraction * (node_temperature - end_temperature)
             )
     return known_term, system_matrix
 
