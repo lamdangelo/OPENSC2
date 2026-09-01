@@ -122,7 +122,11 @@ def get_registry(directory: Any) -> Optional["YamlInputRegistry"]:
     component loaders only know their workbook path).
     """
     path = Path(directory)
-    if path.is_file() or path.suffix:
+    # An existing directory is always taken as-is: a directory name may
+    # contain dots (e.g. "..._return1.8L") and must not be mistaken for a
+    # file by the suffix heuristic, which only serves the component loaders
+    # passing (possibly non-existent) workbook paths inside the directory.
+    if not path.is_dir() and (path.is_file() or path.suffix):
         path = path.parent
     key = str(path.resolve())
     if key not in _registry_cache:
