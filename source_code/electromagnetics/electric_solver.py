@@ -228,6 +228,11 @@ def solve_steady_state(conductor: object) -> None:
             been set for the current thermal time step.
     """
     conductor.operating_conditions_em()
+    # Rebuild the nodal current-source vector from the freshly interpolated
+    # per-solid operating currents (the transient loop does the same per
+    # sub-step); without this, from-file current waveforms stay frozen at
+    # the initialization value in steady mode.
+    conductor.eval_total_operating_current()
 
     if not conductor.operations.electric_current_consistency:
         # Legacy path: single build-and-solve from the imposed current.

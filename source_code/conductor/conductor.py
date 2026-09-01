@@ -1100,6 +1100,11 @@ class Conductor:
             self.cond_num_step == 0
             or self.operations.electric_solver == ElectricSolver.STEADY_STATE
         ):
+            # The quasi-static solve has no sub-stepping loop of its own, so
+            # keep the electric clock on the thermal one; from-file operating
+            # currents are interpolated at electric_time, which otherwise
+            # stays at 0 and freezes them at their initial value.
+            self.electric_time = self.cond_time[-1]
             solve_steady_state(self)
         else:
             self.__get_electric_time_step()
