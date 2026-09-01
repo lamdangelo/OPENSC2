@@ -276,3 +276,13 @@ W7-X/*
 
 # Regression-test reference data must be tracked despite the global *.tsv rule
 !tests/reference_data/**/*.tsv
+
+# Sensitivity-analysis deliverables (figures + tables) must be tracked
+# despite the global *.png / *.csv rules; the simulation cache and the
+# per-sample run-directory clones stay untracked.
+!analysis/sensitivity/results/**/*.png
+!analysis/sensitivity/results/**/*.csv
+analysis/sensitivity/cache/
+analysis/sensitivity/runs/
+!analysis/sensitivity/results_qp_model/**/*.png
+!analysis/sensitivity/results_qp_model/**/*.csv
