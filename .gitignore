@@ -247,6 +247,7 @@ $RECYCLE.BIN/
 *.xlsx
 *.ods
 *.pdf 
+*.npz
 
 # LaTeX
 *.aux
@@ -273,6 +274,9 @@ source_code/GUI_icons/**/
 TDD_examples/**/
 refactoring/*
 W7-X/*
+models/*
+analysis/*
+.vscode/*
 
 # Regression-test reference data must be tracked despite the global *.tsv rule
 !tests/reference_data/**/*.tsv
