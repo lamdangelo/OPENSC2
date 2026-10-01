@@ -156,6 +156,28 @@ def make_stub_conductor(strands=(), jackets=(), fluids=(), network_ports=()):
     )
 
 
+def test_detect_features_accepts_loop_family_lists_and_tape_flag():
+    """Stacks declare several coupling loop families as lists and the
+    thin-strip hysteresis through a boolean; the checklist must not compare
+    a list with a float (regression: crash in the end-of-run summary)."""
+    strand = SimpleNamespace(
+        identifier="STACK_1",
+        operations=make_operations(
+            coupling_loss_time_constant=[0.983, 0.106],
+            filament_diameter=0.0,
+            tape_hysteresis_loss=True,
+        ),
+    )
+    features = detect_features(make_stub_conductor(strands=[strand]))
+    assert features["coupling loss"] is True
+    assert features["hysteresis loss"] is True
+    off = SimpleNamespace(
+        identifier="STACK_2",
+        operations=make_operations(coupling_loss_time_constant=[0.0, 0.0]),
+    )
+    assert detect_features(make_stub_conductor(strands=[off]))["coupling loss"] is False
+
+
 def test_detect_features_all_disabled():
     strand = SimpleNamespace(identifier="STR_1", operations=make_operations())
     conductor = make_stub_conductor(strands=[strand])

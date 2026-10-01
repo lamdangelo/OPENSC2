@@ -204,6 +204,58 @@ class StackComponent(StrandComponent):
     def __str__(self):
         pass
 
+    def get_hysteresis_loss(self, conductor):
+        """Hysteresis loss of the REBCO tape stack (W/m).
+
+        With ``operations.tape_hysteresis_loss`` set, the thin-strip
+        critical-state loss of the ``N`` tapes replaces the round-filament
+        Bean form of the strand base class. Per unit length of the stack,
+
+            M'     = (2/pi) * N * I_c(B, T) * w / 4      [A m / m]
+            M'_max = B * A_stack / mu0                    [A m / m]
+            q      = min(M', M'_max) * |dB/dt|            [W/m]
+
+        with ``I_c = J_c(B,T) * w * t_HTS`` the critical current per tape,
+        ``w`` the tape width, ``w/4`` the thin-strip magnetisation factor
+        and ``2/pi`` the twist average of the face-perpendicular field
+        component. Single tapes are fully penetrated at operating field
+        (their penetration field mu0*J_c*t_HTS/pi is tens of mT); what
+        limits the magnetisation is the stack, which cannot screen more
+        than the local field: ``M'_max`` is the full-shielding bound of
+        the stack (penetration field mu0*J_e*w/2 ~ 5 T at I_c = 500 A per
+        tape) and also bounds the loss where the J_c fit diverges as
+        B -> 0. Without the key the base-class model is used unchanged.
+        """
+        if not getattr(self.operations, "tape_hysteresis_loss", False):
+            return super().get_hysteresis_loss(conductor)
+        if not hasattr(self.node_fields, "hysteresis_loss_linear_power"):
+            self.node_fields.hysteresis_loss_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+        field_rate = self._field_rate(conductor)
+        temperature = self.node_fields.temperature.ravel()
+        field = np.abs(np.asarray(self.node_fields.B_field).ravel())
+        critical_current_density = self._critical_current_density(
+            temperature, field
+        )
+        number_of_tapes = float(self.inputs.tape_identifier)
+        width = float(self.inputs.stack_width)
+        hts_thickness = float(self.sc) / (number_of_tapes * width)
+        critical_current_per_tape = critical_current_density * width * hts_thickness
+        magnetisation = (
+            (2.0 / np.pi) * number_of_tapes * critical_current_per_tape * width / 4.0
+        )
+        shielding_bound = field * float(self.inputs.cross_section) / self.MU0
+        self.node_fields.hysteresis_loss_linear_power[:, 0] = (
+            np.minimum(magnetisation, shielding_bound) * np.abs(field_rate)
+        )
+
+    def _superconductor_cross_section(self) -> float:
+        """Layer-resolved REBCO cross-section [m^2] for the hysteresis
+        loss (the strand-base stabilizer-to-sc ratio does not exist on a
+        tape stack)."""
+        return float(self.sc_cross_section)
+
     def __reorganize_input(self):
         """Private method that reorganizes input data to simplify properties homogenization."""
 

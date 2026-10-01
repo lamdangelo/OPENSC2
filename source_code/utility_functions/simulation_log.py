@@ -206,6 +206,18 @@ def disturbance_end_time(conductor) -> float:
     return end
 
 
+def _positive(value) -> bool:
+    """True when a scalar, or any entry of a list of loop families, exceeds 0."""
+    if value is None:
+        return False
+    if isinstance(value, (list, tuple)):
+        return any(_positive(v) for v in value)
+    try:
+        return float(value) > 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 def detect_features(conductor):
     """Checklist of the optional physical features active on a conductor."""
     solids = list(_solid_components(conductor))
@@ -213,7 +225,7 @@ def detect_features(conductor):
     return {
         "hydraulic network": bool(getattr(conductor, "network_ports", [])),
         "coupling loss": any(
-            getattr(s.operations, "coupling_loss_time_constant", 0.0) > 0.0
+            _positive(getattr(s.operations, "coupling_loss_time_constant", 0.0))
             for s in strands
         ),
         "eddy current loss": any(
@@ -221,7 +233,9 @@ def detect_features(conductor):
             for c in solids
         ),
         "hysteresis loss": any(
-            getattr(s.operations, "filament_diameter", 0.0) > 0.0 for s in strands
+            _positive(getattr(s.operations, "filament_diameter", 0.0))
+            or bool(getattr(s.operations, "tape_hysteresis_loss", False))
+            for s in strands
         ),
         "casing bath (BOUNDARY sink)": any(
             patch["partner"] is None

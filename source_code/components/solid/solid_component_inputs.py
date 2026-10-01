@@ -113,3 +113,52 @@ class StrandComponentOperations(SolidComponentOperations):
     # p = (2/3pi) * Jc(B,T) * d_f * |dB/dt| per unit superconductor volume;
     # 0 disables the source. See StrandComponent.get_hysteresis_loss.
     filament_diameter: float = field(default=0.0, kw_only=True)
+
+    # COUPLING_LOSS_RELAXATION_TIME — relaxation time tau [s] of the
+    # coupling currents (loop L/R). With tau > 0 the coupling loss follows
+    # the first-order model tau*dM/dt + M = -(n*tau/mu0)*dB/dt,
+    # q = mu0*M^2/(n*tau)*A (energy saturates at tau/(tau + tau_dump) of
+    # the field energy for an exponential dump); tau = 0 keeps the
+    # instantaneous lumped model. Scalar or one value per loop family
+    # (then coupling_loss_time_constant is a list of the same length).
+    coupling_loss_relaxation_time: Any = field(default=0.0, kw_only=True)
+
+    # COUPLING_LOSS_COPPER_SCALING — scale n*tau with the copper
+    # resistivity of the transverse path, n*tau(T,B) = n*tau_ref *
+    # rho_Cu(T_ref,B_ref)/rho_Cu(T,B) (NIST, the component RRR), the
+    # reference point being COUPLING_LOSS_REFERENCE_TEMPERATURE/FIELD.
+    coupling_loss_copper_scaling: bool = field(default=False, kw_only=True)
+    coupling_loss_reference_temperature: float = field(default=0.0, kw_only=True)
+    coupling_loss_reference_field: float = field(default=0.0, kw_only=True)
+
+    # TAPE_HYSTERESIS_LOSS — REBCO stacks only: replace the round-filament
+    # Bean loss by the thin-strip loss of the tape stack bounded by full
+    # shielding of the stack (StackComponent.get_hysteresis_loss).
+    tape_hysteresis_loss: bool = field(default=False, kw_only=True)
+
+
+def loss_constant(value: Any) -> Any:
+    """Parse an optional loss constant that may be a scalar or a list (one
+    entry per coupling-loop family): None/empty/NaN -> 0.0; YAML lists ->
+    list of floats; a comma-separated string (Excel cell) -> list of floats.
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, (list, tuple)):
+        return [float(item) for item in value]
+    if isinstance(value, str):
+        text = value.strip().strip("[]")
+        if not text:
+            return 0.0
+        parts = [part for part in text.split(",") if part.strip()]
+        if len(parts) > 1:
+            return [float(part) for part in parts]
+        value = parts[0]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if number != number:  # NaN
+        return 0.0
+    return number
+

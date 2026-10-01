@@ -907,14 +907,19 @@ class SolidComponent:
         if not hasattr(self, "_field_rate_field_old"):
             # First evaluation: seed the history, no rate available yet.
             self._field_rate_value = np.zeros_like(self.node_fields.B_field)
+            self._field_rate_interval = 0.0
         else:
             time_step = time - self._field_rate_time_old
             if time_step <= 0.0:
                 self._field_rate_value = np.zeros_like(self.node_fields.B_field)
+                self._field_rate_interval = 0.0
             else:
                 self._field_rate_value = (
                     self.node_fields.B_field - self._field_rate_field_old
                 ) / time_step
+                # Sampling interval of the rate, used by the relaxation
+                # model of the coupling loss (same interval as the rate).
+                self._field_rate_interval = time_step
         self._field_rate_field_old = np.copy(self.node_fields.B_field)
         self._field_rate_time_old = time
         self._field_rate_time = time

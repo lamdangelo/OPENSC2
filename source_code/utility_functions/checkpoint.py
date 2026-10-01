@@ -46,7 +46,12 @@ _FIELD_RATE_ATTRIBUTES = (
     "_field_rate_time_old",
     "_field_rate_time",
     "_field_rate_value",
+    "_field_rate_interval",
 )
+# Per-family nodal magnetisation of the relaxation coupling-loss model
+# (StrandComponent.get_coupling_loss with a relaxation time); stored as one
+# (families, nodes) array.
+_COUPLING_MAGNETISATION_ATTRIBUTE = "_coupling_magnetisation"
 
 
 def checkpoint_file_name(step: int) -> str:
@@ -127,6 +132,13 @@ def _collect_conductor_state(state: dict, conductor) -> None:
             )
         for name in _FIELD_RATE_ATTRIBUTES:
             _put(state, f"{solid_prefix}{name}", getattr(s_comp, name, None))
+        magnetisation = getattr(s_comp, _COUPLING_MAGNETISATION_ATTRIBUTE, None)
+        if magnetisation:
+            _put(
+                state,
+                f"{solid_prefix}/coupling_magnetisation",
+                np.array([np.ravel(row) for row in magnetisation]),
+            )
 
 
 def _collect_network_state(state: dict, network) -> None:
@@ -299,6 +311,12 @@ def _restore_conductor_state(archive, conductor) -> None:
         for name in _FIELD_RATE_ATTRIBUTES:
             if f"{solid_prefix}{name}" in archive:
                 setattr(s_comp, name, _get(archive, f"{solid_prefix}{name}"))
+        if f"{solid_prefix}/coupling_magnetisation" in archive:
+            setattr(
+                s_comp,
+                _COUPLING_MAGNETISATION_ATTRIBUTE,
+                [row.copy() for row in archive[f"{solid_prefix}/coupling_magnetisation"]],
+            )
 
 
 def _restore_network_state(archive, network) -> None:

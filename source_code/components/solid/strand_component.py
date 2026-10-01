@@ -59,43 +59,127 @@ class StrandComponent(SolidComponent):
     # Vacuum magnetic permeability (T·m/A) for the coupling-loss model.
     MU0 = 4.0e-7 * np.pi
 
+    def _coupling_loss_families(self):
+        """(n*tau, tau) pairs of the coupling-loop families with n*tau > 0.
+
+        ``coupling_loss_time_constant`` and ``coupling_loss_relaxation_time``
+        are scalars or lists; a scalar relaxation time applies to every
+        family."""
+        time_constants = np.atleast_1d(
+            np.asarray(self.operations.coupling_loss_time_constant, dtype=float)
+        )
+        relaxation = np.atleast_1d(
+            np.asarray(
+                getattr(self.operations, "coupling_loss_relaxation_time", 0.0),
+                dtype=float,
+            )
+        )
+        if relaxation.size == 1 and time_constants.size > 1:
+            relaxation = np.repeat(relaxation, time_constants.size)
+        if relaxation.size != time_constants.size:
+            raise ValueError(
+                f"{self.identifier}: coupling_loss_relaxation_time has "
+                f"{relaxation.size} entries, coupling_loss_time_constant "
+                f"{time_constants.size}; one relaxation time per loop family "
+                "(or a single scalar) is required."
+            )
+        return [
+            (float(n_tau), float(tau))
+            for n_tau, tau in zip(time_constants, relaxation)
+            if n_tau > 0.0
+        ]
+
+    def _coupling_loss_copper_scaling(self, conductor):
+        """Nodal factor rho_Cu(T_ref, B_ref) / rho_Cu(T, B) applied to n*tau
+        when ``coupling_loss_copper_scaling`` is set (the transverse path is
+        copper: its conductance, hence n*tau, follows the magnetoresistive
+        NIST resistivity at the component RRR). Returns 1.0 when off."""
+        if not getattr(self.operations, "coupling_loss_copper_scaling", False):
+            return 1.0
+        from properties_of_materials.electrical_conductivity import (
+            electrical_resistivity_of,
+        )
+
+        temperature = self.node_fields.temperature.ravel()
+        field = np.asarray(self.node_fields.B_field).ravel()
+        rrr = self.inputs.residual_resistivity_ratio
+        reference = electrical_resistivity_of(
+            "cu",
+            np.array([self.operations.coupling_loss_reference_temperature]),
+            magnetic_field=np.array([self.operations.coupling_loss_reference_field]),
+            residual_resistivity_ratio=rrr,
+        )
+        local = electrical_resistivity_of(
+            "cu", temperature, magnetic_field=field, residual_resistivity_ratio=rrr
+        )
+        return float(reference[0]) / local
+
     def get_coupling_loss(self, conductor):
         """AC coupling-loss linear power (W/m) at nodal points.
 
-        Interfilament + interstrand coupling only, as a lumped effective-
-        time-constant model: the dissipated power per unit composite-strand
-        volume is
+        Interfilament / interstrand (or inter-stack) coupling as one or
+        several loop families. For each family with lumped coefficient
+        ``n*tau`` [s] (``coupling_loss_time_constant``) and loop relaxation
+        time ``tau`` [s] (``coupling_loss_relaxation_time``):
 
-            p = (n·tau_eff / mu0) · (dB/dt)²
+        * ``tau = 0`` (default): instantaneous lumped model,
+          ``p = (n*tau/mu0) * (dB/dt)^2`` per unit strand volume;
+        * ``tau > 0``: first-order relaxation of the coupling magnetisation
+          ``tau * dM/dt + M = -(n*tau/mu0) * dB/dt`` (backward Euler over the
+          sampling interval of the field rate), ``p = mu0 * M^2 / (n*tau)``.
+          For a field decaying as ``exp(-t/tau_d)`` the deposited energy is
+          the fraction ``n*tau/(tau + tau_d)`` of ``B^2/(2 mu0)`` instead of
+          the lumped ``n*tau/tau_d`` (closed-form integral of the model):
+          the loops shield when they are slower than the field change. The
+          model is meant for ``tau`` up to the order of ``tau_d``; the
+          lumped coefficient ``n*tau`` and the loop time ``tau`` are
+          distinct inputs (n ~ 2 for a round composite).
 
-        with ``n·tau_eff = operations.coupling_loss_time_constant``
-        (COUPLING_LOSS_TIME_CONSTANT, in s; 0 disables the source). The
-        linear power is p times the strand cross-section. The copper-matrix
-        eddy loss is NOT folded in here; it is a separate source term
-        (see the copper eddy-current loss) so the two contributions can be
-        calibrated and diagnosed independently.
-
-        dB/dt comes from the shared ``_field_rate`` helper (nodal field at
-        the previous thermal step), so any field model — proportional-to-
-        current, from file, linear transient — drives the source
-        consistently. The result is stored in
-        ``node_fields.coupling_loss_linear_power`` as a (nodes, 1) column
-        and added to the Gauss-point sources Q1/Q2 in
-        ``thermal.heat_sources``.
+        The linear power is p times the strand cross-section, summed over
+        the families. With ``coupling_loss_copper_scaling`` the coefficient
+        follows the copper resistivity of the transverse path. dB/dt comes
+        from the shared ``_field_rate`` helper (nodal field at the previous
+        thermal step), so any field model drives the source consistently.
+        The result is stored in ``node_fields.coupling_loss_linear_power`` as
+        a (nodes, 1) column and added to the Gauss-point sources Q1/Q2 in
+        ``thermal.heat_sources``. The copper-matrix eddy loss is a separate
+        source (get_eddy_loss).
         """
         if not hasattr(self.node_fields, "coupling_loss_linear_power"):
             self.node_fields.coupling_loss_linear_power = np.zeros(
                 (conductor.mesh.number_of_nodes, 1)
             )
         field_rate = self._field_rate(conductor)
-        if self.operations.coupling_loss_time_constant <= 0.0:
+        families = self._coupling_loss_families()
+        if not families:
             return
-        self.node_fields.coupling_loss_linear_power[:, 0] = (
-            self.operations.coupling_loss_time_constant
-            / self.MU0
-            * field_rate**2
-            * self.inputs.cross_section
-        )
+        scaling = self._coupling_loss_copper_scaling(conductor)
+        interval = float(getattr(self, "_field_rate_interval", 0.0))
+        if not hasattr(self, "_coupling_magnetisation") or len(
+            self._coupling_magnetisation
+        ) != len(families):
+            self._coupling_magnetisation = [
+                np.zeros_like(field_rate) for _ in families
+            ]
+        power = np.zeros_like(field_rate)
+        for index, (time_constant, relaxation_time) in enumerate(families):
+            coefficient = time_constant * scaling
+            if relaxation_time <= 0.0:
+                power = power + (
+                    coefficient / self.MU0 * field_rate**2 * self.inputs.cross_section
+                )
+                continue
+            magnetisation = self._coupling_magnetisation[index]
+            if interval > 0.0:
+                magnetisation = (
+                    relaxation_time * magnetisation
+                    - coefficient / self.MU0 * field_rate * interval
+                ) / (relaxation_time + interval)
+                self._coupling_magnetisation[index] = magnetisation
+            power = power + (
+                self.MU0 * magnetisation**2 / coefficient * self.inputs.cross_section
+            )
+        self.node_fields.coupling_loss_linear_power[:, 0] = power
 
     def _eddy_conductivity(self, conductor):
         """Nodal electrical conductivity sigma(T, B) [S/m] of the strand
@@ -140,9 +224,26 @@ class StrandComponent(SolidComponent):
                 self.inputs.critical_current_scaling_constant,
                 self.inputs.critical_temperature_at_0T,
             )
+        if material == "ybco":
+            return critical_current_density_re123(
+                temperature,
+                magnetic_field,
+                self.inputs.critical_temperature_at_0T,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_current_scaling_constant,
+            )
         raise NotImplementedError(
             f"hysteresis loss has no Jc dispatch for superconducting_material "
             f"'{material}'"
+        )
+
+    def _superconductor_cross_section(self) -> float:
+        """Superconductor share of the component cross-section [m^2] for
+        the hysteresis loss. Strand default: composite cross-section over
+        (1 + stabilizer-to-superconductor ratio); StackComponent overrides
+        with its layer-resolved superconductor cross-section."""
+        return self.inputs.cross_section / (
+            1.0 + self.inputs.stabilizer_to_sc_ratio
         )
 
     def get_hysteresis_loss(self, conductor):
@@ -176,13 +277,27 @@ class StrandComponent(SolidComponent):
         critical_current_density = self._critical_current_density(
             temperature, field
         )
-        superconductor_cross_section = self.inputs.cross_section / (
-            1.0 + self.inputs.stabilizer_to_sc_ratio
+        superconductor_cross_section = self._superconductor_cross_section()
+        # The fully-penetrated formula is only valid while the
+        # penetration scale mu0*Jc*d_f stays below the local field. Wide
+        # coupled REBCO stacks are in the opposite (shielding) regime --
+        # mu0*Jc*d_f reaches hundreds of tesla, and Jc(B->0) of the
+        # re123 fit diverges -- where the sample screens instead of
+        # fully penetrating, and the loss is bounded by the local field
+        # energy flux. Cap the magnetization scale at the local field:
+        # p <= (2/3pi) * B * |dB/dt| / mu0, integrating to ~21 % of the
+        # local field energy over a complete dump. NbTi filaments
+        # (mu0*Jc*d_f ~ 0.04 T << B) never reach the cap.
+        magnetization_field = np.minimum(
+            self.MU0
+            * critical_current_density
+            * self.operations.filament_diameter,
+            field,
         )
         self.node_fields.hysteresis_loss_linear_power[:, 0] = (
             (2.0 / (3.0 * np.pi))
-            * critical_current_density
-            * self.operations.filament_diameter
+            * magnetization_field
+            / self.MU0
             * np.abs(field_rate)
             * superconductor_cross_section
         )

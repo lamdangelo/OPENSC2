@@ -15,7 +15,11 @@ import pandas as pd
 
 import interfaces.yaml_input_registry as yaml_input_registry
 
-from components.solid.solid_component_inputs import SolidComponentInputs, StrandComponentOperations
+from components.solid.solid_component_inputs import (
+    SolidComponentInputs,
+    StrandComponentOperations,
+    loss_constant,
+)
 from utility_functions.auxiliary_functions import check_costheta
 from conductor.conductor_flags import InterpolationType
 from thermal.thermal_flags import HeatExcitation
@@ -148,4 +152,37 @@ class StrandStabilizerInputLoader:
             fix_potential_number=int(wb["FIX_POTENTIAL_NUMBER"]),
             fix_potential_coordinate=wb["FIX_POTENTIAL_COORDINATE"],
             fix_potential_value=wb["FIX_POTENTIAL_VALUE"],
+            # Optional AC-loss / proportional-field keys (same handling
+            # as StrandMixedComponent; silently defaulting them dropped
+            # the deck values for stabilizers - seen 2026-09-05).
+            magnetic_field_scales_with_current=bool(
+                wb.get("B_SCALES_WITH_CURRENT", False)
+            ),
+            coupling_loss_time_constant=loss_constant(
+                wb.get("COUPLING_LOSS_TIME_CONSTANT", 0.0)
+            ),
+            coupling_loss_relaxation_time=loss_constant(
+                wb.get("COUPLING_LOSS_RELAXATION_TIME", 0.0)
+            ),
+            coupling_loss_copper_scaling=bool(
+                wb.get("COUPLING_LOSS_COPPER_SCALING", False) or False
+            ),
+            coupling_loss_reference_temperature=float(
+                wb.get("COUPLING_LOSS_REFERENCE_TEMPERATURE", 0.0) or 0.0
+            ),
+            coupling_loss_reference_field=float(
+                wb.get("COUPLING_LOSS_REFERENCE_FIELD", 0.0) or 0.0
+            ),
+            tape_hysteresis_loss=bool(
+                wb.get("TAPE_HYSTERESIS_LOSS", False) or False
+            ),
+            eddy_loss_geometry_constant=float(
+                wb.get("EDDY_LOSS_GEOMETRY_CONSTANT", 0.0) or 0.0
+            ),
+            filament_diameter=float(
+                wb.get("FILAMENT_DIAMETER", 0.0) or 0.0
+            ),
+            transverse_coupling_file=str(
+                wb.get("TRANSVERSE_COUPLING_FILE", "") or ""
+            ),
         )
