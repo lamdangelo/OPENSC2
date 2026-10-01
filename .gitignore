@@ -290,3 +290,7 @@ analysis/sensitivity/cache/
 analysis/sensitivity/runs/
 !analysis/sensitivity/results_qp_model/**/*.png
 !analysis/sensitivity/results_qp_model/**/*.csv
+
+# Formulation verification suite outputs (regenerable: driver.py + make_plots.py)
+/results/
+/figures/

@@ -149,3 +149,30 @@ discrepancy, so it is recorded here instead of as an xfail):
   in the turbulent correlations would remove the need for the seed; it was
   not added here because the suite's ground rule forbids touching solver
   code paths.
+
+## Formulation suite (velocity vs mass-flow under network coupling)
+
+`tests/verification/formulation_suite/` compares the velocity (v, p, T) and
+the explicit mass-flow (mdot, p, T) formulations on a W7-X NbTi CICC channel
+(`W7-X/comparison_1D/conductor_CONDUCTOR_100.yaml`), three conductors of
+20/30/40 m in parallel between two 0.5 L volumes fed through linear valves
+from fixed-pressure reservoirs (5.0 / 4.5 bar at the volumes, 4.5 K).
+Independent references live in `tests/reference/` (steady compressible
+network ODE, linear transmission line with characteristic boundary closure,
+manufactured-solution residual), each with solver-free unit tests
+(`pytest tests/reference`).
+
+Tiers: 1 steady flow split, 2 low-Mach acoustic step, 3a symmetric heating
+(midpoint flow must vanish), 3b asymmetric heating with Richardson
+extrapolation, 4 manufactured solution (through the opt-in
+`Conductor.fluid_source_callback` hook). Mass-balance diagnostics (port
+residual with the mass flow exactly as passed to the network, interior
+inventory defect) are recorded every step.
+
+    .venv/bin/python tests/verification/formulation_suite/driver.py --tier all --quick   # coarsest level
+    scripts/run_formulation_matrix.sh                                                     # full matrix (hours)
+    .venv/bin/python tests/verification/formulation_suite/driver.py --no-run --metrics --summary
+    .venv/bin/python scripts/make_plots.py                                                 # figures/ from results/
+
+Only the single-pass mode exists (the solver has no Picard sub-iteration).
+See `results/summary.md` for the numbers and the documented deviations.

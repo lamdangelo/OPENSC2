@@ -152,6 +152,13 @@ class Conductor:
         # empty when the conductor is not coupled to a network.
         self.network_ports = []
 
+        # Opt-in verification hook (manufactured-solution tests): a callable
+        # (conductor, source_vector) -> source_vector adding nodal source
+        # values to the FLUID rows of the Gauss-point source vector, in the
+        # units of the respective fluid equation. Not set by any input file;
+        # None on every production path (see assemble_thermal_hydraulic_system).
+        self.fluid_source_callback = None
+
         # Resolved hydraulic formulation of the 1D channel unknowns
         # (never AUTO): overwritten at setup by the resolution step in
         # Simulation.conductor_initialization from the declared input value

@@ -605,6 +605,15 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
         )
         # END S VECTOR: solid components equation.
 
+    fluid_source_callback = getattr(conductor, "fluid_source_callback", None)
+    if fluid_source_callback is not None:
+        # Opt-in verification hook (manufactured solutions): nodal source
+        # values for the fluid rows, in the units of the respective fluid
+        # equation of the resolved formulation (velocity: m/s^2, Pa/s, K/s;
+        # mass flow: kg/s^2, Pa/s, K/s). At the first step source_vector is
+        # the (previous, present) pair, afterwards the present array.
+        source_vector = fluid_source_callback(conductor, source_vector)
+
     if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
         # Similarity transform of the assembled Gauss-point matrices to the
         # (mdot, p, T) fluid unknowns (see hydraulics/formulation.py). The
