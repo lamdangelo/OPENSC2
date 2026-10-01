@@ -418,6 +418,12 @@ def electrical_resistivity_cu_nist(t, b, rrr):
 
         xxx[jokb] = rhoecu0_nist(T0, rrr) / rhoecu0_nist(t[jokb], rrr) * b[jokb]
 
+        # Same guard as properties_of_materials/copper.py: the Fickett
+        # polynomial is a fit for xxx >~ 1 and overflows to inf when
+        # extrapolated to vanishing field; the correction there is
+        # negligible (~2e-3), so it is skipped below xxx = 1.
+        jokb = np.nonzero((rrr > 1.0) & (b > 0) & (t > 0) & (xxx > 1.0))
+
         for ij in range(5):  # changed range (1,5) -- > (5), modified by Placido Daniele
             aaa[jokb] = aaa[jokb] + a[ij] * (np.log10(xxx[jokb])) ** (ij)
             # end for loop
