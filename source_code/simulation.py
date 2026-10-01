@@ -418,6 +418,14 @@ class Simulation:
                     abs(self.n_digit_time),
                 )
         # end for ii (cdp, 10/2020)
+        # Any transverse insulation coupling declared on any solid forces
+        # all conductors into lockstep time stepping (see the time-step
+        # synchronization inside the loop).
+        self.transverse_coupling_declared = any(
+            getattr(solid.operations, "transverse_coupling_file", "")
+            for conductor in self.list_of_Conductors
+            for solid in conductor.inventory.solids.collection
+        )
         # while loop to solve transient at each timestep (cdp, 07/2020)
         while (
             self.simulation_time[-1]
@@ -442,12 +450,22 @@ class Simulation:
                 get_time_step(conductor, self.transient_input, self.num_step)
             # Conductors coupled to the hydraulic network share the network
             # unknowns and must advance with a common time step: force the
-            # smallest proposed one on all of them.
-            if coupled_conductors:
+            # smallest proposed one on all of them. Conductors exchanging
+            # heat through transverse coupling patches read each other's
+            # state every step, so they must advance in lockstep as well
+            # (otherwise a fast-stepping quenched conductor lags the
+            # others in its own clock while the simulation clock follows
+            # the largest step): with any transverse coupling declared,
+            # every conductor of the simulation shares the smallest step.
+            if self.transverse_coupling_declared:
+                lockstep_conductors = list(self.list_of_Conductors)
+            else:
+                lockstep_conductors = coupled_conductors
+            if lockstep_conductors:
                 shared_time_step = min(
-                    conductor.time_step for conductor in coupled_conductors
+                    conductor.time_step for conductor in lockstep_conductors
                 )
-                for conductor in coupled_conductors:
+                for conductor in lockstep_conductors:
                     conductor.time_step = shared_time_step
             for ii, conductor in enumerate(self.list_of_Conductors):
                 time_step[ii] = conductor.time_step
