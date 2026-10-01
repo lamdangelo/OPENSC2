@@ -153,20 +153,38 @@ class ConductorInputLoader:
     def load_grid_input(self, conductor_length: float) -> ConductorMesh:
         """Load the conductor grid input dictionary for a single conductor identifier."""
         if self.yaml_registry is not None:
-            return ConductorMesh(
-                conductor_length,
-                self.yaml_registry.grid_settings(self.conductor_counter),
-            )
-        grid_data =  pd.read_excel(
-            self.grid_path,
-            sheet_name="GRID",
-            skiprows=2,
-            header=0,
-            index_col=0,
-            usecols=["Variable name", self.conductor_identifier],
-            dtype="object",
-        )[self.conductor_identifier].to_dict()
-        return ConductorMesh(conductor_length, grid_data)
+            grid_data = self.yaml_registry.grid_settings(self.conductor_counter)
+        else:
+            grid_data = pd.read_excel(
+                self.grid_path,
+                sheet_name="GRID",
+                skiprows=2,
+                header=0,
+                index_col=0,
+                usecols=["Variable name", self.conductor_identifier],
+                dtype="object",
+            )[self.conductor_identifier].to_dict()
+        return ConductorMesh(
+            conductor_length,
+            grid_data,
+            self._resolve_mesh_file(grid_data.get("MESH_FILE")),
+            self.conductor_identifier,
+        )
+
+
+    def _resolve_mesh_file(self, value: Any) -> Optional[Path]:
+        """Resolve the optional MESH_FILE grid entry against the deck directory."""
+        if value is None:
+            return None
+        if isinstance(value, float) and np.isnan(value):
+            return None
+        text = str(value).strip()
+        if not text or text.lower() == "nan":
+            return None
+        path = Path(text)
+        if not path.is_absolute():
+            path = self.input_directory_path / path
+        return path
 
 
     def load_coupling_data(self) -> ConductorCoupling:

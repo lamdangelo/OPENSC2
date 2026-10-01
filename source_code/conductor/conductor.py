@@ -890,9 +890,10 @@ class Conductor:
         """
         if self.build_electric_topology_flag:
             self.__build_electric_topology()
-            if self.mesh.mesh_type not in {MeshType.ADAPTED, MeshType.FROM_FILE}:
-                # Discretization grid does not change at each time step, so
-                # all topology structures stay valid for the whole transient.
+            if self.mesh.mesh_type is not MeshType.ADAPTED:
+                # Discretization grid does not change at each time step
+                # (a mesh read from file is static too), so all topology
+                # structures stay valid for the whole transient.
                 self.build_electric_topology_flag = False
 
         # Build electric resistance matrix: changes with temperature (thermal

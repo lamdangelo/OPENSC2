@@ -6,6 +6,8 @@ data for the conductor simulation.
 import logging
 from decimal import Decimal
 from enum import Enum, auto
+from pathlib import Path
+from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
@@ -42,24 +44,63 @@ class MeshType(Enum):
 
 class ConductorMesh:
     
-    def __init__(self, conductor_length: float, grid_input: dict):
+    def __init__(
+        self,
+        conductor_length: float,
+        grid_input: dict,
+        mesh_file: Optional[Union[str, Path]] = None,
+        identifier: str = "conductor",
+    ):
+        """Build the axial mesh of a conductor.
+
+        Args:
+            conductor_length: straight length of the conductor (m).
+            grid_input: legacy GRID dictionary (NELEMS, ITYMSH, ...). For
+                ``ITYMSH = -1`` (FROM_FILE) the refinement keys may be
+                omitted; NELEMS, when given, is checked against the file.
+            mesh_file: path of a one-column text file with the node
+                z-coordinates (m), required for ``ITYMSH = -1``.
+            identifier: conductor identifier used in error messages.
+        """
         # --- raw input parameters ---
         self.conductor_length = conductor_length
-        self.number_of_elements = grid_input["NELEMS"]
+        self.identifier = identifier
         self.mesh_type = MeshType.get_mesh_type(grid_input["ITYMSH"])
-        self.number_of_refined_elements = grid_input["NELREF"]
-        self.start_refined_zone = grid_input["XBREFI"]
-        self.end_refined_zone = grid_input["XEREFI"]
-        self.minimum_element_size = grid_input["SIZMIN"]
-        self.maximum_element_size = grid_input["SIZMAX"]
-        self.increase_ratio_left = grid_input["DXINCRE_LEFT"]
-        self.increase_ratio_right = grid_input["DXINCRE_RIGHT"]
-        self.maximum_number_of_nodes = grid_input["MAXNOD"]
+        self.mesh_file = Path(mesh_file) if mesh_file else None
+        if self.mesh_type is MeshType.FROM_FILE:
+            get = lambda key: grid_input.get(key, np.nan)  # noqa: E731
+        else:
+            get = lambda key: grid_input[key]  # noqa: E731
+        self.number_of_elements = get("NELEMS")
+        self.number_of_refined_elements = get("NELREF")
+        self.start_refined_zone = get("XBREFI")
+        self.end_refined_zone = get("XEREFI")
+        self.minimum_element_size = get("SIZMIN")
+        self.maximum_element_size = get("SIZMAX")
+        self.increase_ratio_left = get("DXINCRE_LEFT")
+        self.increase_ratio_right = get("DXINCRE_RIGHT")
+        self.maximum_number_of_nodes = get("MAXNOD")
 
         # --- computed features (populated after spatial discretization) ---
-        self.number_of_nodes = self.number_of_elements + 1
+        if self.mesh_type is not MeshType.FROM_FILE:
+            self.number_of_nodes = self.number_of_elements + 1
         self.node_coordinates = self._initialize_node_coordinates()  # z-coordinate of each node
         self.compute_derived_features()
+
+
+    @classmethod
+    def from_file(
+        cls,
+        conductor_length: float,
+        mesh_file: Union[str, Path],
+        identifier: str = "conductor",
+        maximum_number_of_nodes: Optional[int] = None,
+    ) -> "ConductorMesh":
+        """Build a FROM_FILE mesh directly from a node-coordinate file."""
+        grid_input = {"ITYMSH": -1}
+        if maximum_number_of_nodes is not None:
+            grid_input["MAXNOD"] = maximum_number_of_nodes
+        return cls(conductor_length, grid_input, mesh_file, identifier)
 
 
     def compute_derived_features(self) -> None:
@@ -81,8 +122,140 @@ class ConductorMesh:
         if self.mesh_type is not MeshType.FROM_FILE:
             return self.build_node_coordinates()
         else:
-            return self.set_user_defined_grid() # TODO
-        
+            return self._load_node_coordinates_from_file()
+
+
+    # -------------------------------------------------------------------------
+    # External mesh file (ITYMSH = -1)
+    # -------------------------------------------------------------------------
+
+    def _load_node_coordinates_from_file(self) -> np.ndarray:
+        """Read, validate and adopt the node coordinates of an external mesh file.
+
+        File format: plain text, one node z-coordinate (m) per line, in
+        increasing order from 0 to the conductor length. Blank lines and lines
+        starting with ``#`` are ignored; a single non-numeric first line is
+        accepted as a header. Sets ``number_of_nodes`` and
+        ``number_of_elements`` from the file (a differing NELEMS from the grid
+        input is overridden with a warning).
+        """
+        if self.mesh_file is None:
+            message = (
+                f"{self.identifier}: mesh_type -1 (FROM_FILE) requires the "
+                f"grid key mesh_file with the path of the node-coordinate file."
+            )
+            logger_discretization.error(message)
+            raise ValueError(message)
+        if not self.mesh_file.is_file():
+            message = (
+                f"{self.identifier}: mesh file not found: "
+                f"{self.mesh_file.resolve()}"
+            )
+            logger_discretization.error(message)
+            raise FileNotFoundError(message)
+
+        coordinates = self._parse_mesh_file(self.mesh_file)
+        coordinates = self.validate_node_coordinates(coordinates, self.identifier)
+
+        number_of_nodes = coordinates.size
+        given_elements = self.number_of_elements
+        try:
+            given_is_finite = given_elements is not None and np.isfinite(
+                float(given_elements)
+            )
+        except (TypeError, ValueError):
+            given_is_finite = False
+        if given_is_finite and int(given_elements) != number_of_nodes - 1:
+            logger_discretization.warning(
+                f"{self.identifier}: NELEMS = {int(given_elements)} in the grid "
+                f"input differs from the {number_of_nodes - 1} elements of "
+                f"{self.mesh_file.name}; the file wins."
+            )
+        self.number_of_nodes = number_of_nodes
+        self.number_of_elements = number_of_nodes - 1
+        return coordinates
+
+
+    @staticmethod
+    def _parse_mesh_file(path: Path) -> np.ndarray:
+        """Parse a one-column node-coordinate file into a float array."""
+        values = []
+        first_data_line = True
+        with open(path, "r", encoding="utf-8") as handle:
+            for line_number, raw in enumerate(handle, start=1):
+                text = raw.strip()
+                if not text or text.startswith("#"):
+                    continue
+                try:
+                    value = float(text)
+                except ValueError:
+                    if first_data_line:
+                        # A single header line (e.g. "z (m)") is tolerated.
+                        first_data_line = False
+                        continue
+                    message = (
+                        f"Mesh file {path}: line {line_number} is not a single "
+                        f"number: {text!r}"
+                    )
+                    logger_discretization.error(message)
+                    raise ValueError(message) from None
+                first_data_line = False
+                values.append(value)
+        return np.asarray(values, dtype=float)
+
+
+    def validate_node_coordinates(
+        self, coordinates: np.ndarray, identifier: str
+    ) -> np.ndarray:
+        """Validate externally supplied node coordinates and return a clean copy.
+
+        Checks: one-dimensional, at least two nodes, finite, strictly
+        increasing, first node at 0 and last node at the conductor length
+        (within the tolerance of check_boundary_coordinates), node count not
+        above MAXNOD when that is given. The end nodes are snapped exactly to
+        0 and to the conductor length and the values are rounded to 9
+        decimals so that min_element_length has a short decimal
+        representation.
+        """
+        coordinates = np.asarray(coordinates, dtype=float)
+        if coordinates.ndim != 1 or coordinates.size < 2:
+            message = (
+                f"{identifier}: the mesh file must hold at least two node "
+                f"coordinates in a single column; got shape {coordinates.shape}."
+            )
+            logger_discretization.error(message)
+            raise ValueError(message)
+        if not np.all(np.isfinite(coordinates)):
+            bad = int(np.flatnonzero(~np.isfinite(coordinates))[0])
+            message = (
+                f"{identifier}: non-finite node coordinate at index {bad}."
+            )
+            logger_discretization.error(message)
+            raise ValueError(message)
+        steps = np.diff(coordinates)
+        if np.any(steps <= 0.0):
+            bad = int(np.flatnonzero(steps <= 0.0)[0])
+            message = (
+                f"{identifier}: node coordinates must be strictly increasing; "
+                f"violation between nodes {bad} and {bad + 1} "
+                f"({coordinates[bad]} -> {coordinates[bad + 1]})."
+            )
+            logger_discretization.error(message)
+            raise ValueError(message)
+        self.check_boundary_coordinates(coordinates[0], coordinates[-1], identifier)
+
+        try:
+            maximum_nodes_given = np.isfinite(float(self.maximum_number_of_nodes))
+        except (TypeError, ValueError):
+            maximum_nodes_given = False
+        if maximum_nodes_given:
+            self.check_number_of_nodes(coordinates.size)
+
+        coordinates = np.round(coordinates, 9)
+        coordinates[0] = 0.0
+        coordinates[-1] = float(self.conductor_length)
+        return coordinates
+
 
     # -------------------------------------------------------------------------
     # Derived feature computation
@@ -693,13 +866,24 @@ def evaluate_component_coordinates(conductor: object, simulation: object) -> Non
         user_defined_grid,
     )
 
-    if conductor.mesh.mesh_type != MeshType.FROM_FILE:
+    mesh = conductor.mesh
+    if mesh.mesh_type != MeshType.FROM_FILE or mesh.mesh_file is not None:
+        # Analytic meshes, and FROM_FILE meshes read from a node-coordinate
+        # file (grid key mesh_file): the components take the mesh
+        # coordinates and their own barycenter.
         for comp in conductor.inventory.all_components.collection:
-            build_coordinates_of_barycenter(simulation, conductor, comp) # TODO
-    else:
-        # Call function user_defined_grid: makes checks on the user defined
-        # grid and then assigns the coordinates to the conductor components.
+            build_coordinates_of_barycenter(simulation, conductor, comp)
+    elif getattr(conductor.file_paths, "external_grid", None) is not None:
+        # Legacy per-component workbook (*external_grid*.xlsx): makes checks
+        # on the user defined grid and then assigns the coordinates to the
+        # conductor components.
         user_defined_grid(conductor)
+    else:
+        raise ValueError(
+            f"{conductor.identifier}: mesh_type -1 needs the grid key "
+            f"mesh_file (node-coordinate file) or a legacy external_grid "
+            f"workbook."
+        )
 
 
 def build_multi_index(conductor: object) -> pd.MultiIndex:

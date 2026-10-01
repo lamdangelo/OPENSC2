@@ -156,6 +156,7 @@ GRID_KEYS = {
     "growth_ratio_left": "DXINCRE_LEFT",
     "growth_ratio_right": "DXINCRE_RIGHT",
     "maximum_number_of_nodes": "MAXNOD",
+    "mesh_file": "MESH_FILE",
 }
 
 COUPLING_PROPERTY_KEYS = {

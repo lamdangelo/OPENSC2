@@ -225,6 +225,7 @@ Common to all kinds: \code{cross\_section} (CROSSECTION, m$^2$),
 \code{minimum/maximum\_element\_size} & SIZMIN, SIZMAX & float, m \\
 \code{growth\_ratio\_left/right} & DXINCRE\_LEFT/RIGHT & float $>1$ \\
 \code{maximum\_number\_of\_nodes} & MAXNOD & int \\
+\code{mesh\_file} & MESH\_FILE & path (relative to the deck directory) of a one-column text file with the node $z$ coordinates in m, strictly increasing from 0 to the conductor length; required by and only used with \code{mesh\_type: -1}. NELEMS is then derived from the file (a differing value is overridden with a warning) and MAXNOD, if given, is checked against it \\
 \bottomrule
 \end{longtable}
 
