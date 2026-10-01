@@ -21,6 +21,7 @@ from properties_of_materials.copper import electrical_resistivity_cu_nist
 from properties_of_materials.aluminium_6063 import (
     electrical_resistivity_al6063,
 )
+from properties_of_materials.stainless_steel import electrical_resistivity_ss
 
 # Material-name aliases (compared case-insensitively) -> canonical key.
 _ALIASES = {
@@ -29,6 +30,8 @@ _ALIASES = {
     "al6063": "al6063",
     "aluminium_6063": "al6063",
     "aluminum_6063": "al6063",
+    "ss": "ss",
+    "stainless_steel": "ss",
 }
 
 
@@ -65,6 +68,8 @@ def electrical_resistivity_of(
         )
     if key == "al6063":
         return np.asarray(electrical_resistivity_al6063(temperature))
+    if key == "ss":
+        return np.asarray(electrical_resistivity_ss(temperature))
     raise KeyError(
         f"no electrical resistivity correlation registered for material "
         f"'{material}'"
