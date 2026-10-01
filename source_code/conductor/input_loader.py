@@ -309,7 +309,22 @@ class ConductorInputLoader:
             electric_current_consistency=bool(
                 raw_inputs.get("ELECTRIC_CURRENT_CONSISTENCY", False)
             ),
+            electric_resistance_floor=self._optional_float(
+                raw_inputs.get("ELECTRIC_RESISTANCE_FLOOR", 0.0)
+            ),
         )
+
+
+    @staticmethod
+    def _optional_float(value: Any, default: float = 0.0) -> float:
+        """Float of an optional entry; None/NaN/empty read as the default."""
+        if value is None:
+            return default
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        return default if np.isnan(number) else number
     
 
     def _convert_equipotential_surface_coordinate_to_array(self, equipotential_coordinates: Any) -> np.ndarray:

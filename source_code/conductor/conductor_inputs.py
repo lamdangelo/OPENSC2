@@ -114,6 +114,15 @@ class ConductorOperations:
     # the strand resistances are consistent with the solved currents
     # (multi-strand current sharing); MAXIMUM_ITERATION_NUMBER is the cap.
     electric_current_consistency: bool = False
+    # ELECTRIC_RESISTANCE_FLOOR : relative floor of the superconducting
+    # element resistance used by the current-consistency Newton solve,
+    # R >= floor * E0 * L_e / Ic. Below Ic the power law gives R -> 0, so
+    # the split of the transport current among parallel superconducting
+    # strands is undetermined (any loop current has zero residual) and the
+    # steady solve drifts from step to step until a loop current exceeds
+    # Ic. The floor pins the split to the resistive share while leaving
+    # the resistive regimes untouched (0 = off, legacy behaviour).
+    electric_resistance_floor: float = 0.0
 
 
 @dataclass

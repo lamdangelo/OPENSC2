@@ -895,6 +895,13 @@ class StrandMixedComponent(StrandComponent):
                     if all(np.isclose(v_stab,v_sc)) == False:
                         raise ValueError(f"Voltage difference along superconductor and stabilizer must be the same.")
 
+        # Superconducting resistance floor of the current-consistency solve
+        # (no-op unless the conductor operation enables it); also resets
+        # the stored floor when no element is superconducting.
+        self.apply_superconducting_resistance_floor(
+            conductor, regime_sc_global, critical_current_gauss[regime_sc_global]
+        )
+
         # Persist regime data for the differential resistance (Newton
         # consistency solver). "normal" is built as the complement of
         # sc ∪ sharing so the three sets always partition the mesh. The

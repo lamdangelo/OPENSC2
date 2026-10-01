@@ -752,6 +752,9 @@ class StackComponent(StrandComponent):
             conductor, "electrical_resistivity_superconductor", "sc",
             ind_sc_gauss
         )
+        self.apply_superconducting_resistance_floor(
+            conductor, ind_sc_gauss, critical_current_gauss[ind_sc_gauss]
+        )
 
         ## SHARING OR NORMAL REGIME ##
         # ind_sh_node / ind_sh_gauss hold the GLOBAL indices of the

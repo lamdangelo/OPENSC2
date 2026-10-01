@@ -680,6 +680,43 @@ class StrandComponent(SolidComponent):
             / (electric_resistances.sum(axis=1))
         )
 
+    def apply_superconducting_resistance_floor(
+        self,
+        conductor: object,
+        indices: np.ndarray,
+        critical_current: np.ndarray,
+    ) -> None:
+        """Floor the Gauss-element resistance of the superconducting regime
+        at ``floor * E0 * L_e / Ic`` (conductor operation
+        ``electric_resistance_floor``; no-op when 0).
+
+        Called by ``get_electric_resistance`` right after the power-law
+        resistance of the superconducting elements is stored. Records the
+        floor per element in ``_resistance_floor_gauss`` for the
+        differential resistance. Only the current-consistency Newton solve
+        uses the floor: below Ic the power law makes the parallel
+        superconducting paths degenerate (zero residual for any loop
+        current), and the floor restores a unique, resistively shared
+        split.
+        """
+        ratio = float(getattr(conductor.operations, "electric_resistance_floor", 0.0) or 0.0)
+        if ratio <= 0.0 or not conductor.operations.electric_current_consistency:
+            self._resistance_floor_gauss = None
+            return
+        floor = np.zeros(conductor.mesh.number_of_elements)
+        if indices.size:
+            length = conductor.node_distance[
+                ("StrandComponent", self.identifier)
+            ].to_numpy()[indices]
+            floor[indices] = (
+                ratio * self.inputs.flux_flow_electric_field * length
+                / np.maximum(critical_current, 1.0e-300)
+            )
+            self.gauss_fields.electric_resistance[indices] = np.maximum(
+                self.gauss_fields.electric_resistance[indices], floor[indices]
+            )
+        self._resistance_floor_gauss = floor
+
     def get_electric_resistance_derivative(self, conductor: object) -> np.ndarray:
         """Differential resistance d(V_e)/d(I_e) per Gauss element at the
         operating point of the LAST get_electric_resistance call (consumes
@@ -704,6 +741,11 @@ class StrandComponent(SolidComponent):
 
         sc = regimes["sc"]
         derivative[sc] = exponent * resistance[sc]
+        floor = getattr(self, "_resistance_floor_gauss", None)
+        if floor is not None and sc.size:
+            # Floored elements carry V = R_floor * I: d = R_floor there.
+            floored = resistance[sc] <= floor[sc]
+            derivative[sc[floored]] = floor[sc[floored]]
 
         sharing = regimes["sharing"]
         if sharing.size:

@@ -95,6 +95,8 @@ symbolic member names planned as the next step. The multiplexed legacy
 \code{equipotential\_surface\_coordinates} & EQUIPOTENTIAL\_SURFACE\_COORDINATE & comma-separated floats, m \\
 \code{inductance\_mode}, \code{self\_inductance\_mode} & INDUCTANCE\_MODE, SELF\_INDUCTANCE\_MODE & int flags \\
 \code{maximum\_iteration\_number} & MAXIMUM\_ITERATION\_NUMBER & int \\
+\code{electric\_current\_consistency} & ELECTRIC\_CURRENT\_CONSISTENCY & bool (default false): Newton iteration of the steady electric solve until strand resistances are consistent with the solved currents \\
+\code{electric\_resistance\_floor} & ELECTRIC\_RESISTANCE\_FLOOR & float (default 0 = off): with the current-consistency solve, floor of the superconducting element resistance $R \ge \mathrm{floor}\cdot E_0 L_e / I_c$, which makes the current split among parallel superconducting strands unique (below $I_c$ the power law leaves any loop current at zero residual, and the split drifts from step to step); $10^{-3}$ leaves the resistive regimes unchanged \\
 \bottomrule
 \end{longtable}
 
