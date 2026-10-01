@@ -391,14 +391,19 @@ _SPATIAL_SAVE_STEP_PATTERN = re.compile(r"_\((\d+)\)_(?:gauss_)?sd\.tsv$")
 
 
 def _reject_finalized_run(simulation, conductor) -> None:
-    """Refuse to restart a run whose post-processing already completed.
+    """Decide whether a run whose post-processing already completed can
+    still be continued.
 
     ``reorganize_spatial_distribution`` consumes (deletes) the raw per-step
-    spatial-distribution files, so a finalized run cannot reproduce them and
-    a restarted continuation would produce incomplete reorganized outputs.
-    Restart targets interrupted runs (crash, kill, out-of-walltime), where
-    post-processing never ran and the raw files are still on disk.
+    spatial-distribution files. When the consolidated files it produced are
+    still on disk, a continuation is possible: the consolidated columns up
+    to the checkpoint time are kept (see ``_truncate_conductor_outputs``)
+    and the post-processing of the continued run appends its own saves to
+    them (``conductor.restart_after_finalization`` tells the writer to
+    merge). When neither the raw files nor the consolidated ones exist the
+    saved history is lost and the restart is refused.
     """
+    conductor.restart_after_finalization = False
     if conductor.inventory.fluids.collection:
         reference_component = conductor.inventory.fluids.collection[0]
     else:
@@ -413,14 +418,26 @@ def _reject_finalized_run(simulation, conductor) -> None:
         raw_file = spatial_dir / (
             f"{reference_component.identifier}_({step_number})_sd.tsv"
         )
-        if not raw_file.is_file():
-            raise RuntimeError(
-                f"Cannot restart conductor {conductor.identifier!r}: the raw "
-                f"spatial save {raw_file.name} is missing - this run was "
-                "already finalized (its spatial saves were reorganized by "
-                "the post-processing). Restart is meant for interrupted "
-                "runs; rerun from scratch instead."
+        if raw_file.is_file():
+            continue
+        consolidated = spatial_dir / (
+            f"{reference_component.identifier}_temperature_sd.tsv"
+        )
+        if consolidated.is_file():
+            conductor.restart_after_finalization = True
+            print(
+                f"Restart: conductor {conductor.identifier!r} was already "
+                "finalized; its consolidated spatial files up to the "
+                "checkpoint time are kept and the continuation appends to "
+                "them.\n"
             )
+            return
+        raise RuntimeError(
+            f"Cannot restart conductor {conductor.identifier!r}: the raw "
+            f"spatial save {raw_file.name} is missing and no consolidated "
+            "spatial file exists either - the saved history of this run is "
+            "lost. Rerun from scratch instead."
+        )
 
 
 def _truncate_conductor_outputs(simulation, conductor, checkpoint_time) -> None:
@@ -446,9 +463,42 @@ def _truncate_conductor_outputs(simulation, conductor, checkpoint_time) -> None:
         match = _SPATIAL_SAVE_STEP_PATTERN.search(path.name)
         if match and int(match.group(1)) > conductor.cond_num_step:
             path.unlink()
+        elif not match and getattr(conductor, "restart_after_finalization", False):
+            # Consolidated file of a finalized run: keep the columns up to
+            # the checkpoint time (Time_sd_actual.tsv is a time-column
+            # file and is handled below).
+            _truncate_time_labelled_columns(path, checkpoint_time)
     _truncate_time_column_file(
         spatial_dir / "Time_sd_actual.tsv", checkpoint_time
     )
+
+
+_TIME_LABEL_PATTERN = re.compile(r"^time = ([0-9.eE+-]+) \(s\)$")
+
+
+def _truncate_time_labelled_columns(path, checkpoint_time) -> None:
+    """Drop the columns labelled ``time = X (s)`` with X > checkpoint_time
+    from a consolidated spatial file; files with other headers are left
+    untouched."""
+    path = Path(path)
+    if not path.is_file():
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        header = handle.readline().rstrip("\n").split("\t")
+    labels = [_TIME_LABEL_PATTERN.match(column.strip()) for column in header]
+    if not header or not all(labels):
+        return
+    keep = [
+        column
+        for column, match in zip(header, labels)
+        if float(match.group(1)) <= checkpoint_time * (1.0 + 1e-12)
+    ]
+    if len(keep) == len(header):
+        return
+    import pandas as pd
+
+    frame = pd.read_csv(path, sep="\t", float_precision="round_trip")
+    frame[keep].to_csv(path, sep="\t", index=False)
 
 
 def _truncate_time_column_file(path, checkpoint_time) -> None:

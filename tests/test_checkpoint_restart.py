@@ -206,6 +206,54 @@ def test_restart_resumes_bit_identically(tmp_path, network_section):
     )
 
 
+def stop_cleanly_after(stop_step: int):
+    """Step callback that requests a clean stop (like a burnout guard): the
+    run finalizes, i.e. its post-processing consolidates the spatial saves
+    and deletes the raw per-step files."""
+
+    def callback(simulation):
+        return simulation.num_step >= stop_step
+
+    return callback
+
+
+def test_restart_after_finalization_appends_to_consolidated_files(tmp_path):
+    """A run stopped cleanly by its driver is finalized; a restart from its
+    newest checkpoint must still be possible and reproduce the straight run
+    bit for bit, with the consolidated spatial files carrying the saves of
+    both legs."""
+    straight_directory = prepare_run_directory(tmp_path, "straight")
+    set_simulation_keys(straight_directory, autosave_interval=AUTOSAVE_INTERVAL)
+    run_simulation(straight_directory)
+    reference_hashes = output_tree_hashes(straight_directory)
+
+    resumed_directory = prepare_run_directory(tmp_path, "finalized")
+    set_simulation_keys(resumed_directory, autosave_interval=AUTOSAVE_INTERVAL)
+    stopped = Simulation(
+        str(resumed_directory), step_callback=stop_cleanly_after(CRASH_STEP)
+    )
+    stopped.run()
+    spatial_files = list(resumed_directory.glob("*/*/Output/Spatial_distribution/*/*.tsv"))
+    assert spatial_files, "leg 1 wrote no spatial files"
+    assert not any("_(" in path.name for path in spatial_files), (
+        "leg 1 was not finalized: raw per-step spatial files remain"
+    )
+
+    set_simulation_keys(resumed_directory, restart=True)
+    run_simulation(resumed_directory)
+
+    resumed_hashes = output_tree_hashes(resumed_directory)
+    differing = sorted(
+        name
+        for name in set(reference_hashes) | set(resumed_hashes)
+        if reference_hashes.get(name) != resumed_hashes.get(name)
+    )
+    assert not differing, (
+        "run restarted after finalization is not bit-identical to the "
+        f"straight run; differing files: {differing}"
+    )
+
+
 def test_restart_with_evolving_flow_is_bit_identical(constant_fluid, tmp_path):
     """The plain restart scenario above runs at a steady flow, where the
     initialization mass flow equals the checkpointed one. Here the inlet

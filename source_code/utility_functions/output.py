@@ -384,6 +384,24 @@ def _performed_saves(cond, f_path, n_digit_time):
     return times, count, steps
 
 
+def _write_consolidated(cond, path_save, frame):
+    """Write a consolidated spatial file (one column per saved time).
+
+    After a restart of an already finalized run (checkpoint restore sets
+    ``cond.restart_after_finalization``) the file already holds the columns
+    of the saves before the checkpoint; the new columns are appended to
+    them instead of replacing the file.
+    """
+    if getattr(cond, "restart_after_finalization", False) and os.path.isfile(
+        path_save
+    ):
+        # round_trip parsing keeps the kept columns byte-identical on rewrite
+        previous = pd.read_csv(path_save, sep="\t", float_precision="round_trip")
+        kept = [column for column in previous.columns if column not in frame.columns]
+        frame = pd.concat([previous[kept], frame], axis=1)
+    frame.to_csv(path_save, sep="\t", index=False)
+
+
 def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     """
     Function that reorganizes the files of the spatial distribution collecting in a single file for each property the spatial distribution at user defined times. In this way the file format is like the ones of the time evolution and this should simplify plots and furter data analysis. (cdp, 11/2020)
@@ -450,7 +468,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     file_name = f"zcoord.tsv"
     path_save = os.path.join(f_path, file_name)
     # save the DataFrame as file zcoord.tsv
-    df_zcoord.to_csv(path_save, sep="\t", index=False)
+    _write_consolidated(cond, path_save, df_zcoord)
 
     # loop on FluidComponent (cdp, 11/2020)
     for fluid_comp in cond.inventory.fluids.collection:
@@ -515,7 +533,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # build path to save the file (cdp, 11/2020)
             path_save = os.path.join(f_path, file_name)
             # save the data frame, without the row index name (cdp, 11/2020)
-            dict_df_new[prop].to_csv(path_save, sep="\t", index=False)
+            _write_consolidated(cond, path_save, dict_df_new[prop])
         # end for prop (cdp, 11/2020)
     # end for fluid_comp (cdp, 11/2020)
     # loop on SolidComponent (cdp, 11/2020)
@@ -619,14 +637,14 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # build path to save the file (cdp, 11/2020)
             path_save = os.path.join(f_path, file_name)
             # save the data frame, without the row index name (cdp, 11/2020)
-            dict_df_new[prop].to_csv(path_save, sep="\t", index=False)
+            _write_consolidated(cond, path_save, dict_df_new[prop])
         for prop in list_sol_key_gauss:
             # build file name (cdp, 11/2020)
             file_name = f"{s_comp.identifier}_{prop}_sd.tsv"
             # build path to save the file (cdp, 11/2020)
             path_save = os.path.join(f_path, file_name)
             # save the data frame, without the row index name (cdp, 11/2020)
-            dict_df_new[prop].to_csv(path_save, sep="\t", index=False)
+            _write_consolidated(cond, path_save, dict_df_new[prop])
     # end for s_comp (cdp, 11/2020)
 
     # Manage files with heat exhanged between inner jackets by radiation.
@@ -674,8 +692,9 @@ def reorganize_heat_sd(cond, f_path, radix_old, radix_new, n_digit_time):
             old[file_name] = pd.read_csv(file_load, delimiter="\t")
             # Delete the old file format.
             os.remove(file_load)
-            if ii == 0:
-                # get columns names only the first time.
+            if not cols:
+                # get columns names from the first available per-step file
+                # (index 0 may be missing after a restart of a finalized run).
                 cols = old[file_name].columns.values.tolist()
                 for col in cols:
                     # decompose the old dataframe in a sub set of dataframes.
@@ -703,7 +722,7 @@ def reorganize_heat_sd(cond, f_path, radix_old, radix_new, n_digit_time):
         # build path to save the file (cdp, 11/2020)
         path_save = os.path.join(f_path, file_name)
         # save the data frame, without the row index name (cdp, 11/2020)
-        new[col].to_csv(path_save, sep="\t", index=False)
+        _write_consolidated(cond, path_save, new[col])
 
 
 # end function reorganize_heat_sd.
