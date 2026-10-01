@@ -20,7 +20,10 @@ from utility_functions.auxiliary_functions import (
     with_read_excel,
 )
 from hydraulics.formulation import resolve_hydraulic_formulation
-from hydraulics.hydraulic_flags import HydraulicFormulation
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
 from utility_functions.transient_solution_functions import get_time_step, step
 import utility_functions.simulation_paths as simulation_paths
 from utility_functions.output import (
@@ -233,7 +236,9 @@ class Simulation:
         for cond in self.list_of_Conductors:
             coupling_enabled = cond.identifier in ported_conductor_identifiers
             cond.hydraulic_formulation = resolve_hydraulic_formulation(
-                cond.inputs.hydraulic_formulation, coupling_enabled
+                cond.inputs.hydraulic_formulation,
+                coupling_enabled,
+                cond.inputs.explicit_mass_flow_formulation,
             )
             for fluid_comp in cond.inventory.fluids.collection:
                 fluid_comp.coolant.hydraulic_formulation = (
@@ -527,10 +532,7 @@ class Simulation:
                 for fluid_comp in conductor.inventory.fluids.collection:
                     # compute density and mass flow rate in nodal points with the
                     # updated FluidComponent temperature and velocity (nodal = True by default)
-                    if (
-                        conductor.hydraulic_formulation
-                        is HydraulicFormulation.MASS_FLOW
-                    ):
+                    if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
                         # Mass-flow formulation: the mass flow rate is the
                         # native unknown; density from the new (p, T) and
                         # the definitive velocity v = mdot / (rho A).

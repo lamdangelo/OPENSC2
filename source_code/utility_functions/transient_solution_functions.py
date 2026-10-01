@@ -43,7 +43,19 @@ from thermal.energy_equation import (
     build_known_therm_vector,
 )
 from hydraulics.formulation import transform_gauss_matrices_to_mass_flow
-from hydraulics.hydraulic_flags import HydraulicFormulation
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
+from hydraulics.mass_flow_equations import (
+    DEBUG_CHECKS_ENABLED,
+    build_amat_mass_flow,
+    build_kmat_fluid_mass_flow,
+    build_smat_fluid_energy_mass_flow,
+    build_smat_fluid_interface_momentum_mass_flow,
+    build_smat_fluid_momentum_mass_flow,
+    check_source_consistency,
+)
 from hydraulics.momentum_equation import (
     build_smat_fluid_momentum,
     build_smat_fluid_interface_momentum,
@@ -437,7 +449,44 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     ] = np.eye(conductor.equation_counts.fluid_equations)
     # END M MATRIX: fluid components equations
 
+    # Explicit (mdot, p, T) assembly (hydraulics/mass_flow_equations.py):
+    # the flux-Jacobian, upwind and fluid-row source builders are replaced
+    # by their written-out mass-flow counterparts; every other builder
+    # (temperature-row exchange, fluid-solid, solids) is formulation-
+    # invariant and shared. The velocity path below is untouched.
+    explicit_mass_flow = (
+        conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW_EXPLICIT
+    )
+
     for fluid_comp_j in conductor.inventory.fluids.collection:
+
+        if explicit_mass_flow:
+            gauss_point_matrices.flux_jacobian = build_amat_mass_flow(
+                gauss_point_matrices.flux_jacobian,
+                fluid_comp_j,
+                conductor.equation_index[fluid_comp_j.identifier],
+            )
+            gauss_point_matrices.diffusion = build_kmat_fluid_mass_flow(
+                gauss_point_matrices.diffusion,
+                upwind_weights,
+                fluid_comp_j,
+                conductor,
+            )
+            gauss_point_matrices.source_jacobian = (
+                build_smat_fluid_momentum_mass_flow(
+                    gauss_point_matrices.source_jacobian,
+                    fluid_comp_j,
+                    conductor.equation_index[fluid_comp_j.identifier],
+                )
+            )
+            gauss_point_matrices.source_jacobian = (
+                build_smat_fluid_energy_mass_flow(
+                    gauss_point_matrices.source_jacobian,
+                    fluid_comp_j,
+                    conductor.equation_index[fluid_comp_j.identifier],
+                )
+            )
+            continue
 
         # FORM THE A MATRIX AT EVERY GAUSS POINT (FLUX JACOBIAN)
         gauss_point_matrices.flux_jacobian = build_amat(
@@ -473,10 +522,18 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     # FORM THE S MATRIX AT EVERY GAUSS POINT (SOURCE JACOBIAN)
     # Therms associated to fluid-fluid interfaces.
     # Velocity and pressure rows (momentum equation).
-    gauss_point_matrices.source_jacobian = build_smat_fluid_interface_momentum(
-        gauss_point_matrices.source_jacobian,
-        conductor,
-    )
+    if explicit_mass_flow:
+        gauss_point_matrices.source_jacobian = (
+            build_smat_fluid_interface_momentum_mass_flow(
+                gauss_point_matrices.source_jacobian,
+                conductor,
+            )
+        )
+    else:
+        gauss_point_matrices.source_jacobian = build_smat_fluid_interface_momentum(
+            gauss_point_matrices.source_jacobian,
+            conductor,
+        )
     # Temperature row (energy equation).
     gauss_point_matrices.source_jacobian = build_smat_fluid_interface_energy(
         gauss_point_matrices.source_jacobian,
@@ -555,6 +612,11 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
         # the fluid rows of the source vector are identically zero, so both
         # stay untouched.
         transform_gauss_matrices_to_mass_flow(gauss_point_matrices, conductor)
+    elif explicit_mass_flow and DEBUG_CHECKS_ENABLED:
+        # Debug-mode assertion of the heat-source consistency
+        # q_p = phi rho c_v q_T on the assembled source block
+        # (OPENSC2_DEBUG_CHECKS=1).
+        check_source_consistency(gauss_point_matrices.source_jacobian, conductor)
 
     # COMPUTE THE MASS AND CAPACITY MATRIX
     # array smart
@@ -933,7 +995,7 @@ def evaluate_local_truncation_error_ratio(
         formulation the slot holds mdot, whose floor is the dimensional
         image rho*A*(1 m/s) of the velocity floor - preserving the
         controller's aggressiveness across formulations and channel sizes."""
-        if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+        if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
             return (
                 FIELD_MAGNITUDE_FLOORS["velocity"]
                 * f_comp.channel.inputs.cross_section
@@ -1158,7 +1220,7 @@ def reorganize_th_solution(
     eq_idx = conductor.equation_index
     # Reorganize thermal hydraulic solution.
     for f_comp in conductor.inventory.fluids.collection:
-        if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+        if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
             # Mass-flow formulation: the first fluid slot holds the native
             # mass flow rate. The velocity written here is provisional
             # (lagged density, exactly the frozen-coefficient state of the

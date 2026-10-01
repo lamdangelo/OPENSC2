@@ -21,7 +21,10 @@ from typing_extensions import Self
 # import classes
 from components.component_collection import ComponentInventory
 from electromagnetics.electromagnetic_flags import CurrentMode
-from hydraulics.hydraulic_flags import HydraulicFormulation
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
 from conductor.conductor_mesh import MeshType
 from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from conductor.solver_structures import (
@@ -787,7 +790,7 @@ class Conductor:
 
         # Assign initial values to the time integration solution (cdp, 10/2020)
         for jj, fluid_comp in enumerate(self.inventory.fluids.collection):
-            if self.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+            if self.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
                 # Mass-flow formulation: the first fluid slot holds the mass
                 # flow rate (available here as rho*A*v of the initial state,
                 # exact by construction).

@@ -234,6 +234,26 @@ class ConductorInputLoader:
         return external_inputs.ExternalContactPerimeter( ... )
 
 
+    @staticmethod
+    def _as_bool(value) -> bool:
+        """Boolean of an optional flag cell: YAML booleans, workbook 0/1 and
+        the strings 'true'/'false' (case-insensitive); empty/NaN is False."""
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in ("", "false", "0", "no", "off", "nan", "none"):
+                return False
+            if text in ("true", "1", "yes", "on"):
+                return True
+            raise ValueError(f"Cannot interpret {value!r} as a boolean flag.")
+        if value is None:
+            return False
+        try:
+            if value != value:  # NaN from an empty workbook cell
+                return False
+        except TypeError:
+            pass
+        return bool(value)
+
     def load_conductor_inputs(self) -> ConductorInputs:
         """Load conductor input values and convert them to a ConductorInputs dataclass."""
         raw_inputs = self.load_identifier_sheet(self.definition_path, 
@@ -260,6 +280,9 @@ class ConductorInputLoader:
             upwind=bool(raw_inputs.get("UPWIND", False)),
             hydraulic_formulation=get_hydraulic_formulation(
                 raw_inputs.get("HYDRAULIC_FORMULATION", "auto")
+            ),
+            explicit_mass_flow_formulation=self._as_bool(
+                raw_inputs.get("EXPLICIT_MASS_FLOW_FORMULATION", False)
             ),
             external_free_convection_correlation=cf.ExternalFreeConvectionCorrelation.get_external_free_convection_correlation_flag(
                 raw_inputs["external_free_convection_correlation"]

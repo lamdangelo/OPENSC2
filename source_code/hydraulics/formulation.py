@@ -40,7 +40,9 @@ from hydraulics.hydraulic_flags import HydraulicFormulation
 
 
 def resolve_hydraulic_formulation(
-    declared: HydraulicFormulation, coupling_enabled: bool
+    declared: HydraulicFormulation,
+    coupling_enabled: bool,
+    explicit_mass_flow: bool = False,
 ) -> HydraulicFormulation:
     """Resolve the declared (input) formulation to an executable one.
 
@@ -50,19 +52,38 @@ def resolve_hydraulic_formulation(
     velocity formulation on a coupled conductor is honoured with a warning,
     since the port mass flow is then only enforced through the lagged-
     density Picard linearization.
+
+    ``explicit_mass_flow`` (input ``explicit_mass_flow_formulation``)
+    selects HOW a mass-flow formulation is assembled: False keeps the
+    similarity transform (MASS_FLOW), True the explicit coefficient
+    assembly (MASS_FLOW_EXPLICIT, hydraulics/mass_flow_equations.py). With
+    AUTO it also forces the mass-flow unknowns on an uncoupled conductor.
+    Combined with an explicitly declared velocity formulation it is a
+    contradictory deck and raises.
     """
-    if declared is HydraulicFormulation.AUTO:
+    if declared is HydraulicFormulation.VELOCITY:
+        if explicit_mass_flow:
+            raise ValueError(
+                "explicit_mass_flow_formulation: true contradicts "
+                "hydraulic_formulation: velocity (the explicit assembly is "
+                "a mass-flow formulation); declare 'auto' or 'mass_flow'."
+            )
         if coupling_enabled:
-            return HydraulicFormulation.MASS_FLOW
+            warnings.warn(
+                "Velocity formulation explicitly requested on a conductor "
+                "coupled to the hydraulic network: the port mass flow is "
+                "enforced through the lagged-density linearization instead of "
+                "a native unknown. Consider hydraulic_formulation: mass_flow."
+            )
+        return declared
+    if declared is HydraulicFormulation.AUTO and not coupling_enabled:
+        if explicit_mass_flow:
+            return HydraulicFormulation.MASS_FLOW_EXPLICIT
         return HydraulicFormulation.VELOCITY
-    if declared is HydraulicFormulation.VELOCITY and coupling_enabled:
-        warnings.warn(
-            "Velocity formulation explicitly requested on a conductor "
-            "coupled to the hydraulic network: the port mass flow is "
-            "enforced through the lagged-density linearization instead of "
-            "a native unknown. Consider hydraulic_formulation: mass_flow."
-        )
-    return declared
+    # AUTO on a coupled conductor, or MASS_FLOW declared.
+    if explicit_mass_flow:
+        return HydraulicFormulation.MASS_FLOW_EXPLICIT
+    return HydraulicFormulation.MASS_FLOW
 
 
 def conjugate_gauss_blocks(matrices, channels) -> None:

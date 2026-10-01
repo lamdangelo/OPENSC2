@@ -33,6 +33,24 @@ from test_network_coupling import (
     run_simulation,
 )
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).parent / "verification"))
+from case_builders import (  # noqa: E402
+    VERIFICATION_FLUID,
+    StepDriver,
+    channel_operations,
+    write_channel_run_directory,
+)
+import interfaces.coolprop_interface as cpi  # noqa: E402
+
+
+@pytest.fixture
+def constant_fluid():
+    previous = cpi.set_constant_fluid_properties(VERIFICATION_FLUID)
+    yield VERIFICATION_FLUID
+    cpi.set_constant_fluid_properties(previous)
+
 
 # --------------------------------------------------------------------------
 # Settings parsing
@@ -185,6 +203,61 @@ def test_restart_resumes_bit_identically(tmp_path, network_section):
     assert not differing, (
         "restarted run is not bit-identical to the straight run; differing "
         f"files: {differing}"
+    )
+
+
+def test_restart_with_evolving_flow_is_bit_identical(constant_fluid, tmp_path):
+    """The plain restart scenario above runs at a steady flow, where the
+    initialization mass flow equals the checkpointed one. Here the inlet
+    pressure ramps through the run, so the native mass-flow unknown at the
+    checkpoint differs from its initialization value: a restart that does
+    not carry it would refresh the velocity and the Reynolds number from
+    the stale value on its first step (found on the HELIAS-VIPER 2D runs,
+    2026-09-25)."""
+    def ramp(simulation):
+        time = simulation.simulation_time[-1]
+        operations = channel_operations(simulation)
+        operations.inlet_pressure = 1.0e5 + 100.0 + 400.0 * min(time / 0.5, 1.0)
+
+    straight_directory = tmp_path / "straight"
+    write_channel_run_directory(
+        straight_directory, number_of_elements=20, time_step=0.05, end_time=1.0,
+        method="BDF2", hydraulic_boundary_condition=1,
+        inlet_pressure=1.0e5 + 100.0, outlet_pressure=1.0e5,
+        initial_pressure=1.0e5 + 50.0,
+    )
+    set_simulation_keys(straight_directory, autosave_interval=AUTOSAVE_INTERVAL)
+    Simulation(str(straight_directory), step_callback=StepDriver(ramp)).run()
+    reference_hashes = output_tree_hashes(straight_directory)
+
+    resumed_directory = tmp_path / "resumed"
+    write_channel_run_directory(
+        resumed_directory, number_of_elements=20, time_step=0.05, end_time=1.0,
+        method="BDF2", hydraulic_boundary_condition=1,
+        inlet_pressure=1.0e5 + 100.0, outlet_pressure=1.0e5,
+        initial_pressure=1.0e5 + 50.0,
+    )
+    set_simulation_keys(resumed_directory, autosave_interval=AUTOSAVE_INTERVAL)
+    crash = crash_after(CRASH_STEP)
+
+    def ramp_then_crash(simulation):
+        ramp(simulation)
+        return crash(simulation)
+
+    with pytest.raises(SimulatedCrash):
+        Simulation(str(resumed_directory), step_callback=ramp_then_crash).run()
+    set_simulation_keys(resumed_directory, restart=True)
+    Simulation(str(resumed_directory), step_callback=StepDriver(ramp)).run()
+
+    resumed_hashes = output_tree_hashes(resumed_directory)
+    differing = sorted(
+        name
+        for name in set(reference_hashes) | set(resumed_hashes)
+        if reference_hashes.get(name) != resumed_hashes.get(name)
+    )
+    assert not differing, (
+        "restart with an evolving flow is not bit-identical to the straight "
+        f"run; differing files: {differing}"
     )
 
 

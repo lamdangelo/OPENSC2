@@ -53,7 +53,12 @@ class ConductorInputs:
     # (see hydraulics/formulation.py). YAML-only option: absent (and on the
     # deprecated Excel front end) it stays AUTO.
     hydraulic_formulation: HydraulicFormulation
-    external_free_convection_correlation: ExternalFreeConvectionCorrelation  
+    # EXPLICIT_MASS_FLOW_FORMULATION - assemble a mass-flow formulation from
+    # the written-out (mdot, p, T) coefficients (hydraulics/
+    # mass_flow_equations.py) instead of the runtime similarity transform;
+    # False (default, absent key) keeps every existing deck unchanged.
+    explicit_mass_flow_formulation: bool
+    external_free_convection_correlation: ExternalFreeConvectionCorrelation
     electric_method: MethodFlag  # ELECTRIC_METHOD - numerical method for the electric problem
     electric_time_step: float 
 

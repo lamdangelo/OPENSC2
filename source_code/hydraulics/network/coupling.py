@@ -104,6 +104,7 @@ from hydraulics.hydraulic_flags import (
     FlowDirection,
     HydraulicBC,
     HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
 )
 from hydraulics.network.hydraulic_network import HydraulicNetwork
 from hydraulics.network.network_inputs import (
@@ -167,7 +168,7 @@ class ResolvedPort:
         fields = self.fluid_component.coolant.node_fields
         if (
             self.fluid_component.coolant.hydraulic_formulation
-            is HydraulicFormulation.MASS_FLOW
+            in MASS_FLOW_FORMULATIONS
         ):
             return (
                 self.flow_orientation_sign
@@ -532,7 +533,7 @@ def _coupling_blocks(conductor, network: HydraulicNetwork,
         # Node mass balance: ... - mdot_into_node = q.
         if (
             port.fluid_component.coolant.hydraulic_formulation
-            is HydraulicFormulation.MASS_FLOW
+            in MASS_FLOW_FORMULATIONS
         ):
             # The port slot is the native mass flow rate: the coupling
             # coefficient is exact (+-1), with no frozen-density Picard

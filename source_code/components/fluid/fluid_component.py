@@ -26,6 +26,7 @@ from hydraulics.hydraulic_flags import (
     HydraulicBC,
     FlowDirection,
     HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
 )
 
 from hydraulics.channel import Channel
@@ -352,7 +353,7 @@ class FluidComponent(Component):
         converted with the boundary density of the current property state
         (lagged by one step with respect to the solution being solved).
         """
-        if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+        if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
             return mass_flow_rate
         return (
             mass_flow_rate / boundary_density / self.channel.inputs.cross_section

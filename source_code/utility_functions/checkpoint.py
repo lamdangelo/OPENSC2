@@ -103,6 +103,12 @@ def _collect_conductor_state(state: dict, conductor) -> None:
         _put(state, f"{fluid_prefix}/velocity", fields.velocity)
         _put(state, f"{fluid_prefix}/pressure", fields.pressure)
         _put(state, f"{fluid_prefix}/temperature", fields.temperature)
+        if "mass_flow_rate" in fields:
+            # Native unknown of the mass-flow formulations: the per-step
+            # refresh derives the velocity from it, so it must be restored
+            # exactly (a stale value would silently replace the velocity
+            # and the Reynolds number on the first restarted step).
+            _put(state, f"{fluid_prefix}/mass_flow_rate", fields.mass_flow_rate)
 
     for s_comp in conductor.inventory.solids.collection:
         solid_prefix = f"{prefix}/solid/{s_comp.identifier}"
@@ -258,6 +264,22 @@ def _restore_conductor_state(archive, conductor) -> None:
         fields.velocity = archive[f"{fluid_prefix}/velocity"].copy()
         fields.pressure = archive[f"{fluid_prefix}/pressure"].copy()
         fields.temperature = archive[f"{fluid_prefix}/temperature"].copy()
+        if f"{fluid_prefix}/mass_flow_rate" in archive:
+            fields.mass_flow_rate = archive[f"{fluid_prefix}/mass_flow_rate"].copy()
+        elif "mass_flow_rate" in fields:
+            # Checkpoint written before the mass flow rate was stored:
+            # rebuild it from the restored velocity and the density at the
+            # restored (p, T), the inverse of the per-step refresh (exact
+            # up to roundoff, which is far below the stale-value error).
+            from interfaces import coolprop_interface as cpi
+            from hydraulics import hydraulics
+
+            density = cpi.compute_mass_density(
+                f_comp.coolant.fluid_type, fields.temperature, fields.pressure
+            )
+            fields.mass_flow_rate = hydraulics.compute_mass_flow_rate(
+                f_comp.coolant.inputs.cross_section, fields.velocity, density
+            )
 
     for s_comp in conductor.inventory.solids.collection:
         solid_prefix = f"{prefix}/solid/{s_comp.identifier}"

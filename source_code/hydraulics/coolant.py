@@ -12,7 +12,10 @@ from physical_fields.physical_field import (
 )
 
 import hydraulics.hydraulics as hydraulics
-from hydraulics.hydraulic_flags import HydraulicFormulation
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
 import interfaces.coolprop_interface as cpi
 
 
@@ -190,7 +193,7 @@ class Coolant():
     def eval_dimensionless_numbers(self, fields: FieldContainer) -> FieldContainer:
         """Compute the Reynolds and Gruneisen dimensionless numbers."""
         if (
-            self.hydraulic_formulation is HydraulicFormulation.MASS_FLOW
+            self.hydraulic_formulation in MASS_FLOW_FORMULATIONS
             and "mass_flow_rate" in fields
         ):
             # Mass-flow formulation: form Re from the native unknown with
@@ -276,7 +279,7 @@ class Coolant():
             # Pressure, temperature and velocity directly evaluated from the value in nodal point, averaging on two consecutives nodes.
             list_average_prop = ["temperature", "pressure", "velocity"]
             if (
-                self.hydraulic_formulation is HydraulicFormulation.MASS_FLOW
+                self.hydraulic_formulation in MASS_FLOW_FORMULATIONS
                 and "mass_flow_rate" in self.node_fields
             ):
                 # Mass-flow formulation: carry the native unknown to the

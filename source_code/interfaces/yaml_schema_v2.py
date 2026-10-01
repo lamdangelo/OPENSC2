@@ -38,6 +38,7 @@ CONDUCTOR_INPUT_KEYS = {
     "electric_time_step": "ELECTRIC_TIME_STEP",
     "upwind": "UPWIND",
     "hydraulic_formulation": "HYDRAULIC_FORMULATION",
+    "explicit_mass_flow_formulation": "EXPLICIT_MASS_FLOW_FORMULATION",
     "phi_radiative": "Phi_rad",
     "phi_convective": "Phi_conv",
 }
