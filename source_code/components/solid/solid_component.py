@@ -542,14 +542,21 @@ class SolidComponent:
             )
 
         # Strands without an imposed operating current (e.g. pure
-        # stabilizer components, mode "none") have no op_current field
-        # and carry no share of the imposed transport current.
-        total_current = sum(
+        # stabilizer components, mode "none" -> CURRENT_NOT_DEFINED)
+        # have no op_current field and carry no share of the imposed
+        # transport current. During initialization the field is
+        # evaluated before get_current has populated op_current on any
+        # strand; the transport current is at its initial value then.
+        currents = [
             strand.node_fields.op_current[0]
             for strand in conductor.inventory.strands.collection
-            if strand.operations.operating_current_mode is not None
-        )
-        return total_current / conductor.inputs.initial_current
+            if strand.operations.operating_current_mode
+            not in (None, CurrentMode.CURRENT_NOT_DEFINED)
+            and hasattr(strand.node_fields, "op_current")
+        ]
+        if not currents:
+            return 1.0
+        return sum(currents) / conductor.inputs.initial_current
 
     def get_magnetic_field(self, conductor, nodal=True):
         if nodal:
