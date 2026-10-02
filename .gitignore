@@ -247,6 +247,7 @@ $RECYCLE.BIN/
 *.xlsx
 *.ods
 *.pdf 
+*.npz
 
 # LaTeX
 *.aux
@@ -258,12 +259,48 @@ $RECYCLE.BIN/
 *.~
 
 # Paths to be ignored #
-source_code/Description_of_Components/**/ # Input files
-Simulations_results/**/ # code output directory
-source_code/opensc2/**/ # virtual environment
-source_code/GUI_icons/**/ # graphical user interface images
-TDD_examples/**/ # input files template for the three selected cases used whitin the Test Driven Development approach
+# (gitignore has no inline comments: a '#' only starts a comment at the
+# beginning of a line, so each comment sits above its pattern.)
+# Input files
+source_code/Description_of_Components/**/
+# code output directory
+Simulations_results/**/
+# virtual environment
+source_code/opensc2/**/
+# graphical user interface images
+source_code/GUI_icons/**/
+# input files template for the three selected cases used within the
+# Test Driven Development approach
+TDD_examples/**/
 refactoring/*
+W7-X/*
+models/HELIAS-VIPER/*
+# W7-X publication models (models/w7x): decks and validation data are
+# tracked despite the global *.csv / *.txt rules; run products are not.
+!models/w7x/**/*.csv
+!models/w7x/**/*.txt
+models/w7x/**/simulation_results/
+models/w7x/**/smoke_runs/
+models/w7x/**/figures/
+models/w7x/**/publication-ready/
+models/w7x/**/hotspot_log.tsv
+models/w7x/**/final_run_log.tsv
+analysis/*
+.vscode/*
 
 # Regression-test reference data must be tracked despite the global *.tsv rule
 !tests/reference_data/**/*.tsv
+
+# Sensitivity-analysis deliverables (figures + tables) must be tracked
+# despite the global *.png / *.csv rules; the simulation cache and the
+# per-sample run-directory clones stay untracked.
+!analysis/sensitivity/results/**/*.png
+!analysis/sensitivity/results/**/*.csv
+analysis/sensitivity/cache/
+analysis/sensitivity/runs/
+!analysis/sensitivity/results_qp_model/**/*.png
+!analysis/sensitivity/results_qp_model/**/*.csv
+
+# Formulation verification suite outputs (regenerable: driver.py + make_plots.py)
+/results/
+/figures/

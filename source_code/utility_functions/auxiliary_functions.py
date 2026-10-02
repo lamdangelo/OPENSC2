@@ -48,15 +48,42 @@ def set_diagnostic(vv, **kwargs):
 
 
 def load_auxiliary_files(file_path, sheetname):
-    """Function that load the auxiliary input file as a data frame
+    """Load one component's block of an auxiliary input file as a
+    dataframe (plus the flag stored in its first cell).
+
+    Two formats are supported:
+        * xlsx - one sheet per component identifier (legacy layout);
+        * csv/tsv - a single table whose FIRST column holds the
+          component identifier of each row; the remaining columns are
+          exactly the legacy sheet rows (first row of a block: flag then
+          time points; further rows: space point then values). Blocks of
+          different width are padded with empty cells, which are dropped
+          here.
 
     Args:
-        file_path (_type_): _description_
-        sheetname (_type_): _description_
+        file_path: path of the auxiliary file.
+        sheetname: component identifier (sheet name / first-column key).
 
     Returns:
-        _type_: _description_
+        tuple: (dataframe in the legacy sheet layout, flag cell value).
     """
+    file_name = str(file_path).lower()
+    if file_name.endswith((".csv", ".tsv")):
+        separator = "\t" if file_name.endswith(".tsv") else ","
+        table = pd.read_csv(file_path, header=None, sep=separator)
+        block = table[table.iloc[:, 0].astype(str) == str(sheetname)]
+        if block.empty:
+            raise ValueError(
+                f"No rows for component {sheetname!r} in auxiliary file "
+                f"{file_path}."
+            )
+        block = (
+            block.iloc[:, 1:]
+            .dropna(axis=1, how="all")
+            .reset_index(drop=True)
+        )
+        block.columns = range(block.shape[1])
+        return block, block.iloc[0, 0]
     wb = load_workbook(file_path, data_only=True)
     sheet = wb[sheetname]
     return (

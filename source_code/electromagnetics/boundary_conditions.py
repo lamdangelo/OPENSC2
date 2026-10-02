@@ -142,8 +142,46 @@ def build_reduction_operator(conductor: object) -> None:
         + conductor.total_nodes_current_carriers
     )
 
+    # An equipotential group that contains a fixed-potential node is a
+    # grounded joint: every member takes the fixed value (no merged
+    # free DOF). Only groups without fixed members are merged onto a
+    # representative free node.
+    merge_groups = []
     if conductor.operations.do_equipotential_surfaces_exist:
-        redundant_index = conductor.equipotential_node_index[:, 1:].ravel()
+        fixed_lookup = dict(
+            zip(
+                conductor.fixed_potential_index.tolist(),
+                conductor.fixed_potential_value.tolist(),
+            )
+        )
+        extra_fixed_index = []
+        extra_fixed_value = []
+        for group in conductor.equipotential_node_index:
+            fixed_members = [g for g in group if g in fixed_lookup]
+            if fixed_members:
+                value = fixed_lookup[fixed_members[0]]
+                for g in group:
+                    if g not in fixed_lookup:
+                        extra_fixed_index.append(g)
+                        extra_fixed_value.append(value)
+                        fixed_lookup[g] = value
+            else:
+                merge_groups.append(group)
+        if extra_fixed_index:
+            index = np.concatenate(
+                (conductor.fixed_potential_index, extra_fixed_index)
+            )
+            value = np.concatenate(
+                (conductor.fixed_potential_value, extra_fixed_value)
+            )
+            order = np.argsort(index)
+            conductor.fixed_potential_index = index[order].astype(int)
+            conductor.fixed_potential_value = value[order]
+
+    if merge_groups:
+        redundant_index = np.concatenate(
+            [group[1:] for group in merge_groups]
+        )
     else:
         redundant_index = np.zeros(0, dtype=int)
 
@@ -159,12 +197,11 @@ def build_reduction_operator(conductor: object) -> None:
 
     rows = [retained_index]
     columns = [np.arange(retained_index.size)]
-    if conductor.operations.do_equipotential_surfaces_exist:
-        for group in conductor.equipotential_node_index:
-            rows.append(group[1:])
-            columns.append(
-                np.full(group[1:].size, column_of_dof[group[0]], dtype=int)
-            )
+    for group in merge_groups:
+        rows.append(group[1:])
+        columns.append(
+            np.full(group[1:].size, column_of_dof[group[0]], dtype=int)
+        )
 
     rows = np.concatenate(rows)
     columns = np.concatenate(columns)

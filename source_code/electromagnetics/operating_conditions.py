@@ -83,8 +83,16 @@ def update_em_operating_conditions(conductor: object) -> None:
     Args:
         conductor: Conductor object at the current electric time step.
     """
+    # Load every strand's transport current BEFORE any field evaluation:
+    # the proportional field models (LINEAR_WITH_TRANSIENT and from-file
+    # with magnetic_field_scales_with_current) read the CONDUCTOR total
+    # operating current, so an interleaved current/field loop would show
+    # the first strand only its own share (seen as a spurious 4x field
+    # collapse on the 4-stack HELIAS decks, 2026-09-05).
     for strand in conductor.inventory.strands.collection:
         strand.get_current(conductor)
+
+    for strand in conductor.inventory.strands.collection:
         strand.get_magnetic_field(conductor)
         strand.get_magnetic_field_gradient(conductor)
 

@@ -21,6 +21,10 @@ from typing_extensions import Self
 # import classes
 from components.component_collection import ComponentInventory
 from electromagnetics.electromagnetic_flags import CurrentMode
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
 from conductor.conductor_mesh import MeshType
 from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from conductor.solver_structures import (
@@ -140,8 +144,27 @@ class Conductor:
         self.workbook_sheet_name = loader.conductor_sheet_names
 
         # TODO: loading and checking external files if any
-        
+
         self.inventory: ComponentInventory = ComponentInventory.empty()
+
+        # Hydraulic network ports of this conductor (ResolvedPort list,
+        # filled by hydraulics.network.coupling.resolve_network_coupling);
+        # empty when the conductor is not coupled to a network.
+        self.network_ports = []
+
+        # Opt-in verification hook (manufactured-solution tests): a callable
+        # (conductor, source_vector) -> source_vector adding nodal source
+        # values to the FLUID rows of the Gauss-point source vector, in the
+        # units of the respective fluid equation. Not set by any input file;
+        # None on every production path (see assemble_thermal_hydraulic_system).
+        self.fluid_source_callback = None
+
+        # Resolved hydraulic formulation of the 1D channel unknowns
+        # (never AUTO): overwritten at setup by the resolution step in
+        # Simulation.conductor_initialization from the declared input value
+        # (see hydraulics/formulation.py). The preset keeps directly
+        # constructed conductors (tests) on the classical velocity path.
+        self.hydraulic_formulation = HydraulicFormulation.VELOCITY
 
 
     # end method __init__ (cdp, 11/2020)
@@ -493,12 +516,21 @@ class Conductor:
             dtype=float,
         )
 
-        self.inductance_matrix = np.zeros(
-            (
-                self.total_elements_current_carriers,
-                self.total_elements_current_carriers,
+        # The dense inductance matrix exists only for the transient
+        # electric solver; for STEADY_STATE conductors it is never
+        # filled or read, and allocating it would be prohibitive for
+        # many-strand conductors ((strands x elements)^2 doubles).
+        from electromagnetics.electromagnetic_flags import ElectricSolver
+
+        if self.operations.electric_solver == ElectricSolver.TRANSIENT:
+            self.inductance_matrix = np.zeros(
+                (
+                    self.total_elements_current_carriers,
+                    self.total_elements_current_carriers,
+                )
             )
-        )
+        else:
+            self.inductance_matrix = None
 
         self.electric_conductance_matrix = csr_matrix(
             (self.total_nodes_current_carriers, self.total_nodes_current_carriers),
@@ -765,10 +797,18 @@ class Conductor:
 
         # Assign initial values to the time integration solution (cdp, 10/2020)
         for jj, fluid_comp in enumerate(self.inventory.fluids.collection):
-            # velocity (cdp, 10/2020)
-            self.time_integration.solution[
-                jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
-            ] = fluid_comp.coolant.node_fields.velocity
+            if self.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
+                # Mass-flow formulation: the first fluid slot holds the mass
+                # flow rate (available here as rho*A*v of the initial state,
+                # exact by construction).
+                self.time_integration.solution[
+                    jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
+                ] = fluid_comp.coolant.node_fields.mass_flow_rate
+            else:
+                # velocity (cdp, 10/2020)
+                self.time_integration.solution[
+                    jj : self.equation_counts.total_equations : self.equation_counts.degrees_of_freedom_per_node, 0
+                ] = fluid_comp.coolant.node_fields.velocity
             # pressure (cdp, 10/2020)
             self.time_integration.solution[
                 jj
@@ -860,9 +900,10 @@ class Conductor:
         """
         if self.build_electric_topology_flag:
             self.__build_electric_topology()
-            if self.mesh.mesh_type not in {MeshType.ADAPTED, MeshType.FROM_FILE}:
-                # Discretization grid does not change at each time step, so
-                # all topology structures stay valid for the whole transient.
+            if self.mesh.mesh_type is not MeshType.ADAPTED:
+                # Discretization grid does not change at each time step
+                # (a mesh read from file is static too), so all topology
+                # structures stay valid for the whole transient.
                 self.build_electric_topology_flag = False
 
         # Build electric resistance matrix: changes with temperature (thermal
@@ -974,8 +1015,15 @@ class Conductor:
             # )
 
         # Build electric mass matrix (inductances only depend on the
-        # geometry, so they belong to the topology structures).
-        self.__build_electric_mass_matrix()
+        # geometry, so they belong to the topology structures). Only the
+        # transient electric solver has a mass-matrix term; the
+        # steady-state solve is purely resistive, and the inductance
+        # construction is prohibitively expensive for multi-strand
+        # conductors (element-pair-wise integrals), so skip it there.
+        from electromagnetics.electromagnetic_flags import ElectricSolver
+
+        if self.operations.electric_solver == ElectricSolver.TRANSIENT:
+            self.__build_electric_mass_matrix()
 
         # Assign equivalue surfaces
         self.__assign_equivalue_surfaces()
@@ -1046,8 +1094,28 @@ class Conductor:
         compute_voltage_sum(self)
 
     def electric_method(self):
-        """Solve the electric problem and post-process the solution."""
-        if self.cond_num_step == 0:
+        """Solve the electric problem and post-process the solution.
+
+        The first step is always the steady-state solve (initial
+        condition). Afterwards the ELECTRIC_SOLVER flag decides: the
+        TRANSIENT solver runs the inductive sub-stepping loop, while
+        STEADY_STATE repeats the quasi-static (purely resistive) solve
+        every thermal step — the appropriate model when the L/R
+        redistribution time is short against the thermal transient, and
+        the only feasible one for many-strand conductors (the transient
+        inductance matrix scales with the square of strand elements).
+        """
+        from electromagnetics.electromagnetic_flags import ElectricSolver
+
+        if (
+            self.cond_num_step == 0
+            or self.operations.electric_solver == ElectricSolver.STEADY_STATE
+        ):
+            # The quasi-static solve has no sub-stepping loop of its own, so
+            # keep the electric clock on the thermal one; from-file operating
+            # currents are interpolated at electric_time, which otherwise
+            # stays at 0 and freezes them at their initial value.
+            self.electric_time = self.cond_time[-1]
             solve_steady_state(self)
         else:
             self.__get_electric_time_step()

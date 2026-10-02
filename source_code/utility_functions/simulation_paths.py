@@ -18,7 +18,6 @@ import warnings
 import pandas as pd
 
 import interfaces.yaml_input_registry as yaml_input_registry
-from conductor.conductor_flags import MethodFlag
 
 
 def make_directories(simulation: object, list_key_val, exist_ok: bool = False) -> None:
@@ -197,21 +196,16 @@ def manage_simulation_folders(simulation: object, target_directory: str = None) 
     """Build the whole output-folder tree for a simulation run (space/time
     convergence directories, per-conductor subfolders and their Benchmark
     counterparts, and the read-only input-file save directory)."""
-    # Map the integration method to the name of its output subfolder.
-    dict_int_method = {
-        MethodFlag.BACKWARD_EULER: "BE",
-        MethodFlag.CRANK_NICOLSON: "CN",
-        MethodFlag.ADAMS_MOULTON_4TH_ORDER: "AM4",
-        MethodFlag.GALERKIN: "GAL",
-        MethodFlag.BACKWARD_DIFFERENCE_2: "BDF2",
-    }
     # Update dictionary simulation.dict_path
     if target_directory is not None:
         simulation.dict_path["Results_dir"] = target_directory  # user-defined target directory for headless mode
     simulation.dict_path["Main_dir"] = simulation.dict_path["Results_dir"]  # Main_Dir never defined, so just set to Results_dir
+    # All results live under a fixed "simulation_results" folder in the
+    # model directory. Runs with different integration methods share it:
+    # the checkpoint manifest (utility_functions/checkpoint.py) guards
+    # restarts against a method change.
     simulation.dict_path["Sub_dir"] = os.path.join(
-        simulation.dict_path["Main_dir"],
-        dict_int_method[simulation.list_of_Conductors[0].inputs.thermohydraulic_method],
+        simulation.dict_path["Main_dir"], "simulation_results"
     )
     list_folder = ["output", "figures"]
     # Create paths and folders with function build_space_convergence_paths
@@ -243,6 +237,15 @@ def manage_simulation_folders(simulation: object, target_directory: str = None) 
         simulation.basePath.split("/")[-1],
     )
     os.makedirs(simulation.dict_path["Save_input"], exist_ok=True)
+
+    # Path of the autosave checkpoints (utility_functions/checkpoint.py).
+    # Path only: the directory is created lazily by the checkpoint writer,
+    # so runs without AUTOSAVE_INTERVAL leave the output tree untouched.
+    simulation.dict_path["Checkpoints_dir"] = os.path.join(
+        simulation.dict_path["Sub_dir"],
+        simulation.transient_input["SIMULATION"],
+        "Checkpoints",
+    )
 
 # End function manage_simulation_folders.
 

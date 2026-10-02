@@ -42,9 +42,26 @@ from thermal.energy_equation import (
     build_svec_env_jacket_interface,
     build_known_therm_vector,
 )
+from hydraulics.formulation import transform_gauss_matrices_to_mass_flow
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
+from hydraulics.mass_flow_equations import (
+    DEBUG_CHECKS_ENABLED,
+    build_amat_mass_flow,
+    build_kmat_fluid_mass_flow,
+    build_smat_fluid_energy_mass_flow,
+    build_smat_fluid_interface_momentum_mass_flow,
+    build_smat_fluid_momentum_mass_flow,
+    check_source_consistency,
+)
 from hydraulics.momentum_equation import (
     build_smat_fluid_momentum,
     build_smat_fluid_interface_momentum,
+)
+from hydraulics.network.coupling import (
+    apply_network_port_boundary_conditions,
 )
 from thermal.thermal_flags import HeatExcitation
 
@@ -295,9 +312,19 @@ def evaluate_time_accuracy_eigenvalue(conductor):
         elif RES < 0.0:
             X2 = conductor.time_accuracy_eigenvalue
 
-def step(conductor, environment, qsource, num_step):
+def assemble_thermal_hydraulic_system(conductor, qsource):
 
-    """
+    """Assembly phase of one transient step: build and assemble all element
+    matrices, combine them with the time-integration coefficients, apply
+    the boundary conditions (including the hydraulic network port overlay)
+    and equilibrate the rows.
+
+    Returns the tuple (system_matrix, known_term_vector,
+    row_scaling_factors); the solve and the post-solve bookkeeping are
+    performed by the caller -- a plain banded solve in :func:`step`, or the
+    bordered field + network solve in
+    hydraulics.network.coupling.solve_coupled_conductors_step.
+
     ##############################################################################
         SUBROUTINE STEP(XCOORD,TMPTCO ,TMPTJK ,PRSSREH1,PRSSREH2,DENSTYH1,
        &                DENSTYH2,TMPTHEH1,TMPTHEH2,PRSSREB,DENSTYB,
@@ -317,7 +344,6 @@ def step(conductor, environment, qsource, num_step):
     """
 
     path = conductor.file_paths.external_flow
-    TINY = 1.0e-5
 
     # CLUCA ADDNOD = MAXNOD*(ICOND-1)
 
@@ -423,7 +449,44 @@ def step(conductor, environment, qsource, num_step):
     ] = np.eye(conductor.equation_counts.fluid_equations)
     # END M MATRIX: fluid components equations
 
+    # Explicit (mdot, p, T) assembly (hydraulics/mass_flow_equations.py):
+    # the flux-Jacobian, upwind and fluid-row source builders are replaced
+    # by their written-out mass-flow counterparts; every other builder
+    # (temperature-row exchange, fluid-solid, solids) is formulation-
+    # invariant and shared. The velocity path below is untouched.
+    explicit_mass_flow = (
+        conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW_EXPLICIT
+    )
+
     for fluid_comp_j in conductor.inventory.fluids.collection:
+
+        if explicit_mass_flow:
+            gauss_point_matrices.flux_jacobian = build_amat_mass_flow(
+                gauss_point_matrices.flux_jacobian,
+                fluid_comp_j,
+                conductor.equation_index[fluid_comp_j.identifier],
+            )
+            gauss_point_matrices.diffusion = build_kmat_fluid_mass_flow(
+                gauss_point_matrices.diffusion,
+                upwind_weights,
+                fluid_comp_j,
+                conductor,
+            )
+            gauss_point_matrices.source_jacobian = (
+                build_smat_fluid_momentum_mass_flow(
+                    gauss_point_matrices.source_jacobian,
+                    fluid_comp_j,
+                    conductor.equation_index[fluid_comp_j.identifier],
+                )
+            )
+            gauss_point_matrices.source_jacobian = (
+                build_smat_fluid_energy_mass_flow(
+                    gauss_point_matrices.source_jacobian,
+                    fluid_comp_j,
+                    conductor.equation_index[fluid_comp_j.identifier],
+                )
+            )
+            continue
 
         # FORM THE A MATRIX AT EVERY GAUSS POINT (FLUX JACOBIAN)
         gauss_point_matrices.flux_jacobian = build_amat(
@@ -459,10 +522,18 @@ def step(conductor, environment, qsource, num_step):
     # FORM THE S MATRIX AT EVERY GAUSS POINT (SOURCE JACOBIAN)
     # Therms associated to fluid-fluid interfaces.
     # Velocity and pressure rows (momentum equation).
-    gauss_point_matrices.source_jacobian = build_smat_fluid_interface_momentum(
-        gauss_point_matrices.source_jacobian,
-        conductor,
-    )
+    if explicit_mass_flow:
+        gauss_point_matrices.source_jacobian = (
+            build_smat_fluid_interface_momentum_mass_flow(
+                gauss_point_matrices.source_jacobian,
+                conductor,
+            )
+        )
+    else:
+        gauss_point_matrices.source_jacobian = build_smat_fluid_interface_momentum(
+            gauss_point_matrices.source_jacobian,
+            conductor,
+        )
     # Temperature row (energy equation).
     gauss_point_matrices.source_jacobian = build_smat_fluid_interface_energy(
         gauss_point_matrices.source_jacobian,
@@ -533,6 +604,28 @@ def step(conductor, environment, qsource, num_step):
             interface,
         )
         # END S VECTOR: solid components equation.
+
+    fluid_source_callback = getattr(conductor, "fluid_source_callback", None)
+    if fluid_source_callback is not None:
+        # Opt-in verification hook (manufactured solutions): nodal source
+        # values for the fluid rows, in the units of the respective fluid
+        # equation of the resolved formulation (velocity: m/s^2, Pa/s, K/s;
+        # mass flow: kg/s^2, Pa/s, K/s). At the first step source_vector is
+        # the (previous, present) pair, afterwards the present array.
+        source_vector = fluid_source_callback(conductor, source_vector)
+
+    if conductor.hydraulic_formulation is HydraulicFormulation.MASS_FLOW:
+        # Similarity transform of the assembled Gauss-point matrices to the
+        # (mdot, p, T) fluid unknowns (see hydraulics/formulation.py). The
+        # mass-capacity block is invariant (identity on the fluid rows) and
+        # the fluid rows of the source vector are identically zero, so both
+        # stay untouched.
+        transform_gauss_matrices_to_mass_flow(gauss_point_matrices, conductor)
+    elif explicit_mass_flow and DEBUG_CHECKS_ENABLED:
+        # Debug-mode assertion of the heat-source consistency
+        # q_p = phi rho c_v q_T on the assembled source block
+        # (OPENSC2_DEBUG_CHECKS=1).
+        check_source_consistency(gauss_point_matrices.source_jacobian, conductor)
 
     # COMPUTE THE MASS AND CAPACITY MATRIX
     # array smart
@@ -626,6 +719,15 @@ def step(conductor, environment, qsource, num_step):
             path,
         )
 
+    # Overlay the hydraulic network port rows (pressure continuity and
+    # inflow temperature) on top of the standard boundary conditions.
+    if conductor.network_ports:
+        known_term_vector, system_matrix = (
+            apply_network_port_boundary_conditions(
+                conductor, known_term_vector, system_matrix
+            )
+        )
+
     # DIAGONAL ROW SCALING
 
     # SELECT THE MAX FOR EACH ROW
@@ -644,6 +746,42 @@ def step(conductor, environment, qsource, num_step):
     # SCALE THE LOAD VECTOR
     known_term_vector = known_term_vector / row_scaling_factors
 
+    return system_matrix, known_term_vector, row_scaling_factors
+
+
+def step(conductor, environment, qsource, num_step):
+    """One transient step of an uncoupled conductor: assemble, one banded
+    solve, post-solve bookkeeping.
+
+    Conductors with hydraulic network ports are advanced jointly with the
+    network by hydraulics.network.coupling.solve_coupled_conductors_step,
+    which wraps the same assemble/finalize phases around the bordered
+    solve. ``environment`` and ``num_step`` are kept for call-site
+    compatibility (the assembly reads everything it needs from the
+    conductor object).
+    """
+    if conductor.network_ports:
+        raise ValueError(
+            f"Conductor {conductor.identifier} has hydraulic network ports "
+            "and must be advanced through solve_coupled_conductors_step."
+        )
+    system_matrix, known_term_vector, row_scaling_factors = (
+        assemble_thermal_hydraulic_system(conductor, qsource)
+    )
+    solution = solve_thermal_banded_system(
+        conductor, system_matrix, known_term_vector
+    )
+    finalize_step(conductor, solution, known_term_vector, row_scaling_factors)
+
+
+def finalize_step(conductor, solution, known_term_vector,
+                  row_scaling_factors):
+    """Post-solve phase of one transient step: local-truncation-error
+    estimate, solution history shift, sanity checks, solution norms and
+    reorganization of the solution into the component fields."""
+
+    TINY = 1.0e-5
+
     old_temperature_gauss = {
         obj.identifier: obj.coolant.gauss_fields.temperature
         for obj in conductor.inventory.fluids.collection
@@ -653,11 +791,6 @@ def step(conductor, environment, qsource, num_step):
             obj.identifier: obj.gauss_fields.temperature
             for obj in conductor.inventory.solids.collection
         }
-    )
-
-    # Compute the solution at the current time step.
-    solution = solve_thermal_banded_system(
-        conductor, system_matrix, known_term_vector
     )
 
     # Estimate the local truncation error of this step from the deviation of
@@ -784,9 +917,13 @@ def solve_thermal_banded_system(
     ``system_matrix[half_band + j - i, i] = a[i, j]``. LAPACK band storage
     wants ``ab[half_band + i - j, j] = a[i, j]``, so each diagonal is
     remapped with a shifted slice copy before the solve.
+
+    ``known_term`` may also carry several right-hand-side columns (shape
+    ``(n, k)``), all solved with the single factorization -- used by the
+    bordered hydraulic-network solve.
     """
     half_band = conductor.band.number_of_subdiagonals
-    number_of_equations = known_term.size
+    number_of_equations = known_term.shape[0]
     lapack_band = np.zeros((2 * half_band + 1, number_of_equations))
     for diagonal in range(-half_band, half_band + 1):
         first = max(0, -diagonal)
@@ -850,15 +987,30 @@ def evaluate_local_truncation_error_ratio(
     ndf = conductor.equation_counts.degrees_of_freedom_per_node
     eq_idx = conductor.equation_index
 
-    def field_ratio(field_index: int, field_name: str) -> float:
+    def field_ratio(
+        field_index: int, field_name: str, floor: float = None
+    ) -> float:
         field_deviation = deviation[field_index::ndf]
         field_magnitude = max(
             np.abs(new_solution[field_index::ndf]).max(),
-            FIELD_MAGNITUDE_FLOORS[field_name],
+            FIELD_MAGNITUDE_FLOORS[field_name] if floor is None else floor,
         )
         return float(
             np.sqrt(np.mean(field_deviation ** 2)) / field_magnitude
         )
+
+    def flow_slot_floor(f_comp) -> float:
+        """Magnitude floor of the first fluid slot. In the mass-flow
+        formulation the slot holds mdot, whose floor is the dimensional
+        image rho*A*(1 m/s) of the velocity floor - preserving the
+        controller's aggressiveness across formulations and channel sizes."""
+        if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
+            return (
+                FIELD_MAGNITUDE_FLOORS["velocity"]
+                * f_comp.channel.inputs.cross_section
+                * float(np.max(f_comp.coolant.node_fields.total_density))
+            )
+        return None
 
     worst_ratio = 0.0
     for f_comp in conductor.inventory.fluids.collection:
@@ -866,7 +1018,13 @@ def evaluate_local_truncation_error_ratio(
             worst_ratio = max(
                 worst_ratio,
                 field_ratio(
-                    getattr(eq_idx[f_comp.identifier], field_name), field_name
+                    getattr(eq_idx[f_comp.identifier], field_name),
+                    field_name,
+                    floor=(
+                        flow_slot_floor(f_comp)
+                        if field_name == "velocity"
+                        else None
+                    ),
                 ),
             )
     for s_comp in conductor.inventory.solids.collection:
@@ -1071,10 +1229,27 @@ def reorganize_th_solution(
     eq_idx = conductor.equation_index
     # Reorganize thermal hydraulic solution.
     for f_comp in conductor.inventory.fluids.collection:
-        # velocity
-        f_comp.coolant.node_fields.velocity = sysvar[
-            eq_idx[f_comp.identifier].velocity::ndf,0
-        ].copy()
+        if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
+            # Mass-flow formulation: the first fluid slot holds the native
+            # mass flow rate. The velocity written here is provisional
+            # (lagged density, exactly the frozen-coefficient state of the
+            # step just solved); the definitive v = mdot / (rho_new A)
+            # follows in the per-step refresh of conductor_solution.
+            f_comp.coolant.node_fields.mass_flow_rate = sysvar[
+                eq_idx[f_comp.identifier].velocity::ndf,0
+            ].copy()
+            f_comp.coolant.node_fields.velocity = (
+                f_comp.coolant.node_fields.mass_flow_rate
+                / (
+                    f_comp.channel.inputs.cross_section
+                    * f_comp.coolant.node_fields.total_density
+                )
+            )
+        else:
+            # velocity
+            f_comp.coolant.node_fields.velocity = sysvar[
+                eq_idx[f_comp.identifier].velocity::ndf,0
+            ].copy()
         # pressure
         f_comp.coolant.node_fields.pressure = sysvar[
             eq_idx[f_comp.identifier].pressure::ndf,0

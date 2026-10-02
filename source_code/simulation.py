@@ -11,18 +11,30 @@ from conductor.input_loader import ConductorInputLoader
 from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
 from environment.environment import Environment
+from hydraulics.network.coupling import (
+    build_coupled_network,
+    solve_coupled_conductors_step,
+)
 from utility_functions.auxiliary_functions import (
     with_read_csv,
     with_read_excel,
+)
+from hydraulics.formulation import resolve_hydraulic_formulation
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
 )
 from utility_functions.transient_solution_functions import get_time_step, step
 import utility_functions.simulation_paths as simulation_paths
 from utility_functions.output import (
     save_simulation_space,
     reorganize_spatial_distribution,
+    save_network_simulation_time,
     save_simulation_time,
     save_properties,
 )
+from utility_functions.checkpoint import restore_from_checkpoint, write_checkpoint
+from utility_functions.simulation_log import SimulationSummary
 from utility_functions.plots import (
     plot_properties,
     make_plots,
@@ -36,17 +48,23 @@ class Simulation:
     # Current working directory
     CWD = os.getcwd()
 
-    def __init__(self, base_path):
+    def __init__(self, base_path, step_callback=None):
 
+        # Optional per-step hook, called at the top of every transient
+        # iteration with the simulation as argument (drivers use it for
+        # time-dependent boundary schedules, event detection and source
+        # switching). A truthy return value stops the transient.
+        self.step_callback = step_callback
         # Current working directory: SCMagnetCode (cdp, 10/2020)
         # self.cwd = os.getcwd()
         # Ask User the name of the cable. (cdp, 10/2020)
+        # Default results root, used only when no target directory is given
+        # to simulation_folders_manager (GUI flow); headless runs override it
+        # with the model directory. Created on demand, never eagerly.
         self.dict_path = dict(
             Current_work_dir=self.CWD,
             Results_dir=os.path.join(self.CWD, "..", "Simulations_results"),
         )
-        # Create directory Simulations_results if it does not exist yet
-        os.makedirs(self.dict_path["Results_dir"], exist_ok=True)
         self.basePath = base_path
         # loop inside self.basePath (cdp, 10/2020)
         input_files = os.listdir(self.basePath)
@@ -70,7 +88,16 @@ class Simulation:
                 index_col=0,
                 usecols=["Variable name", "Value"],
             )["Value"].to_dict()
+            # Checkpointing settings are YAML-only (the Excel front end is
+            # deprecated): force the defaults so both input paths always
+            # yield the two keys.
+            self.transient_input["RESTART"] = False
+            self.transient_input["AUTOSAVE_INTERVAL"] = None
         self.flag_start = False
+        # Optional lumped hydraulic network coupled to conductor channel
+        # ends; built in conductor_initialization from the YAML input
+        # (see hydraulics/network).
+        self.hydraulic_network = None
         # get the order of maginitude of the minimum time step to make proper 
         # rounds to when saving data and figures of solution spatial 
         # distribution at default or User defined times.
@@ -106,12 +133,24 @@ class Simulation:
     
     def run(self):
         """Run the simulation workflow."""
+        self.simulation_summary = SimulationSummary()  # runtime timers start here
         self.conductor_instance()  # read input files
         self.simulation_folders_manager(target_directory=self.basePath)  # create folders
         self.save_input_files()  # create metadata
         self.conductor_initialization()  # initialize conductors
+        if self.transient_input["RESTART"]:
+            # Resume from the newest autosaved checkpoint: the deterministic
+            # initialization above rebuilt every object, now overwrite the
+            # evolving state and truncate the outputs to the checkpoint time
+            # (see utility_functions/checkpoint.py).
+            restore_from_checkpoint(self)
+            # Re-seed the summary extrema from the restored state; the
+            # checkpoint-time hot-spot row is already in the truncated file.
+            for cond in self.list_of_Conductors:
+                self.simulation_summary.update(self, cond, record_hotspot=False)
         self.conductor_solution()  # solve the numerical problem
         self.conductor_post_processing()  # do post-processing
+        self.simulation_summary.write(self)  # simulation.log + hot-spot flush
 
 
     def __count_sigfigs(self,num:Union[int,float]):
@@ -180,6 +219,41 @@ class Simulation:
     # end method Conductor_instance
 
     def conductor_initialization(self):
+        # Resolve the declared hydraulic formulation of every conductor
+        # before any initialization work: the solution seeding inside
+        # cond.initialization already depends on it. A conductor counts as
+        # network-coupled when the (YAML-only) hydraulic_network section
+        # declares a port on it; the network itself is built further below,
+        # after the conductor loop.
+        ported_conductor_identifiers = set()
+        if self.yaml_registry is not None:
+            network_mapping = self.yaml_registry.hydraulic_network()
+            if network_mapping is not None:
+                ported_conductor_identifiers = {
+                    port.get("conductor")
+                    for port in network_mapping.get("ports", [])
+                }
+        for cond in self.list_of_Conductors:
+            coupling_enabled = cond.identifier in ported_conductor_identifiers
+            cond.hydraulic_formulation = resolve_hydraulic_formulation(
+                cond.inputs.hydraulic_formulation,
+                coupling_enabled,
+                cond.inputs.explicit_mass_flow_formulation,
+            )
+            for fluid_comp in cond.inventory.fluids.collection:
+                fluid_comp.coolant.hydraulic_formulation = (
+                    cond.hydraulic_formulation
+                )
+            declared = cond.inputs.hydraulic_formulation
+            reason = (
+                f"auto: network coupling {'declared' if coupling_enabled else 'absent'}"
+                if declared is HydraulicFormulation.AUTO
+                else "explicit input"
+            )
+            print(
+                f"Conductor {cond.identifier}: hydraulic formulation "
+                f"'{cond.hydraulic_formulation.value}' ({reason}).\n"
+            )
         for cond in self.list_of_Conductors:
             # ** INITIALIZATION **
             # s time @ which simulation is started (cdp, 07/2020)
@@ -214,6 +288,11 @@ class Simulation:
             # plot conductor initialization spatial distribution (cdp, 12/2020)
             plot_properties(self, cond)
             save_simulation_time(self, cond)
+            if not self.transient_input["RESTART"]:
+                # Seed the summary extrema and hot-spot log with the t = 0
+                # state; on restart the seeding happens after the checkpoint
+                # restore instead.
+                self.simulation_summary.update(self, cond)
             # ** END INITIALIZATION **
         # end for cond (cdp, 12/202)
         # dictionary declaration (cdp,07/2020)
@@ -290,6 +369,21 @@ class Simulation:
                 # End for rr.
         # end if numObj
 
+        # Build, resolve and initialize the optional hydraulic network
+        # coupled to conductor channel ends. Must run after the conductor
+        # loop above: the port resolution reuses the boundary-condition
+        # equation indices and the initial flow built there.
+        if self.yaml_registry is not None:
+            network_mapping = self.yaml_registry.hydraulic_network()
+            if network_mapping is not None:
+                self.hydraulic_network = build_coupled_network(
+                    self, network_mapping
+                )
+                # Write the header of the network time-evolution file and
+                # record the initial state (num_step is still 0 here).
+                for conductor in self.list_of_Conductors:
+                    save_network_simulation_time(self, conductor)
+
     # end method Conductor_initialization
 
     def conductor_solution(self):
@@ -312,25 +406,68 @@ class Simulation:
             # (cdp, 10/2020)
             # list_values = list(conductor.dict_Space_save.values())
             # Save of the solution spatial distribution at 0.0 s (cdp, 12/2020)
-            save_simulation_space(
-                conductor,
-                self.dict_path[
-                    f"Output_Spatial_distribution_{conductor.identifier}_dir"
-                ],
-                abs(self.n_digit_time),
-            )
+            # On restart the t = 0 save already exists and i_save points at
+            # the next pending save time: saving here would stamp a bogus
+            # distribution and skip a scheduled save.
+            if not self.transient_input["RESTART"]:
+                save_simulation_space(
+                    conductor,
+                    self.dict_path[
+                        f"Output_Spatial_distribution_{conductor.identifier}_dir"
+                    ],
+                    abs(self.n_digit_time),
+                )
         # end for ii (cdp, 10/2020)
+        # Any transverse insulation coupling declared on any solid forces
+        # all conductors into lockstep time stepping (see the time-step
+        # synchronization inside the loop).
+        self.transverse_coupling_declared = any(
+            getattr(solid.operations, "transverse_coupling_file", "")
+            for conductor in self.list_of_Conductors
+            for solid in conductor.inventory.solids.collection
+        )
         # while loop to solve transient at each timestep (cdp, 07/2020)
         while (
             self.simulation_time[-1]
             < self.transient_input["TEND"] - 1e-5 * self.transient_input["STPMIN"]
             and stoptime == 0
         ):
+            if self.step_callback is not None and self.step_callback(self):
+                # The driver requested the end of the transient.
+                stoptime = 1
+                break
             self.num_step = self.num_step + 1
             time_step = np.zeros(self.numObj)
-            for ii, conductor in enumerate(self.list_of_Conductors):
+            # List of the conductors coupled to the hydraulic network: they
+            # advance together with it (one shared linear solve per step).
+            coupled_conductors = [
+                conductor
+                for conductor in self.list_of_Conductors
+                if conductor.network_ports
+            ]
+            for conductor in self.list_of_Conductors:
                 # Call function Get_time_step to select new time step (cdp, 08/2020)
                 get_time_step(conductor, self.transient_input, self.num_step)
+            # Conductors coupled to the hydraulic network share the network
+            # unknowns and must advance with a common time step: force the
+            # smallest proposed one on all of them. Conductors exchanging
+            # heat through transverse coupling patches read each other's
+            # state every step, so they must advance in lockstep as well
+            # (otherwise a fast-stepping quenched conductor lags the
+            # others in its own clock while the simulation clock follows
+            # the largest step): with any transverse coupling declared,
+            # every conductor of the simulation shares the smallest step.
+            if self.transverse_coupling_declared:
+                lockstep_conductors = list(self.list_of_Conductors)
+            else:
+                lockstep_conductors = coupled_conductors
+            if lockstep_conductors:
+                shared_time_step = min(
+                    conductor.time_step for conductor in lockstep_conductors
+                )
+                for conductor in lockstep_conductors:
+                    conductor.time_step = shared_time_step
+            for ii, conductor in enumerate(self.list_of_Conductors):
                 time_step[ii] = conductor.time_step
                 # Increase time (cdp, 08/2020)
                 conductor.cond_time.append(
@@ -386,20 +523,42 @@ class Simulation:
                 conductor.operating_conditions_th(self)
                 
                 conductor.build_heat_source(self)
-                # call step to solve the problem @ new timestep (cdp, 07/2020)
-                step(
-                    conductor,
-                    self.environment,
-                    self.dict_qsource[conductor.identifier],
-                    self.num_step,
+                # call step to solve the problem @ new timestep; conductors
+                # coupled to the hydraulic network are solved jointly with
+                # the network below, once every coupled conductor has been
+                # prepared (cdp, 07/2020)
+                if not conductor.network_ports:
+                    step(
+                        conductor,
+                        self.environment,
+                        self.dict_qsource[conductor.identifier],
+                        self.num_step,
+                    )
+            # End for conductor: preparation and uncoupled solves.
+
+            if coupled_conductors:
+                # One monolithic solve of all network-coupled conductors
+                # and the network; advances the network state exactly once.
+                solve_coupled_conductors_step(
+                    coupled_conductors,
+                    self.hydraulic_network,
+                    self.dict_qsource,
                 )
+
+            for conductor in self.list_of_Conductors:
                 # Loop on FluidComponent (cdp, 10/2020)
                 for fluid_comp in conductor.inventory.fluids.collection:
                     # compute density and mass flow rate in nodal points with the
                     # updated FluidComponent temperature and velocity (nodal = True by default)
-                    fluid_comp.coolant._compute_density_and_mass_flow_rates_nodal_gauss(
-                        conductor
-                    )
+                    if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
+                        # Mass-flow formulation: the mass flow rate is the
+                        # native unknown; density from the new (p, T) and
+                        # the definitive velocity v = mdot / (rho A).
+                        fluid_comp.coolant._refresh_density_and_velocity_from_mass_flow()
+                    else:
+                        fluid_comp.coolant._compute_density_and_mass_flow_rates_nodal_gauss(
+                            conductor
+                        )
                     # Enthalpy balance: sum((mdot*w)_out - (mdot*w)_inl), used to check \
                     # the imposition of SolidComponent temperature initial spatial \
                     # distribution (cdp, 12/2020)
@@ -455,12 +614,37 @@ class Simulation:
                         abs(self.n_digit_time),
                     )
                 # end if isave
+                self.simulation_summary.update(self, conductor)
                 # Save variables time evolution at given spatial coordinates \
                 # (cdp, 08/2020)
                 save_simulation_time(self, conductor)
+                # Save the hydraulic network state time evolution (no-op
+                # for conductors without network ports).
+                save_network_simulation_time(self, conductor)
                 # call sensor to plot results at any time the user asks (cdp, 07/2020)
             # End for conductor (cdp, 07/2020)
+
+            autosave_interval = self.transient_input["AUTOSAVE_INTERVAL"]
+            if (
+                autosave_interval is not None
+                and self.num_step % autosave_interval == 0
+            ):
+                # Flush the time-evolution buffers first, so the output
+                # files are complete up to the checkpoint time and the
+                # checkpoint itself never has to carry buffered rows.
+                for conductor in self.list_of_Conductors:
+                    save_simulation_time(self, conductor, flush_only=True)
+                    save_network_simulation_time(self, conductor, flush_only=True)
+                self.simulation_summary.flush_hotspots(self)
+                write_checkpoint(self)
         # end while (cdp, 07/2020)
+        # Final flush of the partially filled time-evolution buffers: a
+        # run stopped before TEND (e.g. by the step callback) never
+        # satisfies the TEND-based flush condition and would silently
+        # lose up to CHUNCK_SIZE recorded steps per file.
+        for conductor in self.list_of_Conductors:
+            save_simulation_time(self, conductor, flush_only=True)
+            save_network_simulation_time(self, conductor, flush_only=True)
         print("End simulation called " + self.transient_input["SIMULATION"] + "\n")
 
     # end method Conductor_solution (cdp, 09/2020)

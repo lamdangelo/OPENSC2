@@ -32,6 +32,164 @@ class SolidComponent:
 
     # end method __init__ (cdp, 11/2020)
 
+    def get_transverse_coupling(self, conductor, simulation):
+        """Nonlocal transverse-conduction linear power (W/m) at nodal points.
+
+        File-driven heat exchange between winding-geometry-adjacent
+        positions (turn-to-turn and layer-to-layer contact through the
+        insulation) that the 1D metric cannot see. Each CSV row of
+        ``operations.transverse_coupling_file`` (no header) is a patch:
+
+            x_low, x_high, partner_conductor, partner_component,
+            partner_x_start, partner_x_end, conductance_per_metre
+            [, temperature_exponent, reference_temperature,
+               saturation_temperature]
+
+        Local nodes with x in [x_low, x_high] map linearly onto the
+        partner interval (a decreasing interval encodes reversed
+        orientation) and exchange
+
+            q(x) = g_eff * (T_partner(x_p) - T_local(x))   [W/m],
+
+        with g in W/(m*K). The three optional trailing columns model the
+        temperature dependence of the insulation conductivity:
+
+            g_eff = g * (min(T_mean, T_sat) / T_ref) ** n,
+
+        with T_mean the arithmetic mean of the two coupled temperatures
+        (defaults n = 0: constant conductance). Patches may overlap (a
+        node can face a layer neighbour and two turn neighbours
+        simultaneously); contributions accumulate. Both temperatures are those at source-build time:
+        network-coupled conductors are all prepared before any solve of
+        the step, so the exchange uses previous-step fields on both
+        sides and every patch pair (listed on both partners with the
+        same conductance) is exactly antisymmetric - no spurious energy.
+        The result is stored in
+        ``node_fields.transverse_coupling_linear_power`` (nodes, 1) and
+        added to the Gauss-point sources in ``thermal.heat_sources``.
+        """
+        if not hasattr(self, "_transverse_patches"):
+            self.node_fields.transverse_coupling_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+            self._transverse_patches = self._build_transverse_patches(
+                conductor, simulation
+            )
+            # First call happens during conductor initialization, before
+            # the solid temperature fields exist: allocate only.
+            return
+        if not self._transverse_patches:
+            return
+        power = self.node_fields.transverse_coupling_linear_power
+        power[:, 0] = 0.0
+        local_temperature = self.node_fields.temperature.ravel()
+        for patch in self._transverse_patches:
+            indices = patch["indices"]
+            partner = patch["partner"]
+            if partner is None:
+                # Fixed-temperature boundary partner (e.g. the winding-pack
+                # casing acting as a cold heat sink on the edge layers). The
+                # exchange is one-sided: heat leaves the winding into an
+                # infinite reservoir held at ``boundary_temperature``.
+                partner_temperature = patch["boundary_temperature"]
+            else:
+                partner_temperature = np.interp(
+                    patch["partner_x"],
+                    partner["coordinates"],
+                    partner["component"].node_fields.temperature.ravel(),
+                )
+            conductance = patch["conductance"]
+            if patch["temperature_exponent"] != 0.0:
+                mean_temperature = np.minimum(
+                    0.5 * (
+                        partner_temperature + local_temperature[indices]
+                    ),
+                    patch["saturation_temperature"],
+                )
+                conductance = conductance * (
+                    mean_temperature / patch["reference_temperature"]
+                ) ** patch["temperature_exponent"]
+            power[indices, 0] += conductance * (
+                partner_temperature - local_temperature[indices]
+            )
+
+    def _build_transverse_patches(self, conductor, simulation):
+        """Parse the coupling file and cache per-patch node maps."""
+        from pathlib import Path
+
+        file_name = getattr(
+            self.operations, "transverse_coupling_file", ""
+        )
+        if not file_name:
+            return []
+        path = Path(file_name)
+        if not path.is_absolute():
+            base = Path(conductor.file_paths.structure_elements_path).parent
+            path = base / file_name
+        components = {}
+        for other in simulation.list_of_Conductors:
+            for collection in (
+                other.inventory.strands.collection,
+                other.inventory.jackets.collection,
+            ):
+                for component in collection:
+                    components[(other.identifier, component.identifier)] = {
+                        "component": component,
+                        "coordinates": other.mesh.node_coordinates,
+                    }
+        coordinates = conductor.mesh.node_coordinates
+        patches = []
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [entry.strip() for entry in line.split(",")]
+            x_low, x_high = float(parts[0]), float(parts[1])
+            # A row whose partner conductor is the reserved token BOUNDARY
+            # couples the local nodes to a fixed-temperature reservoir
+            # (partner_component holds the boundary temperature in K); the
+            # partner_x columns are unused. Used for the casing edge sink.
+            is_boundary = parts[2] == "BOUNDARY"
+            if is_boundary:
+                boundary_temperature = float(parts[3])
+                partner = None
+            else:
+                partner_key = (parts[2], parts[3])
+                if partner_key not in components:
+                    raise KeyError(
+                        f"transverse coupling of {self.identifier}: unknown "
+                        f"partner {partner_key[0]}/{partner_key[1]}"
+                    )
+                partner = components[partner_key]
+            partner_x_start, partner_x_end = float(parts[4]), float(parts[5])
+            conductance = float(parts[6])
+            mask = (coordinates >= x_low) & (coordinates <= x_high)
+            if not mask.any():
+                continue
+            fraction = (coordinates[mask] - x_low) / (x_high - x_low)
+            patches.append(
+                {
+                    "indices": np.flatnonzero(mask),
+                    "partner_x": partner_x_start
+                    + fraction * (partner_x_end - partner_x_start),
+                    "conductance": conductance,
+                    "temperature_exponent": (
+                        float(parts[7]) if len(parts) > 7 else 0.0
+                    ),
+                    "reference_temperature": (
+                        float(parts[8]) if len(parts) > 8 else 1.0
+                    ),
+                    "saturation_temperature": (
+                        float(parts[9]) if len(parts) > 9 else np.inf
+                    ),
+                    "partner": partner,
+                    "boundary_temperature": (
+                        boundary_temperature if is_boundary else None
+                    ),
+                }
+            )
+        return patches
+
     def initialize_heat_flux_schedule(self, simulation):
         """Initialize the imposed-heat-flux on/off time-step schedule from the
         component's operations, if a square-wave heat excitation is defined.
@@ -188,8 +346,10 @@ class SolidComponent:
         }
 
         # Check consistency between flags conductor.inputs['I0_OP_MODE'] and
-        # self.operations.operating_current_mode.
-        if self.operations.operating_current_mode != None:
+        # self.operations.operating_current_mode. Components with mode
+        # "none" (e.g. pure stabilizer strands) carry no imposed current
+        # and are exempt.
+        if self.operations.operating_current_mode is not None:
             if (
                 conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FROM_FILE
                 and self.operations.operating_current_mode != CurrentMode.CURRENT_IS_FROM_FILE
@@ -219,7 +379,17 @@ class SolidComponent:
             self.__check_current_mode(conductor)
 
         # Get current.
-        if self.operations.operating_current_mode != None:
+        if self.operations.operating_current_mode is None:
+            # Mode "none" (e.g. pure stabilizer strand): no imposed
+            # transport current; zero-fill so downstream consumers of
+            # op_current see a well-defined field.
+            self.node_fields.op_current = np.zeros(
+                conductor.mesh.number_of_nodes
+            )
+            self.gauss_fields.op_current = np.zeros(
+                conductor.mesh.number_of_nodes - 1
+            )
+        elif self.operations.operating_current_mode != None:
             # The object carryes a current and its value is defied as below.
             if conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FROM_FILE:
 
@@ -326,6 +496,24 @@ class SolidComponent:
                 self.node_fields.op_current_sc = self.node_fields.op_current
                 self.gauss_fields.op_current_sc = self.gauss_fields.op_current
 
+        # Aliases read by get_electric_resistance. Default: the imposed
+        # operating current (bit-identical to the historical reads —
+        # same ndarray objects, so the SC-regime in-place mutations keep
+        # their exact legacy semantics). The steady-state
+        # current-consistency loop (electric_solver.solve_steady_state)
+        # rebinds them to the solved network current; re-running here at
+        # every operating_conditions_em() call also re-seeds iteration 1
+        # of that loop with the imposed current.
+        self.node_fields.current_for_resistance = self.node_fields.op_current
+        self.gauss_fields.current_for_resistance = self.gauss_fields.op_current
+        if hasattr(self.node_fields, "op_current_sc"):
+            self.node_fields.current_for_resistance_sc = (
+                self.node_fields.op_current_sc
+            )
+            self.gauss_fields.current_for_resistance_sc = (
+                self.gauss_fields.op_current_sc
+            )
+
     # end Get_I
 
     def _conductor_current_ratio(self, conductor) -> float:
@@ -353,11 +541,22 @@ class SolidComponent:
                 / conductor.inputs.initial_current
             )
 
-        total_current = sum(
+        # Strands without an imposed operating current (e.g. pure
+        # stabilizer components, mode "none" -> CURRENT_NOT_DEFINED)
+        # have no op_current field and carry no share of the imposed
+        # transport current. During initialization the field is
+        # evaluated before get_current has populated op_current on any
+        # strand; the transport current is at its initial value then.
+        currents = [
             strand.node_fields.op_current[0]
             for strand in conductor.inventory.strands.collection
-        )
-        return total_current / conductor.inputs.initial_current
+            if strand.operations.operating_current_mode
+            not in (None, CurrentMode.CURRENT_NOT_DEFINED)
+            and hasattr(strand.node_fields, "op_current")
+        ]
+        if not currents:
+            return 1.0
+        return sum(currents) / conductor.inputs.initial_current
 
     def get_magnetic_field(self, conductor, nodal=True):
         if nodal:
@@ -394,14 +593,17 @@ class SolidComponent:
                         self.node_fields.B_field * conductor.inputs.initial_current
                     )
                 if (
-                    conductor.inputs.current_mode != CurrentMode.CURRENT_IS_CONSTANT
+                    self.operations.magnetic_field_scales_with_current
+                    and conductor.inputs.current_mode != CurrentMode.CURRENT_IS_CONSTANT
                     and conductor.inputs.initial_current > 0
                 ):
-                    #### bfield e' un self e' un vettore
+                    # Proportional field model for spatially resolved
+                    # profiles: the file holds B(x) at the initial current,
+                    # the field follows the actual transport current (as
+                    # LINEAR_WITH_TRANSIENT does for linear profiles).
                     self.node_fields.B_field = (
                         self.node_fields.B_field
-                        * conductor.inputs.initial_current
-                        / conductor.inputs.initial_current
+                        * self._conductor_current_ratio(conductor)
                     )
             elif self.operations.magnetic_field_bc_mode is BFieldDefinitionType.CONSTANT_OR_LINEAR:
                 self.node_fields.B_field = np.linspace(
@@ -692,6 +894,84 @@ class SolidComponent:
             conductor.mesh.number_of_nodes
         )
 
+    def _field_rate(self, conductor):
+        """Nodal dB/dt [T/s] from the field at the previous thermal step.
+
+        Computed once per thermal step and cached on the component, so
+        several field-rate-driven heat sources (AC coupling loss and the
+        jacket/copper eddy-current losses) share one consistent rate
+        without each advancing the stored field independently. Returns a
+        zero array on the first evaluation (no previous field yet) and
+        whenever the step size is non-positive. ``node_fields.B_field`` is
+        refreshed by the electromagnetic update at every thermal step, so
+        any field model drives the rate consistently.
+        """
+        time = conductor.cond_time[-1]
+        if getattr(self, "_field_rate_time", None) == time:
+            # Already evaluated this step; return the cached rate so
+            # multiple loss terms see the same value.
+            return self._field_rate_value
+        if not hasattr(self, "_field_rate_field_old"):
+            # First evaluation: seed the history, no rate available yet.
+            self._field_rate_value = np.zeros_like(self.node_fields.B_field)
+            self._field_rate_interval = 0.0
+        else:
+            time_step = time - self._field_rate_time_old
+            if time_step <= 0.0:
+                self._field_rate_value = np.zeros_like(self.node_fields.B_field)
+                self._field_rate_interval = 0.0
+            else:
+                self._field_rate_value = (
+                    self.node_fields.B_field - self._field_rate_field_old
+                ) / time_step
+                # Sampling interval of the rate, used by the relaxation
+                # model of the coupling loss (same interval as the rate).
+                self._field_rate_interval = time_step
+        self._field_rate_field_old = np.copy(self.node_fields.B_field)
+        self._field_rate_time_old = time
+        self._field_rate_time = time
+        return self._field_rate_value
+
+    def _eddy_conductivity(self, conductor):
+        """Electrical conductivity sigma [S/m] at the nodes for the eddy
+        loss. Overridden per component with the relevant metal (Al jacket,
+        Cu strand matrix); the base has no default metal."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not define an eddy-current "
+            "conductivity; override _eddy_conductivity to enable "
+            "get_eddy_loss."
+        )
+
+    def get_eddy_loss(self, conductor):
+        """Eddy-current linear power (W/m) at nodal points.
+
+        Induced-eddy dissipation from the changing field:
+
+            p_linear = sigma(T[,B]) * (dB/dt)^2 * C
+
+        with ``C = operations.eddy_loss_geometry_constant`` [m^4] the
+        second moment of the conducting cross-section about its centroid
+        (0 disables the source). ``sigma`` is supplied by the
+        component-specific ``_eddy_conductivity`` (Al6063 for the jacket,
+        copper for the strand matrix), and dB/dt comes from the shared
+        ``_field_rate`` helper. The result is stored in
+        ``node_fields.eddy_loss_linear_power`` as a (nodes, 1) column and
+        added to the Gauss-point sources in ``thermal.heat_sources``.
+        """
+        if not hasattr(self.node_fields, "eddy_loss_linear_power"):
+            self.node_fields.eddy_loss_linear_power = np.zeros(
+                (conductor.mesh.number_of_nodes, 1)
+            )
+        field_rate = self._field_rate(conductor)
+        if self.operations.eddy_loss_geometry_constant <= 0.0:
+            return
+        conductivity = self._eddy_conductivity(conductor)
+        self.node_fields.eddy_loss_linear_power[:, 0] = (
+            conductivity
+            * field_rate**2
+            * self.operations.eddy_loss_geometry_constant
+        )
+
     def get_joule_power_along(self, conductor: object):
         """Method that evaluate the contribution to the total power in the element of Joule power (in W/m) due to the electic resistances along the SolidComponent objects.
 
@@ -890,7 +1170,18 @@ class SolidComponent:
         Raises:
             ValueError: if self.operations.operating_current_mode is a string different from 'none'.
         """
-        if type(self.operations.operating_current_mode) == str:
+        if (
+            self.operations.operating_current_mode
+            is CurrentMode.CURRENT_NOT_DEFINED
+        ):
+            # Loaders that already translated the raw value deliver the
+            # CURRENT_NOT_DEFINED enum member; the canonical in-memory
+            # representation for "carries no imposed current" is None
+            # (checked as ``!= None`` throughout this class). Without
+            # this branch the member (int value 1) would fall into the
+            # ``== True`` repair below and be clobbered to a plain 1.
+            self.operations.operating_current_mode = None
+        elif type(self.operations.operating_current_mode) == str:
             self.operations.operating_current_mode = self.operations.operating_current_mode.lower()
             if self.operations.operating_current_mode == "none":
                 self.operations.operating_current_mode = None

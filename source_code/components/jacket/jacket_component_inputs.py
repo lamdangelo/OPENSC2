@@ -127,4 +127,10 @@ class JacketComponentInputLoader:
             initial_temperature_mode=int(wb["INTIAL"]),
             inlet_temperature=float(wb["TEMINL"]),
             outlet_temperature=float(wb["TEMOUT"]),
+            transverse_coupling_file=str(
+                wb.get("TRANSVERSE_COUPLING_FILE", "") or ""
+            ),
+            eddy_loss_geometry_constant=float(
+                wb.get("EDDY_LOSS_GEOMETRY_CONSTANT", 0.0) or 0.0
+            ),
         )

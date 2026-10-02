@@ -64,6 +64,8 @@ FIELD_UNITS: dict[str, str] = {
     "op_current": "A",
     "op_current_sc": "A",
     "current_along": "A",
+    "current_for_resistance": "A",
+    "current_for_resistance_sc": "A",
     "electric_resistance": "ohm",
     "electrical_resistivity_stabilizer": "ohm*m",
     "electrical_resistivity_superconductor": "ohm*m",
@@ -76,6 +78,8 @@ FIELD_UNITS: dict[str, str] = {
     "delta_voltag_along_R": "V",
     "total_linear_power_el_cond": "W/m",
     "total_power_el_cond": "W",
+    "coupling_loss_linear_power": "W/m",
+    "transverse_coupling_linear_power": "W/m",
 }
 
 

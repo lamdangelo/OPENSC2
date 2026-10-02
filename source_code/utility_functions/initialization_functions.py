@@ -112,6 +112,12 @@ def straight_coordinates(
             comp.coordinate["z"] = cond.mesh._build_refined_mesh(
                 cond.inputs.zlength
             )
+    elif cond.mesh.mesh_file is not None:
+        # Node coordinates read from the external mesh file (grid key
+        # mesh_file): straight component at its barycenter.
+        comp.coordinate["x"] = xb * np.ones(cond.mesh.number_of_nodes)
+        comp.coordinate["y"] = yb * np.ones(cond.mesh.number_of_nodes)
+        comp.coordinate["z"] = cond.mesh.node_coordinates.copy()
     else:
         coordinate, _ = cond.load_user_defined_quantity(
             sim, "EXTERNAL_GRID", cond.identifier
@@ -170,6 +176,15 @@ def helicoidal_coordinates(
                 comp.cyl_helix.reduced_pitch,
             )
 
+        (
+            comp.coordinate["x"],
+            comp.coordinate["y"],
+            comp.coordinate["z"],
+        ) = comp.cyl_helix.helix_parametrization(tau)
+    elif cond.mesh.mesh_file is not None:
+        # External mesh file: the helix parameter follows the axial node
+        # coordinates (z = reduced_pitch * tau).
+        tau = cond.mesh.node_coordinates / comp.cyl_helix.reduced_pitch
         (
             comp.coordinate["x"],
             comp.coordinate["y"],

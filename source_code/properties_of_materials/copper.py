@@ -203,6 +203,14 @@ def electrical_resistivity_cu_nist(t, b, rrr):
 
         xxx[jokb] = rhoecu0_nist(T0, rrr) / rhoecu0_nist(t[jokb], rrr) * b[jokb]
 
+        # The Fickett log10 polynomial is a fit for xxx >~ 1; extrapolated
+        # to small xxx (vanishing field, e.g. a field map scaled by an
+        # exponentially dumped current) it diverges and 10**aaa overflows
+        # to inf, which then poisons the copper conductivity (1/rho) and
+        # the thermal system matrix. The correction at xxx = 1 is already
+        # only ~2e-3, so it is skipped entirely below that.
+        jokb = np.nonzero((rrr > 1.0) & (b > 0) & (t > 0) & (xxx > 1.0))
+
         for ij in range(5):  # changed range (1,5) -- > (5), modified by Placido Daniele
             aaa[jokb] = aaa[jokb] + a[ij] * (np.log10(xxx[jokb])) ** (ij)
             # end for loop

@@ -37,6 +37,8 @@ CONDUCTOR_INPUT_KEYS = {
     "electric_method": "ELECTRIC_METHOD",
     "electric_time_step": "ELECTRIC_TIME_STEP",
     "upwind": "UPWIND",
+    "hydraulic_formulation": "HYDRAULIC_FORMULATION",
+    "explicit_mass_flow_formulation": "EXPLICIT_MASS_FLOW_FORMULATION",
     "phi_radiative": "Phi_rad",
     "phi_convective": "Phi_conv",
 }
@@ -49,6 +51,8 @@ CONDUCTOR_OPERATION_KEYS = {
     "inductance_mode": "INDUCTANCE_MODE",
     "self_inductance_mode": "SELF_INDUCTANCE_MODE",
     "maximum_iteration_number": "MAXIMUM_ITERATION_NUMBER",
+    "electric_current_consistency": "ELECTRIC_CURRENT_CONSISTENCY",
+    "electric_resistance_floor": "ELECTRIC_RESISTANCE_FLOOR",
 }
 
 # Component inputs of every kind share one table (v2 names are unique).
@@ -123,6 +127,16 @@ COMPONENT_OPERATION_KEYS = {
     "magnetic_field_outlet_transient": "BOTR",
     "magnetic_field_interpolation": "B_INTERPOLATION",
     "magnetic_field_units": "B_field_units",
+    "magnetic_field_scales_with_current": "B_SCALES_WITH_CURRENT",
+    "coupling_loss_time_constant": "COUPLING_LOSS_TIME_CONSTANT",
+    "eddy_loss_geometry_constant": "EDDY_LOSS_GEOMETRY_CONSTANT",
+    "filament_diameter": "FILAMENT_DIAMETER",
+    "coupling_loss_relaxation_time": "COUPLING_LOSS_RELAXATION_TIME",
+    "coupling_loss_copper_scaling": "COUPLING_LOSS_COPPER_SCALING",
+    "coupling_loss_reference_temperature": "COUPLING_LOSS_REFERENCE_TEMPERATURE",
+    "coupling_loss_reference_field": "COUPLING_LOSS_REFERENCE_FIELD",
+    "tape_hysteresis_loss": "TAPE_HYSTERESIS_LOSS",
+    "transverse_coupling_file": "TRANSVERSE_COUPLING_FILE",
     "field_angle_mode": "IALPHAB",
     "field_angle_interpolation": "ALPHAB_INTERPOLATION",
     "fixed_field_angle_value": "fixAlphaBvalue",
@@ -149,6 +163,7 @@ GRID_KEYS = {
     "growth_ratio_left": "DXINCRE_LEFT",
     "growth_ratio_right": "DXINCRE_RIGHT",
     "maximum_number_of_nodes": "MAXNOD",
+    "mesh_file": "MESH_FILE",
 }
 
 COUPLING_PROPERTY_KEYS = {

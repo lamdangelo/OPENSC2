@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 
 import conductor.conductor_flags as cf
 import electromagnetics.electromagnetic_flags as emf
+from hydraulics.hydraulic_flags import get_hydraulic_formulation
 
 from conductor.conductor_inputs import (
     ConductorInputs, 
@@ -152,20 +153,38 @@ class ConductorInputLoader:
     def load_grid_input(self, conductor_length: float) -> ConductorMesh:
         """Load the conductor grid input dictionary for a single conductor identifier."""
         if self.yaml_registry is not None:
-            return ConductorMesh(
-                conductor_length,
-                self.yaml_registry.grid_settings(self.conductor_counter),
-            )
-        grid_data =  pd.read_excel(
-            self.grid_path,
-            sheet_name="GRID",
-            skiprows=2,
-            header=0,
-            index_col=0,
-            usecols=["Variable name", self.conductor_identifier],
-            dtype="object",
-        )[self.conductor_identifier].to_dict()
-        return ConductorMesh(conductor_length, grid_data)
+            grid_data = self.yaml_registry.grid_settings(self.conductor_counter)
+        else:
+            grid_data = pd.read_excel(
+                self.grid_path,
+                sheet_name="GRID",
+                skiprows=2,
+                header=0,
+                index_col=0,
+                usecols=["Variable name", self.conductor_identifier],
+                dtype="object",
+            )[self.conductor_identifier].to_dict()
+        return ConductorMesh(
+            conductor_length,
+            grid_data,
+            self._resolve_mesh_file(grid_data.get("MESH_FILE")),
+            self.conductor_identifier,
+        )
+
+
+    def _resolve_mesh_file(self, value: Any) -> Optional[Path]:
+        """Resolve the optional MESH_FILE grid entry against the deck directory."""
+        if value is None:
+            return None
+        if isinstance(value, float) and np.isnan(value):
+            return None
+        text = str(value).strip()
+        if not text or text.lower() == "nan":
+            return None
+        path = Path(text)
+        if not path.is_absolute():
+            path = self.input_directory_path / path
+        return path
 
 
     def load_coupling_data(self) -> ConductorCoupling:
@@ -215,6 +234,26 @@ class ConductorInputLoader:
         return external_inputs.ExternalContactPerimeter( ... )
 
 
+    @staticmethod
+    def _as_bool(value) -> bool:
+        """Boolean of an optional flag cell: YAML booleans, workbook 0/1 and
+        the strings 'true'/'false' (case-insensitive); empty/NaN is False."""
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in ("", "false", "0", "no", "off", "nan", "none"):
+                return False
+            if text in ("true", "1", "yes", "on"):
+                return True
+            raise ValueError(f"Cannot interpret {value!r} as a boolean flag.")
+        if value is None:
+            return False
+        try:
+            if value != value:  # NaN from an empty workbook cell
+                return False
+        except TypeError:
+            pass
+        return bool(value)
+
     def load_conductor_inputs(self) -> ConductorInputs:
         """Load conductor input values and convert them to a ConductorInputs dataclass."""
         raw_inputs = self.load_identifier_sheet(self.definition_path, 
@@ -239,6 +278,12 @@ class ConductorInputLoader:
             outlet_heated_zone_end=raw_inputs["XJENOUT"],
             thermohydraulic_method=cf.MethodFlag.get_method_flag(raw_inputs["METHOD"]),
             upwind=bool(raw_inputs.get("UPWIND", False)),
+            hydraulic_formulation=get_hydraulic_formulation(
+                raw_inputs.get("HYDRAULIC_FORMULATION", "auto")
+            ),
+            explicit_mass_flow_formulation=self._as_bool(
+                raw_inputs.get("EXPLICIT_MASS_FLOW_FORMULATION", False)
+            ),
             external_free_convection_correlation=cf.ExternalFreeConvectionCorrelation.get_external_free_convection_correlation_flag(
                 raw_inputs["external_free_convection_correlation"]
             ),
@@ -261,7 +306,25 @@ class ConductorInputLoader:
             inductance_mode=emf.InductanceMode.get_inductance_mode_flag(raw_inputs["INDUCTANCE_MODE"]),
             self_inductance_mode=emf.SelfInductanceMode.get_self_inductance_mode_flag(raw_inputs["SELF_INDUCTANCE_MODE"]),
             electric_solver=emf.ElectricSolver.get_electric_solver_flag(raw_inputs["ELECTRIC_SOLVER"]),
+            electric_current_consistency=bool(
+                raw_inputs.get("ELECTRIC_CURRENT_CONSISTENCY", False)
+            ),
+            electric_resistance_floor=self._optional_float(
+                raw_inputs.get("ELECTRIC_RESISTANCE_FLOOR", 0.0)
+            ),
         )
+
+
+    @staticmethod
+    def _optional_float(value: Any, default: float = 0.0) -> float:
+        """Float of an optional entry; None/NaN/empty read as the default."""
+        if value is None:
+            return default
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        return default if np.isnan(number) else number
     
 
     def _convert_equipotential_surface_coordinate_to_array(self, equipotential_coordinates: Any) -> np.ndarray:
@@ -271,10 +334,13 @@ class ConductorInputLoader:
         Args:
             self (Self): conductor object.
         """
-        if isinstance(equipotential_coordinates, int):
+        if isinstance(equipotential_coordinates, (int, float)):
             return np.array([equipotential_coordinates], dtype=float)
         elif isinstance(equipotential_coordinates, str):
             return np.array(equipotential_coordinates.split(","), dtype=float)
+        elif isinstance(equipotential_coordinates, (list, tuple)):
+            # YAML decks provide the coordinates as a native sequence.
+            return np.array(equipotential_coordinates, dtype=float)
         else:
             raise ValueError(
                 f"Invalid type for EQUIPOTENTIAL_SURFACE_COORDINATE: {type(equipotential_coordinates)}."

@@ -8,7 +8,7 @@ StrandComponentOperations – operations fields additional to strand-type compon
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from conductor.conductor_flags import InterpolationType
@@ -60,6 +60,27 @@ class SolidComponentOperations:
     inlet_temperature: float              # TEMINL — temperature at conductor inlet in K
     outlet_temperature: float             # TEMOUT — temperature at conductor outlet in K
 
+    # B_SCALES_WITH_CURRENT — a FROM_FILE spatial profile scales with
+    # I(t)/I0 (proportional field model for spatially resolved profiles;
+    # the linear counterpart is LINEAR_WITH_TRANSIENT).
+    magnetic_field_scales_with_current: bool = field(default=False, kw_only=True)
+
+    # TRANSVERSE_COUPLING_FILE — CSV of nonlocal transverse-conduction
+    # patches (winding-geometry-adjacent positions exchanging heat
+    # through the insulation, invisible to the 1D metric); "" disables.
+    # See SolidComponent.get_transverse_coupling for the row format.
+    transverse_coupling_file: str = field(default="", kw_only=True)
+
+    # EDDY_LOSS_GEOMETRY_CONSTANT — geometry constant C [m^4] of the
+    # eddy-current heat source p = sigma(T[,B]) * (dB/dt)^2 * C, where C
+    # is the second moment of the conducting cross-section about its
+    # centroid (for a long conductor in a transverse changing field; it
+    # reduces to sigma * d^2 / 12 * A in the thin-wall limit). Applied to
+    # the metallic jacket (sigma from jacket_material) and, on strands, to
+    # the copper matrix. 0 disables the source. See
+    # SolidComponent.get_eddy_loss.
+    eddy_loss_geometry_constant: float = field(default=0.0, kw_only=True)
+
 
 @dataclass
 class StrandComponentOperations(SolidComponentOperations):
@@ -81,3 +102,63 @@ class StrandComponentOperations(SolidComponentOperations):
     fix_potential_number: int             # FIX_POTENTIAL_NUMBER
     fix_potential_coordinate: Any         # FIX_POTENTIAL_COORDINATE — float/str from Excel,
     fix_potential_value: Any              # FIX_POTENTIAL_VALUE      — converted to ndarray or None
+
+    # COUPLING_LOSS_TIME_CONSTANT — effective coupling time constant
+    # n·tau in s for the AC coupling-loss heat source
+    # p = (n·tau/µ0)·(dB/dt)² per unit strand volume; 0 disables the source.
+    coupling_loss_time_constant: float = field(default=0.0, kw_only=True)
+
+    # FILAMENT_DIAMETER — superconductor filament diameter d_f [m] for the
+    # hysteresis (persistent-current magnetization) loss
+    # p = (2/3pi) * Jc(B,T) * d_f * |dB/dt| per unit superconductor volume;
+    # 0 disables the source. See StrandComponent.get_hysteresis_loss.
+    filament_diameter: float = field(default=0.0, kw_only=True)
+
+    # COUPLING_LOSS_RELAXATION_TIME — relaxation time tau [s] of the
+    # coupling currents (loop L/R). With tau > 0 the coupling loss follows
+    # the first-order model tau*dM/dt + M = -(n*tau/mu0)*dB/dt,
+    # q = mu0*M^2/(n*tau)*A (energy saturates at tau/(tau + tau_dump) of
+    # the field energy for an exponential dump); tau = 0 keeps the
+    # instantaneous lumped model. Scalar or one value per loop family
+    # (then coupling_loss_time_constant is a list of the same length).
+    coupling_loss_relaxation_time: Any = field(default=0.0, kw_only=True)
+
+    # COUPLING_LOSS_COPPER_SCALING — scale n*tau with the copper
+    # resistivity of the transverse path, n*tau(T,B) = n*tau_ref *
+    # rho_Cu(T_ref,B_ref)/rho_Cu(T,B) (NIST, the component RRR), the
+    # reference point being COUPLING_LOSS_REFERENCE_TEMPERATURE/FIELD.
+    coupling_loss_copper_scaling: bool = field(default=False, kw_only=True)
+    coupling_loss_reference_temperature: float = field(default=0.0, kw_only=True)
+    coupling_loss_reference_field: float = field(default=0.0, kw_only=True)
+
+    # TAPE_HYSTERESIS_LOSS — REBCO stacks only: replace the round-filament
+    # Bean loss by the thin-strip loss of the tape stack bounded by full
+    # shielding of the stack (StackComponent.get_hysteresis_loss).
+    tape_hysteresis_loss: bool = field(default=False, kw_only=True)
+
+
+def loss_constant(value: Any) -> Any:
+    """Parse an optional loss constant that may be a scalar or a list (one
+    entry per coupling-loop family): None/empty/NaN -> 0.0; YAML lists ->
+    list of floats; a comma-separated string (Excel cell) -> list of floats.
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, (list, tuple)):
+        return [float(item) for item in value]
+    if isinstance(value, str):
+        text = value.strip().strip("[]")
+        if not text:
+            return 0.0
+        parts = [part for part in text.split(",") if part.strip()]
+        if len(parts) > 1:
+            return [float(part) for part in parts]
+        value = parts[0]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if number != number:  # NaN
+        return 0.0
+    return number
+

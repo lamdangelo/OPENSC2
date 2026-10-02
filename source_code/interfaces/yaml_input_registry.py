@@ -55,6 +55,36 @@ TIME_STEPPING_KEY_ALIASES = {
     "reference_duration": "TAUREF",
 }
 
+def _parse_restart_flag(value: Any) -> bool:
+    """Parse the optional simulation-level ``restart`` key (default false)."""
+    if isinstance(value, bool):
+        return value
+    raise ValueError(
+        f"Invalid simulation.restart value {value!r}: expected true or false."
+    )
+
+
+def _parse_autosave_interval(value: Any) -> Optional[int]:
+    """Parse the optional simulation-level ``autosave_interval`` key.
+
+    ``none`` (or absence) disables autosaving; an integer N stores a
+    checkpoint of the simulation state every N time steps.
+    """
+    if value is None or (isinstance(value, str) and value.lower() == "none"):
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"Invalid simulation.autosave_interval value {value!r}: expected "
+            "'none' or an integer number of time steps."
+        )
+    if value < 1:
+        raise ValueError(
+            f"Invalid simulation.autosave_interval value {value!r}: must be "
+            ">= 1."
+        )
+    return value
+
+
 # Sheet names of the coupling workbook; a coupling pair record may carry any
 # of these as keys (missing means zero, i.e. uncoupled for that property).
 COUPLING_PROPERTY_NAMES = (
@@ -92,7 +122,11 @@ def get_registry(directory: Any) -> Optional["YamlInputRegistry"]:
     component loaders only know their workbook path).
     """
     path = Path(directory)
-    if path.is_file() or path.suffix:
+    # An existing directory is always taken as-is: a directory name may
+    # contain dots (e.g. "..._return1.8L") and must not be mistaken for a
+    # file by the suffix heuristic, which only serves the component loaders
+    # passing (possibly non-existent) workbook paths inside the directory.
+    if not path.is_dir() and (path.is_file() or path.suffix):
         path = path.parent
     key = str(path.resolve())
     if key not in _registry_cache:
@@ -155,6 +189,12 @@ class YamlInputRegistry:
             "MAGNET": SIMULATION_FILE_NAME,
             "ENVIRONMENT": SIMULATION_FILE_NAME,
             "TEND": float(simulation["end_time"]),
+            # Checkpointing (YAML-only settings; the deprecated Excel front
+            # end always runs with the defaults, i.e. no autosave/restart).
+            "RESTART": _parse_restart_flag(simulation.get("restart", False)),
+            "AUTOSAVE_INTERVAL": _parse_autosave_interval(
+                simulation.get("autosave_interval")
+            ),
         }
         for yaml_key, legacy_key in TIME_STEPPING_KEY_ALIASES.items():
             if yaml_key not in time_stepping:
@@ -173,6 +213,13 @@ class YamlInputRegistry:
         return schema_v2.translate_to_legacy(
             self.document["environment"], schema_v2.ENVIRONMENT_KEYS
         )
+
+    def hydraulic_network(self) -> Optional[Dict[str, Any]]:
+        """Raw mapping of the optional top-level ``hydraulic_network:``
+        section (parsed by hydraulics.network.network_inputs), or None.
+        This is a new YAML-only section with no legacy workbook
+        counterpart, so no key translation is involved."""
+        return self.document.get("hydraulic_network")
 
     @property
     def conductor_count(self) -> int:

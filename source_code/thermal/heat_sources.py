@@ -62,6 +62,18 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
         # Evaluate joule power due to electric conductance across strand
         # object.
         strand.get_joule_power_across(conductor)
+        # Evaluate the AC coupling-loss power (effective n·tau model);
+        # zero unless operations.coupling_loss_time_constant is set.
+        strand.get_coupling_loss(conductor)
+        # Evaluate the copper-matrix eddy-current power; zero unless
+        # operations.eddy_loss_geometry_constant is set.
+        strand.get_eddy_loss(conductor)
+        # Evaluate the superconductor hysteresis power; zero unless
+        # operations.filament_diameter is set.
+        strand.get_hysteresis_loss(conductor)
+        # Evaluate the nonlocal transverse-conduction power; zero unless
+        # operations.transverse_coupling_file is set.
+        strand.get_transverse_coupling(conductor, simulation)
         # Call set_energy_counters to initialize EEXT and EJHT to zeros for
         # each conductor solid components.
         strand.set_energy_counters(conductor)
@@ -86,6 +98,12 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
         # Evaluate joule power due to electric conductance across jacket
         # object.
         jacket.get_joule_power_across(conductor)
+        # Evaluate the nonlocal transverse-conduction power; zero unless
+        # operations.transverse_coupling_file is set.
+        jacket.get_transverse_coupling(conductor, simulation)
+        # Evaluate the induced eddy-current power in the jacket metal; zero
+        # unless operations.eddy_loss_geometry_constant is set.
+        jacket.get_eddy_loss(conductor)
         # Call set_energy_counters to initialize EEXT and EJHT to zeros for
         # each conductor solid components.
         jacket.set_energy_counters(conductor)
@@ -132,6 +150,10 @@ def _build_heat_source_gauss_pt(conductor: object) -> None:
             + strand.node_fields.EXTFLX[:-1]
             + strand.node_fields.total_linear_power_el_cond[:-1]
             + strand.gauss_fields.linear_power_el_resistance
+            + strand.node_fields.coupling_loss_linear_power[:-1]
+            + strand.node_fields.eddy_loss_linear_power[:-1]
+            + strand.node_fields.hysteresis_loss_linear_power[:-1]
+            + strand.node_fields.transverse_coupling_linear_power[:-1]
         )
 
         strand.gauss_fields.Q2 = (
@@ -139,6 +161,10 @@ def _build_heat_source_gauss_pt(conductor: object) -> None:
             + strand.node_fields.EXTFLX[1:]
             + strand.node_fields.total_linear_power_el_cond[1:]
             + strand.gauss_fields.linear_power_el_resistance
+            + strand.node_fields.coupling_loss_linear_power[1:]
+            + strand.node_fields.eddy_loss_linear_power[1:]
+            + strand.node_fields.hysteresis_loss_linear_power[1:]
+            + strand.node_fields.transverse_coupling_linear_power[1:]
         )
 
     # Loop on JacketComponents objects.
@@ -148,11 +174,15 @@ def _build_heat_source_gauss_pt(conductor: object) -> None:
             jacket.node_fields.JHTFLX[:-1]
             + jacket.node_fields.EXTFLX[:-1]
             + jacket.gauss_fields.linear_power_el_resistance
+            + jacket.node_fields.transverse_coupling_linear_power[:-1]
+            + jacket.node_fields.eddy_loss_linear_power[:-1]
         )
         jacket.gauss_fields.Q2 = (
             jacket.node_fields.JHTFLX[1:]
             + jacket.node_fields.EXTFLX[1:]
             + jacket.gauss_fields.linear_power_el_resistance
+            + jacket.node_fields.transverse_coupling_linear_power[1:]
+            + jacket.node_fields.eddy_loss_linear_power[1:]
         )
         # Add the radiative heat contribution with the environment.
         jacket.gauss_fields.Q1 = (

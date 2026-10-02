@@ -12,6 +12,10 @@ from physical_fields.physical_field import (
 )
 
 import hydraulics.hydraulics as hydraulics
+from hydraulics.hydraulic_flags import (
+    HydraulicFormulation,
+    MASS_FLOW_FORMULATIONS,
+)
 import interfaces.coolprop_interface as cpi
 
 
@@ -23,7 +27,19 @@ class Coolant():
 
     # Names of the nodal fields whose time evolution at user-selected spatial
     # coordinates is recorded (in the fields' PhysicalField.time_evolution).
-    TIME_EVOLUTION_FIELDS = ("velocity", "pressure", "temperature", "total_density")
+    TIME_EVOLUTION_FIELDS = (
+        "velocity",
+        "pressure",
+        "temperature",
+        "total_density",
+        "mass_flow_rate",
+    )
+
+    # Mirror of the owning conductor's resolved hydraulic formulation
+    # (overwritten at setup by Simulation.conductor_initialization): the
+    # coolant-level property evaluation branches on it without access to
+    # the conductor object.
+    hydraulic_formulation = HydraulicFormulation.VELOCITY
 
     def __init__(self, identifier: str,
                  fluid_inputs: FluidComponentInputs,
@@ -176,12 +192,30 @@ class Coolant():
 
     def eval_dimensionless_numbers(self, fields: FieldContainer) -> FieldContainer:
         """Compute the Reynolds and Gruneisen dimensionless numbers."""
-        fields.Reynolds = hydraulics.compute_reynolds_from_velocity(
-            self.inputs.hydraulic_diameter,
-            fields.velocity,
-            fields.total_density,
-            fields.total_dynamic_viscosity,
-        )
+        if (
+            self.hydraulic_formulation in MASS_FLOW_FORMULATIONS
+            and "mass_flow_rate" in fields
+        ):
+            # Mass-flow formulation: form Re from the native unknown with
+            # the density-free expression (the helper is signed, the
+            # correlations expect |Re|). The fallback below covers the
+            # initialization calls before the field exists, where
+            # mdot = rho*A*v exactly, so both expressions coincide.
+            fields.Reynolds = np.abs(
+                hydraulics.compute_reynolds_from_mass_flow_rate(
+                    self.inputs.hydraulic_diameter,
+                    self.inputs.cross_section,
+                    fields.mass_flow_rate,
+                    fields.total_dynamic_viscosity,
+                )
+            )
+        else:
+            fields.Reynolds = hydraulics.compute_reynolds_from_velocity(
+                self.inputs.hydraulic_diameter,
+                fields.velocity,
+                fields.total_density,
+                fields.total_dynamic_viscosity,
+            )
         fields.Gruneisen = hydraulics.compute_gruneisen(
             fields.isobaric_expansion_coefficient,
             fields.isothermal_compressibility,
@@ -217,6 +251,21 @@ class Coolant():
         return fields
 
 
+    def _refresh_density_and_velocity_from_mass_flow(self):
+        """Per-step nodal refresh of the mass-flow formulation: the mirror
+        image of _compute_density_and_mass_flow_rates. The mass flow rate is
+        the native unknown (written back by reorganize_th_solution), the
+        density comes from the newly solved (p, T), and the definitive
+        velocity follows as v = mdot / (rho A)."""
+        fields = self.node_fields
+        fields.total_density = cpi.compute_mass_density(
+            self.fluid_type, fields.temperature, fields.pressure
+        )
+        fields.velocity = fields.mass_flow_rate / (
+            self.inputs.cross_section * fields.total_density
+        )
+
+
     def _eval_gauss_pressure_temperature_velocity(self, conductor):
         """[summary]
 
@@ -229,6 +278,15 @@ class Coolant():
         if bool(self.node_fields):
             # Pressure, temperature and velocity directly evaluated from the value in nodal point, averaging on two consecutives nodes.
             list_average_prop = ["temperature", "pressure", "velocity"]
+            if (
+                self.hydraulic_formulation in MASS_FLOW_FORMULATIONS
+                and "mass_flow_rate" in self.node_fields
+            ):
+                # Mass-flow formulation: carry the native unknown to the
+                # Gauss points as well (eval_dimensionless_numbers forms the
+                # Gauss Reynolds number from it). The guard covers the very
+                # first initialization call, before the field exists.
+                list_average_prop.append("mass_flow_rate")
             # Compurte pressure, temperature and velocity in Gauss points exploiting dictionary comprehension. Remember that old keys in self.gauss_fields will be deleted and the new self.gauss_fields have only the keys in list_average_prop (i.e self.gauss_fields is cleaned and constructed from scratch).
             # N.B. valutare se posso usare np.interp per calcolare pressione e temperatura nel Gauss. Per la velocità capire se posso passare per la densità nel Gauss invertendo la formula della portata come fatto per l'inizializzazione della velocità nei nodi. In questo caso userei come portata il valore medio tra i primi due nodi. Occhio che questa funzione viene utilizzata at ogni timestep non solo all'inizializzazione.
             self.gauss_fields = FieldContainer.from_mapping(

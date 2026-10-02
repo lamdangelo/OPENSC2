@@ -126,8 +126,9 @@ def save_simulation_space(conductor, f_path, n_digit_time):
         "temperature",
         "total_density",
         "friction_factor",
+        "mass_flow_rate",
     )
-    header_chan = "zcoord (m)\tvelocity (m/s)\tpressure (Pa)\ttemperature (K)\ttotal_density (kg/m^3)\tfriction_factor (~)"
+    header_chan = "zcoord (m)\tvelocity (m/s)\tpressure (Pa)\ttemperature (K)\ttotal_density (kg/m^3)\tfriction_factor (~)\tmass_flow_rate (kg/s)"
     for fluid_comp in conductor.inventory.fluids.collection:
         file_path = os.path.join(
             f_path, f"{fluid_comp.identifier}_({conductor.cond_num_step})_sd.tsv"
@@ -349,6 +350,58 @@ def save_simulation_space(conductor, f_path, n_digit_time):
 # end function Save_simulation_space (cdp, 10/2020)
 
 
+def _performed_saves(cond, f_path, n_digit_time):
+    """(actual save times, count, per-save step numbers) of the spatial
+    saves that happened.
+
+    Prefers Time_sd_actual.tsv (exact times, including a stop-time final
+    save); falls back to the save counter i_save with the scheduled
+    Space_save times.  The step numbers name the per-step files: the
+    scheduled saves recorded theirs in num_step_save, while the stop-time
+    final save has no scheduled slot and was written with the final step
+    counter -- indexing num_step_save beyond the performed scheduled
+    saves would alias the step-0 file (unwritten slots are 0) or run out
+    of bounds (early detection: every scheduled save already performed
+    plus the final save).
+    """
+    scheduled_steps = np.asarray(cond.num_step_save, dtype=int)
+    performed_scheduled = min(
+        int(getattr(cond, "i_save", scheduled_steps.size)),
+        scheduled_steps.size,
+    )
+    actual_file = os.path.join(f_path, "Time_sd_actual.tsv")
+    if os.path.isfile(actual_file):
+        actual_times = np.loadtxt(actual_file, skiprows=1, ndmin=1)
+        count = actual_times.size
+        times = np.around(actual_times, n_digit_time)
+    else:
+        count = performed_scheduled
+        times = np.around(cond.Space_save, n_digit_time)
+    steps = list(scheduled_steps[:min(performed_scheduled, count)])
+    while len(steps) < count:
+        # The stop-time final save (at most one) carries the final step.
+        steps.append(int(cond.cond_num_step))
+    return times, count, steps
+
+
+def _write_consolidated(cond, path_save, frame):
+    """Write a consolidated spatial file (one column per saved time).
+
+    After a restart of an already finalized run (checkpoint restore sets
+    ``cond.restart_after_finalization``) the file already holds the columns
+    of the saves before the checkpoint; the new columns are appended to
+    them instead of replacing the file.
+    """
+    if getattr(cond, "restart_after_finalization", False) and os.path.isfile(
+        path_save
+    ):
+        # round_trip parsing keeps the kept columns byte-identical on rewrite
+        previous = pd.read_csv(path_save, sep="\t", float_precision="round_trip")
+        kept = [column for column in previous.columns if column not in frame.columns]
+        frame = pd.concat([previous[kept], frame], axis=1)
+    frame.to_csv(path_save, sep="\t", index=False)
+
+
 def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     """
     Function that reorganizes the files of the spatial distribution collecting in a single file for each property the spatial distribution at user defined times. In this way the file format is like the ones of the time evolution and this should simplify plots and furter data analysis. (cdp, 11/2020)
@@ -359,6 +412,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         "temperature",
         "total_density",
         "friction_factor",
+        "mass_flow_rate",
     ]
     # list_sol_key = ["temperature", "total_density", "total_isobaric_specific_heat", "total_thermal_conductivity", \
     # "EXTFLX", "JHTFLX"]
@@ -375,13 +429,19 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     )
     list_sol_key_gauss = ("current_along", "delta_voltage_along", "P_along")
     # lists all the file .tsv in subfolder Spatial_distribution (cdp, 11/2020)
-    # Round the time to save to n_digit_time digits only once
-    time = np.around(cond.Space_save, n_digit_time)
+    # Only the saves actually performed can be reorganized: a run stopped
+    # early (e.g. by a step callback) leaves the trailing num_step_save
+    # entries at their initial 0, which would alias the step-0 file and
+    # crash after it has been consumed. Time_sd_actual.tsv records the
+    # true save times, including the final stop-time save.
+    time, number_of_saves, step_of_save = _performed_saves(
+        cond, f_path, n_digit_time
+    )
 
     # declare dictionary to store the spatial diccretizations only once.
     dict_zcoord = dict()
     # Loop to save spatial coordinates.
-    for ii,_ in enumerate(cond.Space_save):
+    for ii in range(number_of_saves):
         # Check if FluidComponent collection is not empty.
         if cond.inventory.fluids.collection:
             # FluidComponent collection is not empty.
@@ -391,11 +451,15 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # SolidComponent collection.
             comp = cond.inventory.solids.collection[0]
 
-        file_name = f"{comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
+        file_name = f"{comp.identifier}_({step_of_save[ii]})_sd.tsv"
         file_load = os.path.join(f_path, file_name)
+        if not os.path.isfile(file_load):
+            # Missing per-step file (e.g. consumed by an earlier,
+            # interrupted reorganization): skip this save.
+            continue
         # Load dataframe.
         df = pd.read_csv(file_load, delimiter="\t")
-        # store the spatial discretizations at each required time step in file 
+        # store the spatial discretizations at each required time step in file
         # zcoord.tsv.
         dict_zcoord[f"time = {time[ii]} (s)"] = df["zcoord (m)"]
     # convert the dictionary to a DataFrame
@@ -404,7 +468,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
     file_name = f"zcoord.tsv"
     path_save = os.path.join(f_path, file_name)
     # save the DataFrame as file zcoord.tsv
-    df_zcoord.to_csv(path_save, sep="\t", index=False)
+    _write_consolidated(cond, path_save, df_zcoord)
 
     # loop on FluidComponent (cdp, 11/2020)
     for fluid_comp in cond.inventory.fluids.collection:
@@ -415,9 +479,13 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         # declare the dictionary of data frame (cdp, 11/2020)
         dict_df = dict()
         dict_df_new = dict()
-        for ii, _ in enumerate(cond.Space_save):
-            file_name = f"{fluid_comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
+        for ii in range(number_of_saves):
+            file_name = f"{fluid_comp.identifier}_({step_of_save[ii]})_sd.tsv"
             file_load = os.path.join(f_path, file_name)
+            if not os.path.isfile(file_load):
+                # A stop-time final save can coincide with a scheduled
+                # save step: the file was already consumed above.
+                continue
             # Load file file_name as data frame as a value of dictionary \
             # corresponding to key file_name (cdp, 11/2020)
             dict_df[file_name] = pd.read_csv(
@@ -425,7 +493,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             )
             # Delete the old file format.
             os.remove(file_load)
-            if ii == 0:
+            if not dict_df_new:
                 # get columns names only the first time (cdp, 11/2020)
                 header = list(dict_df[file_name].columns.values.tolist())
                 for jj, prop in enumerate(list_ch_key):
@@ -454,6 +522,10 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
                 # end for jj (cdp, 11/2020)
             # end if ii (cdp, 11/2020)
         # end for ii (cdp, 11/2020)
+        if not dict_df_new:
+            # No per-step files found (e.g. already consumed by an
+            # earlier, interrupted reorganization): nothing to write.
+            continue
         # for loop to save the new data frame (cdp, 11/2020)
         for prop in list_ch_key:
             # build file name (cdp, 11/2020)
@@ -461,7 +533,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # build path to save the file (cdp, 11/2020)
             path_save = os.path.join(f_path, file_name)
             # save the data frame, without the row index name (cdp, 11/2020)
-            dict_df_new[prop].to_csv(path_save, sep="\t", index=False)
+            _write_consolidated(cond, path_save, dict_df_new[prop])
         # end for prop (cdp, 11/2020)
     # end for fluid_comp (cdp, 11/2020)
     # loop on SolidComponent (cdp, 11/2020)
@@ -469,13 +541,17 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
         # declare the dictionary of data frame (cdp, 11/2020)
         dict_df = dict()
         dict_df_new = dict()
-        for ii, _ in enumerate(cond.Space_save):
-            file_name = f"{s_comp.identifier}_({cond.num_step_save[ii]})_sd.tsv"
+        for ii in range(number_of_saves):
+            file_name = f"{s_comp.identifier}_({step_of_save[ii]})_sd.tsv"
             file_name_gauss = (
-                f"{s_comp.identifier}_({cond.num_step_save[ii]})_gauss_sd.tsv"
+                f"{s_comp.identifier}_({step_of_save[ii]})_gauss_sd.tsv"
             )
             file_load = os.path.join(f_path, file_name)
             file_load_gauss = os.path.join(f_path, file_name_gauss)
+            if not os.path.isfile(file_load):
+                # A stop-time final save can coincide with a scheduled
+                # save step: the file was already consumed above.
+                continue
             # Load file file_name as data frame as a value of dictionary \
             # corresponding to key file_name (cdp, 11/2020)
             dict_df[file_name] = pd.read_csv(
@@ -487,7 +563,7 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # Delete the old file format.
             os.remove(file_load)
             os.remove(file_load_gauss)
-            if ii == 0:
+            if not dict_df_new:
                 # get columns names only the first time (cdp, 11/2020)
                 header = list(dict_df[file_name].columns.values.tolist())
                 if s_comp.KIND == "Mixed_sc_stab" or s_comp.KIND == "Stack":
@@ -552,6 +628,8 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
                     )
             # end if ii (cdp, 11/2020)
         # end for ii (cdp, 11/2020)
+        if not dict_df_new:
+            continue
         # for loop to save the new data frame (cdp, 11/2020)
         for prop in list_sol_key:
             # build file name (cdp, 11/2020)
@@ -559,14 +637,14 @@ def reorganize_spatial_distribution(cond, f_path, n_digit_time):
             # build path to save the file (cdp, 11/2020)
             path_save = os.path.join(f_path, file_name)
             # save the data frame, without the row index name (cdp, 11/2020)
-            dict_df_new[prop].to_csv(path_save, sep="\t", index=False)
+            _write_consolidated(cond, path_save, dict_df_new[prop])
         for prop in list_sol_key_gauss:
             # build file name (cdp, 11/2020)
             file_name = f"{s_comp.identifier}_{prop}_sd.tsv"
             # build path to save the file (cdp, 11/2020)
             path_save = os.path.join(f_path, file_name)
             # save the data frame, without the row index name (cdp, 11/2020)
-            dict_df_new[prop].to_csv(path_save, sep="\t", index=False)
+            _write_consolidated(cond, path_save, dict_df_new[prop])
     # end for s_comp (cdp, 11/2020)
 
     # Manage files with heat exhanged between inner jackets by radiation.
@@ -603,17 +681,20 @@ def reorganize_heat_sd(cond, f_path, radix_old, radix_new, n_digit_time):
     old = dict()
     new = dict()
     cols = list()
-    time = np.around(cond.Space_save, n_digit_time)
-    for ii, _ in enumerate(cond.Space_save):
-        file_name = f"{radix_old}_({cond.num_step_save[ii]})_sd.tsv"
+    time, number_of_saves, step_of_save = _performed_saves(
+        cond, f_path, n_digit_time
+    )
+    for ii in range(number_of_saves):
+        file_name = f"{radix_old}_({step_of_save[ii]})_sd.tsv"
         file_load = os.path.join(f_path, file_name)
         # Check if file exist and if True load it.
         if os.path.isfile(file_load):
             old[file_name] = pd.read_csv(file_load, delimiter="\t")
             # Delete the old file format.
             os.remove(file_load)
-            if ii == 0:
-                # get columns names only the first time.
+            if not cols:
+                # get columns names from the first available per-step file
+                # (index 0 may be missing after a restart of a finalized run).
                 cols = old[file_name].columns.values.tolist()
                 for col in cols:
                     # decompose the old dataframe in a sub set of dataframes.
@@ -641,18 +722,22 @@ def reorganize_heat_sd(cond, f_path, radix_old, radix_new, n_digit_time):
         # build path to save the file (cdp, 11/2020)
         path_save = os.path.join(f_path, file_name)
         # save the data frame, without the row index name (cdp, 11/2020)
-        new[col].to_csv(path_save, sep="\t", index=False)
+        _write_consolidated(cond, path_save, new[col])
 
 
 # end function reorganize_heat_sd.
 
 
-def save_simulation_time(simulation, conductor):
+def save_simulation_time(simulation, conductor, flush_only=False):
 
     """
     Function to save time evolution of velocity, pressure, temperature, inlet
     and outlet mass flowrate of channels; temperature, magnetic field and
     current sharing temperature of strands and jackets temperature. (cdp, 08/2020)
+
+    With ``flush_only`` nothing new is recorded; any partially filled
+    record buffers are appended to their files (final flush of a run
+    stopped before TEND, when the TEND-based flush never triggers).
     """
 
     # At each time step find the index corresponding to the maximum node \
@@ -681,6 +766,31 @@ def save_simulation_time(simulation, conductor):
             for ii in range(1, conductor.Time_save.size)
         }
     )
+    # A restarted run re-executes this initialization call with
+    # simulation.num_step == 0: the in-memory time-evolution records must be
+    # initialized as usual, but the header writes (mode "w", they would wipe
+    # the files) and the t = 0 record are skipped - the files on disk
+    # already hold the history up to the checkpoint, truncated there by
+    # utility_functions/checkpoint.py.
+    if simulation.num_step == 0 and bool(
+        simulation.transient_input.get("RESTART")
+    ):
+        for f_comp in conductor.inventory.fluids.collection:
+            for field_name in f_comp.coolant.TIME_EVOLUTION_FIELDS:
+                f_comp.coolant.node_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord)
+            f_comp.channel.friction_factor_time_evolution.initialize(ind_zcoord)
+        for s_comp in conductor.inventory.solids.collection:
+            for field_name in s_comp.TIME_EVOLUTION_FIELDS:
+                s_comp.node_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord)
+            for field_name in s_comp.TIME_EVOLUTION_GAUSS_FIELDS:
+                s_comp.gauss_fields.ensure_field(
+                    field_name
+                ).time_evolution.initialize(ind_zcoord_gauss)
+        return
     # construct file header only once (cdp, 08/2020)
     if simulation.num_step == 0:
         headers = ["time (s)"]
@@ -796,7 +906,8 @@ def save_simulation_time(simulation, conductor):
         for field_name in fluid_comp.coolant.TIME_EVOLUTION_FIELDS:
             field = fluid_comp.coolant.node_fields.field(field_name)
             # Record the field values at the selected zcoord and current time.
-            field.time_evolution.record(time, field.values, ind_zcoord)
+            if not flush_only:
+                field.time_evolution.record(time, field.values, ind_zcoord)
             # Write the content of the record to file, if conditions are satisfied.
             save_time_evolution_on_file(
                 conductor,
@@ -809,15 +920,17 @@ def save_simulation_time(simulation, conductor):
                 ),
                 simulation.transient_input["TEND"],
                 ind_zcoord,
+                force=flush_only,
             )
         # End for field_name.
 
         # Save friction factor time evolution.
-        fluid_comp.channel.friction_factor_time_evolution.record(
-            time,
-            fluid_comp.channel.friction_factors[True].total,
-            ind_zcoord,
-        )
+        if not flush_only:
+            fluid_comp.channel.friction_factor_time_evolution.record(
+                time,
+                fluid_comp.channel.friction_factors[True].total,
+                ind_zcoord,
+            )
         # Write the content of the record to file, if conditions are satisfied.
         save_time_evolution_on_file(
             conductor,
@@ -830,6 +943,7 @@ def save_simulation_time(simulation, conductor):
             ),
             simulation.transient_input["TEND"],
             ind_zcoord,
+            force=flush_only,
         )
 
         if fluid_comp.coolant.operations.flow_direction is FlowDirection.FORWARD:
@@ -844,29 +958,46 @@ def save_simulation_time(simulation, conductor):
             simulation.dict_path[f"Output_Time_evolution_{conductor.identifier}_dir"],
             f"{fluid_comp.identifier}_inlet_outlet_te.tsv",
         )
-        fluid_comp.coolant.time_evol_io["time (s)"].append(time)
-        # Append inlet properties to list; use dict.update to avoid error (do not understood why with fluid_comp.coolant.time_evol_io.update does not work).
-        dict.update(
-            {
-                key: value.append(
-                    getattr(fluid_comp.coolant.node_fields, key.split("_inl")[0])[index_inl]
-                )
-                for key, value in fluid_comp.coolant.time_evol_io.items()
-                if "inl" in key
-            }
-        )
-        # Append outlet properties to list.
-        dict.update(
-            {
-                key: value.append(
-                    getattr(fluid_comp.coolant.node_fields, key.split("_out")[0])[index_out]
-                )
-                for key, value in fluid_comp.coolant.time_evol_io.items()
-                if "out" in key
-            }
-        )
+        if not flush_only:
+            fluid_comp.coolant.time_evol_io["time (s)"].append(time)
+            # Append inlet properties to list; use dict.update to avoid error (do not understood why with fluid_comp.coolant.time_evol_io.update does not work).
+            dict.update(
+                {
+                    key: value.append(
+                        getattr(fluid_comp.coolant.node_fields, key.split("_inl")[0])[index_inl]
+                    )
+                    for key, value in fluid_comp.coolant.time_evol_io.items()
+                    if "inl" in key
+                }
+            )
+            # Append outlet properties to list.
+            dict.update(
+                {
+                    key: value.append(
+                        getattr(fluid_comp.coolant.node_fields, key.split("_out")[0])[index_out]
+                    )
+                    for key, value in fluid_comp.coolant.time_evol_io.items()
+                    if "out" in key
+                }
+            )
         # Write the content of the dictionary to file, if conditions are satisfied.
-        if len(fluid_comp.coolant.time_evol_io["time (s)"]) == conductor.CHUNCK_SIZE:
+        if flush_only and len(fluid_comp.coolant.time_evol_io["time (s)"]) > 0:
+            pd.DataFrame(
+                fluid_comp.coolant.time_evol_io,
+                columns=list(fluid_comp.coolant.time_evol_io.keys()),
+                dtype=float,
+            ).to_csv(
+                file_name_io,
+                sep="\t",
+                mode="a",
+                chunksize=conductor.CHUNCK_SIZE,
+                index=False,
+                header=False,
+            )
+            fluid_comp.coolant.time_evol_io.update(
+                {key: list() for key in fluid_comp.coolant.time_evol_io.keys()}
+            )
+        elif len(fluid_comp.coolant.time_evol_io["time (s)"]) == conductor.CHUNCK_SIZE:
             pd.DataFrame(
                 fluid_comp.coolant.time_evol_io,
                 columns=list(fluid_comp.coolant.time_evol_io.keys()),
@@ -884,7 +1015,8 @@ def save_simulation_time(simulation, conductor):
                 {key: list() for key in fluid_comp.coolant.time_evol_io.keys()}
             )
         elif (
-            abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
+            len(fluid_comp.coolant.time_evol_io["time (s)"]) > 0
+            and abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
             / simulation.transient_input["TEND"]
             <= 1e-6
         ):
@@ -900,6 +1032,10 @@ def save_simulation_time(simulation, conductor):
                 index=False,
                 header=False,
             )
+            # Clear the flushed rows (see save_time_evolution_on_file).
+            fluid_comp.coolant.time_evol_io.update(
+                {key: list() for key in fluid_comp.coolant.time_evol_io.keys()}
+            )
         # End if len().
     # End for fluid_comp.
 
@@ -908,7 +1044,8 @@ def save_simulation_time(simulation, conductor):
         for field_name in s_comp.TIME_EVOLUTION_FIELDS:
             field = s_comp.node_fields.field(field_name)
             # Record the field values at the selected zcoord and current time.
-            field.time_evolution.record(time, field.values, ind_zcoord)
+            if not flush_only:
+                field.time_evolution.record(time, field.values, ind_zcoord)
             # Write the content of the record to file, if conditions are satisfied.
             save_time_evolution_on_file(
                 conductor,
@@ -921,17 +1058,21 @@ def save_simulation_time(simulation, conductor):
                 ),
                 simulation.transient_input["TEND"],
                 ind_zcoord,
+                force=flush_only,
             )
         # End for field_name.
         for field_name in s_comp.TIME_EVOLUTION_GAUSS_FIELDS:
             field = s_comp.gauss_fields.field(field_name)
             # Record the field values at the selected zcoord and current time.
-            if field_name == "linear_power_el_resistance":
-                field.time_evolution.record(
-                    time, field.values[:, 0], ind_zcoord_gauss
-                )
-            else:
-                field.time_evolution.record(time, field.values, ind_zcoord_gauss)
+            if not flush_only:
+                if field_name == "linear_power_el_resistance":
+                    field.time_evolution.record(
+                        time, field.values[:, 0], ind_zcoord_gauss
+                    )
+                else:
+                    field.time_evolution.record(
+                        time, field.values, ind_zcoord_gauss
+                    )
             # Write the content of the record to file, if conditions are
             # satisfied.
             save_time_evolution_on_file(
@@ -945,6 +1086,7 @@ def save_simulation_time(simulation, conductor):
                 ),
                 simulation.transient_input["TEND"],
                 ind_zcoord_gauss,
+                force=flush_only,
             )
         # End for field_name.
     # End for s_comp.
@@ -972,11 +1114,76 @@ def save_simulation_time(simulation, conductor):
 # end function Save_simulation_time (cdp, 08/2020)
 
 
-def save_time_evolution_on_file(conductor, time_evolution, file_name, tend, ind_zcoord):
+def save_network_simulation_time(simulation, conductor, flush_only=False):
+    """Save the time evolution of the hydraulic network state (node
+    pressures and branch mass flow rates) coupled to this conductor.
+
+    The file ``hydraulic_network_te.tsv`` lives in the conductor's
+    Time_evolution directory, since the network advances on that
+    conductor's time base. Mirrors the inlet/outlet quantities record: the
+    header is written once at initialization, then the buffered rows are
+    appended every ``Conductor.CHUNCK_SIZE`` recorded times or when the end
+    of the transient is reached. With several coupled conductors the state
+    is recorded exactly once per time step, by the designated output
+    conductor; no-op for every other conductor."""
+    network = simulation.hydraulic_network
+    if (
+        network is None
+        or conductor.identifier != network.output_conductor_identifier
+    ):
+        return
+    if simulation.num_step == 0 and bool(
+        simulation.transient_input.get("RESTART")
+    ):
+        # Restarted run: the file already holds the history up to the
+        # checkpoint - skip the header rewrite and the initial record.
+        return
+    file_name = os.path.join(
+        simulation.dict_path[f"Output_Time_evolution_{conductor.identifier}_dir"],
+        "hydraulic_network_te.tsv",
+    )
+    headers = network.time_evolution_headers()
+    if simulation.num_step == 0:
+        # Write the header only once, at initialization.
+        pd.DataFrame(columns=headers).to_csv(
+            file_name,
+            sep="\t",
+            index=False,
+            header=True,
+        )
+    if not flush_only:
+        network.record_time_evolution(conductor.cond_time[-1])
+    buffered_times = len(network.time_evolution_record["time (s)"])
+    end_of_transient = (
+        abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
+        / simulation.transient_input["TEND"]
+        <= 1e-6
+    )
+    if (
+        buffered_times == conductor.CHUNCK_SIZE
+        or end_of_transient
+        or (flush_only and buffered_times > 0)
+    ):
+        pd.DataFrame(
+            network.time_evolution_record, columns=headers, dtype=float
+        ).to_csv(
+            file_name,
+            sep="\t",
+            mode="a",
+            chunksize=conductor.CHUNCK_SIZE,
+            index=False,
+            header=False,
+        )
+        network.clear_time_evolution_record()
+
+
+def save_time_evolution_on_file(conductor, time_evolution, file_name, tend,
+                                ind_zcoord, force=False):
     """Flush a field's time-evolution record to file, if conditions are
     satisfied: either the record buffer is full (Conductor.CHUNCK_SIZE
-    recorded times, after which the record is re-initialized) or the end time
-    of the simulation is reached.
+    recorded times, after which the record is re-initialized), the end time
+    of the simulation is reached, or ``force`` is set (final flush of a run
+    stopped before TEND, e.g. by a step callback).
 
     Args:
         conductor (Conductor): conductor object (provides CHUNCK_SIZE and cond_time).
@@ -984,6 +1191,7 @@ def save_time_evolution_on_file(conductor, time_evolution, file_name, tend, ind_
         file_name (str): path of the output file to append to.
         tend (float): end time of the simulation.
         ind_zcoord (dict): column label -> spatial index mapping of the saved coordinates.
+        force (bool): append whatever is buffered, regardless of the conditions.
     """
     if len(time_evolution) == conductor.CHUNCK_SIZE:
         columns = time_evolution.columns()
@@ -996,7 +1204,9 @@ def save_time_evolution_on_file(conductor, time_evolution, file_name, tend, ind_
             header=False,
         )
         time_evolution.initialize(ind_zcoord)
-    elif abs(conductor.cond_time[-1] - tend) / tend <= 1e-6:
+    elif len(time_evolution) > 0 and (
+        force or abs(conductor.cond_time[-1] - tend) / tend <= 1e-6
+    ):
         columns = time_evolution.columns()
         pd.DataFrame(columns, columns=list(columns.keys()), dtype=float).to_csv(
             file_name,
@@ -1006,6 +1216,9 @@ def save_time_evolution_on_file(conductor, time_evolution, file_name, tend, ind_
             index=False,
             header=False,
         )
+        # Clear the flushed rows so a later flush cannot duplicate them
+        # (the run-end flush follows the TEND flush on completed runs).
+        time_evolution.initialize(ind_zcoord)
     # End if len(time_evolution).
 
 

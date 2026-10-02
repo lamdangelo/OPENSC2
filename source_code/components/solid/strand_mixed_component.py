@@ -561,14 +561,19 @@ class StrandMixedComponent(StrandComponent):
         sc_current_guess = np.zeros(current.shape)
         for ii, val in enumerate(current):
             # Evaluate superconducting current guess with bisection method.
-            # Set the maximum itaration to 10 and disp to False in order to not
-            # rise an error due to not reached convergence.
+            # The residual i^n + (i - I)*psi is monotone on [0, I], so the
+            # scale-immune bisection converges unconditionally; let it run
+            # to its xtol (~55 halvings) instead of a 10-iteration cap.
+            # Halley's method below can stall on the stiffly scaled residual
+            # when started from a coarse guess (bracket ~ I/1024), which
+            # surfaces as the "voltage difference along superconductor and
+            # stabilizer" consistency error in get_electric_resistance.
             sc_current_guess[ii] = optimize.bisect(
                 self.__sc_current_residual,
                 0.0,
                 val,
                 args=(psi[ii], val),
-                maxiter=10,
+                maxiter=100,
                 disp=False,
             )
         # Evaluate superconducting with Halley's method
@@ -690,6 +695,14 @@ class StrandMixedComponent(StrandComponent):
             self.cross_section["sc"] * self.gauss_fields.J_critical
         )
 
+        # Regime bookkeeping for the differential resistance (Newton solver):
+        # global gauss indices per regime and the current-divider solution,
+        # collected as the branches below run and stored on the component at
+        # the end of the method.
+        regime_sc_global = np.empty(0, dtype=int)
+        regime_sharing_global = np.empty(0, dtype=int)
+        sc_current_full = np.zeros(self.gauss_fields.temperature.shape)
+
         # Make initialization only once for each conductor object.
         if conductor.cond_num_step == 0:
             # Initialize electric resistance arrays in Gauss point; this is the 
@@ -714,7 +727,9 @@ class StrandMixedComponent(StrandComponent):
         ind_not_zero = np.nonzero(abs(critical_current_gauss) > 0)[0]
 
         # Check if np array ind_zero is not empty: NORMAL REGION BY DEFINITION
-        if ind_zero.any():
+        # (.size, not .any(): an index array containing only element 0 is
+        # falsy under .any() and would be silently skipped.)
+        if ind_zero.size > 0:
             # Evaluate electic resistance in normal region (stabilizer only).
             self.gauss_fields.electric_resistance[
                 ind_zero
@@ -722,33 +737,33 @@ class StrandMixedComponent(StrandComponent):
                 conductor, "electrical_resistivity_stabilizer", "stab", ind_zero
             )
 
-        # Check if np array ind_not_zero is not empty: deal with index that 
-        # are outside normal zone by definition; however some of them could 
+        # Check if np array ind_not_zero is not empty: deal with index that
+        # are outside normal zone by definition; however some of them could
         # still identify a normal region.
-        if ind_not_zero.any():
+        if ind_not_zero.size > 0:
 
             # Get index that correspond to superconducting regime.
             ind_sc_gauss = np.nonzero(
-                self.gauss_fields.op_current_sc[ind_not_zero] / critical_current_gauss[ind_not_zero] < 0.95
+                self.gauss_fields.current_for_resistance_sc[ind_not_zero] / critical_current_gauss[ind_not_zero] < 0.95
             )[0]
             # Get index that correspond to the normal regime.
             ind_normal_gauss = np.nonzero(
-                self.gauss_fields.op_current_sc[ind_not_zero] / critical_current_gauss[ind_not_zero] >= 0.95
+                self.gauss_fields.current_for_resistance_sc[ind_not_zero] / critical_current_gauss[ind_not_zero] >= 0.95
             )[0]
 
             ## SUPERCONDUCTING REGIME ##
 
             # Check if np array ind_sc_gauss is not empty.
-            if ind_sc_gauss.any():
+            if ind_sc_gauss.size > 0:
                 # Current in superconducting regime is the carried by
                 # superconducting material only.
-                self.gauss_fields.op_current[ind_not_zero[ind_sc_gauss]] = self.gauss_fields.op_current_sc[ind_not_zero[ind_sc_gauss]]
+                self.gauss_fields.current_for_resistance[ind_not_zero[ind_sc_gauss]] = self.gauss_fields.current_for_resistance_sc[ind_not_zero[ind_sc_gauss]]
 
                 # Compute superconducting electrical resistivity only in index 
                 # for which the superconducting regime is guaranteed, using the 
                 # power low.
                 self.gauss_fields.electrical_resistivity_superconductor[ind_not_zero[ind_sc_gauss]] = self.superconductor_power_law(
-                    self.gauss_fields.op_current[ind_not_zero[ind_sc_gauss]],
+                    self.gauss_fields.current_for_resistance[ind_not_zero[ind_sc_gauss]],
                     critical_current_gauss[ind_not_zero[ind_sc_gauss]],
                     self.gauss_fields.J_critical[ind_not_zero[ind_sc_gauss]]
                 )
@@ -761,17 +776,19 @@ class StrandMixedComponent(StrandComponent):
                     conductor, "electrical_resistivity_superconductor", "sc", ind_not_zero[ind_sc_gauss]
                 )
 
+                regime_sc_global = ind_not_zero[ind_sc_gauss]
+
             ## NORMAL REGIME ##
 
             # Check if np array ind_normal_gauss is not empty.
-            if ind_normal_gauss.any():
+            if ind_normal_gauss.size > 0:
 
                 # Evaluate how the current is distributed solving the current
                 # divider problem in Gauss point.
                 sc_current_gauss, stab_current_gauss = self.solve_current_divider(
                     self.gauss_fields.electrical_resistivity_stabilizer[ind_not_zero[ind_normal_gauss]],
                     critical_current_gauss[ind_not_zero[ind_normal_gauss]],
-                    self.gauss_fields.op_current[ind_not_zero[ind_normal_gauss]]
+                    self.gauss_fields.current_for_resistance[ind_not_zero[ind_normal_gauss]]
                 )
 
                 # Get index of the normal region where all the current is
@@ -780,7 +797,7 @@ class StrandMixedComponent(StrandComponent):
                 # power law.
                 ind_stab_gauss = np.nonzero(
                     (
-                        stab_current_gauss / self.gauss_fields.op_current[ind_not_zero[ind_normal_gauss]]
+                        stab_current_gauss / self.gauss_fields.current_for_resistance[ind_not_zero[ind_normal_gauss]]
                         > 0.999999
                     )
                     | (sc_current_gauss < 1.0)
@@ -788,20 +805,20 @@ class StrandMixedComponent(StrandComponent):
 
                 ## CURRENT CARRIED BY THE STABILIZER ##
                 # Check if np array ind_stab_gauss is not empty.
-                if ind_stab_gauss.any():
+                if ind_stab_gauss.size > 0:
                     # Get the index of location of current sharing region, if 
                     # any.
                     ind_sh_gauss = np.nonzero(
                         (
                             stab_current_gauss
-                            / self.gauss_fields.op_current[ind_not_zero[ind_normal_gauss]]
+                            / self.gauss_fields.current_for_resistance[ind_not_zero[ind_normal_gauss]]
                             <= 0.999999
                         )
                         | (sc_current_gauss >= 1.0)
                     )[0]
                     
                     # Check if nparray ind_sh_gauss is not empty.
-                    if ind_sh_gauss.any():
+                    if ind_sh_gauss.size > 0:
                         # ind_sh_gauss is not empty.
                         # Get final index of the location of the current 
                         # sharing zone, keeping into account that 
@@ -817,12 +834,16 @@ class StrandMixedComponent(StrandComponent):
                         # is empty.
                         ind_shf_gauss = {1:ind_sh_gauss,2:ind_not_zero[ind_normal_gauss]}
 
-                    # Evaluate electic resistance in normal region (stabilizer 
-                    # only).
+                    # Evaluate electic resistance in normal region (stabilizer
+                    # only) on the stabilizer-only elements themselves. (The
+                    # previous target ind_shf_gauss[2] pointed at the SHARING
+                    # elements whenever both regions coexisted, leaving the
+                    # stabilizer-only elements at their initialization value.)
+                    ind_stab_global = ind_not_zero[ind_normal_gauss[ind_stab_gauss]]
                     self.gauss_fields.electric_resistance[
-                        ind_shf_gauss[2]
+                        ind_stab_global
                     ] = self.electric_resistance(
-                        conductor, "electrical_resistivity_stabilizer", "stab", ind_shf_gauss[2]
+                        conductor, "electrical_resistivity_stabilizer", "stab", ind_stab_global
                     )
                 else:
                     # Get final index of the location of the current sharing 
@@ -835,7 +856,11 @@ class StrandMixedComponent(StrandComponent):
                     ind_shf_gauss = {1:np.nonzero(ind_normal_gauss>=0)[0],2:ind_not_zero[ind_normal_gauss]}
 
                 ## CURRENT SHARED BY THE SUPERCONDUCTOR AND THE STABILIZER ##
-                if ind_shf_gauss[1].any():
+                if ind_shf_gauss[1].size > 0:
+                    regime_sharing_global = ind_shf_gauss[2]
+                    sc_current_full[ind_shf_gauss[2]] = sc_current_gauss[
+                        ind_shf_gauss[1]
+                    ]
                     # Evaluate the electrical resistivity of the superconductor
                     # according to the power low in Gauss point in Ohm*m.
                     self.gauss_fields.electrical_resistivity_superconductor[
@@ -869,5 +894,31 @@ class StrandMixedComponent(StrandComponent):
                     # of the current divider).
                     if all(np.isclose(v_stab,v_sc)) == False:
                         raise ValueError(f"Voltage difference along superconductor and stabilizer must be the same.")
+
+        # Superconducting resistance floor of the current-consistency solve
+        # (no-op unless the conductor operation enables it); also resets
+        # the stored floor when no element is superconducting.
+        self.apply_superconducting_resistance_floor(
+            conductor, regime_sc_global, critical_current_gauss[regime_sc_global]
+        )
+
+        # Persist regime data for the differential resistance (Newton
+        # consistency solver). "normal" is built as the complement of
+        # sc ∪ sharing so the three sets always partition the mesh. The
+        # strand-only resistance is copied BEFORE the caller folds parallel
+        # jackets into gauss_fields.electric_resistance.
+        self._electric_regime_gauss = {
+            "sc": regime_sc_global,
+            "sharing": regime_sharing_global,
+            "normal": np.setdiff1d(
+                np.arange(self.gauss_fields.temperature.size),
+                np.concatenate((regime_sc_global, regime_sharing_global)),
+            ),
+            "i_sc": sc_current_full,
+            "critical_current": critical_current_gauss,
+        }
+        self._electric_resistance_strand_only = (
+            self.gauss_fields.electric_resistance.copy()
+        )
 
         return self.gauss_fields.electric_resistance

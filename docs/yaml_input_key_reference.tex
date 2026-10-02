@@ -39,6 +39,8 @@ symbolic member names planned as the next step. The multiplexed legacy
 \endhead
 \code{simulation.name} & SIMULATION & string; names the output folder \\
 \code{simulation.end\_time} & TEND & float, s \\
+\code{simulation.autosave\_interval} & AUTOSAVE\_INTERVAL & int $\ge 1$ or \code{none} (default): store a state checkpoint every $N$ accepted time steps (\code{Checkpoints/} next to \code{Output/}); YAML-only \\
+\code{simulation.restart} & RESTART & boolean, default false: resume an \emph{interrupted} run from its newest checkpoint (bit-identical continuation; refuses finalized runs and mismatched method/formulation); YAML-only \\
 \code{time\_stepping.method}\footnotemark & METHOD & \code{BE}, \code{CN}, \code{GAL}, \code{BDF2}, \code{AM4} \\
 \code{time\_stepping.adaptivity} & IADAPTIME & \code{FIXED} (0), \code{LEGACY\_EIGENVALUE} (1), \code{LEGACY\_EIGENVALUE\_SOLID\_ONLY} (2), \code{CS3U2\_SCHEDULE} (3), \code{ERROR\_CONTROLLED} (4) \\
 \code{time\_stepping.tolerance} & TOLTIME & float; relative local-truncation-error target (\code{ERROR\_CONTROLLED} only), default $10^{-3}$ \\
@@ -74,6 +76,7 @@ symbolic member names planned as the next step. The multiplexed legacy
 \code{electric\_method} & ELECTRIC\_METHOD & \code{BE}, \code{CN}, \code{GAL} ($\theta$ family; \code{BDF2} falls back to \code{BE}) \\
 \code{electric\_time\_step} & ELECTRIC\_TIME\_STEP & float, s (clamped to the thermal step) \\
 \code{upwind} & UPWIND & boolean \\
+\code{hydraulic\_formulation} & HYDRAULIC\_FORMULATION & \code{auto} (default), \code{velocity}, \code{mass\_flow}: primary variables of the channel hydraulics; \code{auto} $\Rightarrow$ \code{mass\_flow} when a \code{hydraulic\_network} port couples this conductor, else \code{velocity}; YAML-only \\
 \code{phi\_radiative}, \code{phi\_convective} & Phi\_rad, Phi\_conv & float \\
 \code{external\_free\_convection} \code{\_correlation} & (unchanged) & correlation name string \\
 \bottomrule
@@ -92,6 +95,8 @@ symbolic member names planned as the next step. The multiplexed legacy
 \code{equipotential\_surface\_coordinates} & EQUIPOTENTIAL\_SURFACE\_COORDINATE & comma-separated floats, m \\
 \code{inductance\_mode}, \code{self\_inductance\_mode} & INDUCTANCE\_MODE, SELF\_INDUCTANCE\_MODE & int flags \\
 \code{maximum\_iteration\_number} & MAXIMUM\_ITERATION\_NUMBER & int \\
+\code{electric\_current\_consistency} & ELECTRIC\_CURRENT\_CONSISTENCY & bool (default false): Newton iteration of the steady electric solve until strand resistances are consistent with the solved currents \\
+\code{electric\_resistance\_floor} & ELECTRIC\_RESISTANCE\_FLOOR & float (default 0 = off): with the current-consistency solve, floor of the superconducting element resistance $R \ge \mathrm{floor}\cdot E_0 L_e / I_c$, which makes the current split among parallel superconducting strands unique (below $I_c$ the power law leaves any loop current at zero residual, and the split drifts from step to step); $10^{-3}$ leaves the resistive regimes unchanged \\
 \bottomrule
 \end{longtable}
 
@@ -167,6 +172,14 @@ symbolic member names planned as the next step. The multiplexed legacy
 \code{current\_sharing\_temperature} \code{\_evaluation} & TCS\_EVALUATION & boolean; evaluate $T_{cs}$ every step \\
 \code{fixed\_potential\_flag/number} & FIX\_POTENTIAL\_FLAG/NUMBER & boolean; int \\
 \code{fixed\_potential\_coordinates/} \code{values} & FIX\_POTENTIAL\_COORDINATE/VALUE & comma-separated floats (m; V) \\
+\code{magnetic\_field\_scales\_with\_current} & B\_SCALES\_WITH\_CURRENT & boolean; from-file field scaled by $I(t)/I_0$ \\
+\code{coupling\_loss\_time\_constant} & COUPLING\_LOSS\_TIME\_CONSTANT & float or list, s: lumped coupling coefficient $n\tau$ per loop family (0 = off); $q = (n\tau/\mu_0)\dot B^2 A$ when the relaxation time is 0 \\
+\code{coupling\_loss\_relaxation\_time} & COUPLING\_LOSS\_RELAXATION\_TIME & float or list, s (default 0): loop relaxation time $\tau$; with $\tau>0$ the coupling magnetisation follows $\tau\dot M + M = -(n\tau/\mu_0)\dot B$ and $q=\mu_0 M^2/(n\tau)\,A$ (energy fraction $n\tau/(\tau+\tau_d)$ of $B^2/2\mu_0$ for an exponential dump) \\
+\code{coupling\_loss\_copper\_scaling}, \code{coupling\_loss\_reference\_temperature/field} & COUPLING\_LOSS\_COPPER\_SCALING, \dots\_REFERENCE\_TEMPERATURE/FIELD & boolean (default false); K; T: scale $n\tau$ with $\rho_{\mathrm{Cu}}(T_{\mathrm{ref}},B_{\mathrm{ref}})/\rho_{\mathrm{Cu}}(T,B)$ (NIST, component RRR) \\
+\code{eddy\_loss\_geometry\_constant} & EDDY\_LOSS\_GEOMETRY\_CONSTANT & float, m$^4$: second moment of the conducting section, $q=\sigma(T,B)\dot B^2 C$ (0 = off) \\
+\code{filament\_diameter} & FILAMENT\_DIAMETER & float, m: filament diameter of the round-filament hysteresis loss (LTS strands; 0 = off) \\
+\code{tape\_hysteresis\_loss} & TAPE\_HYSTERESIS\_LOSS & boolean (STACK only, default false): thin-strip hysteresis of the tape stack, $q=\min\!\big(\tfrac{2}{\pi}N I_c w/4,\; B A_{\mathrm{stack}}/\mu_0\big)|\dot B|$; replaces \code{filament\_diameter} for stacks \\
+\code{transverse\_coupling\_file} & TRANSVERSE\_COUPLING\_FILE & path: nonlocal transverse-conduction patches (jackets) \\
 \bottomrule
 \end{longtable}
 
@@ -222,6 +235,7 @@ Common to all kinds: \code{cross\_section} (CROSSECTION, m$^2$),
 \code{minimum/maximum\_element\_size} & SIZMIN, SIZMAX & float, m \\
 \code{growth\_ratio\_left/right} & DXINCRE\_LEFT/RIGHT & float $>1$ \\
 \code{maximum\_number\_of\_nodes} & MAXNOD & int \\
+\code{mesh\_file} & MESH\_FILE & path (relative to the deck directory) of a one-column text file with the node $z$ coordinates in m, strictly increasing from 0 to the conductor length; required by and only used with \code{mesh\_type: -1}. NELEMS is then derived from the file (a differing value is overridden with a warning) and MAXNOD, if given, is checked against it \\
 \bottomrule
 \end{longtable}
 

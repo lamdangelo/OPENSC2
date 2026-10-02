@@ -2,7 +2,10 @@
 This module provides an interface to the CoolProp module.
 """
 
+import math
 import os
+from dataclasses import dataclass
+from typing import Optional
 
 import CoolProp
 from CoolProp import AbstractState
@@ -26,6 +29,129 @@ _ABSTRACT_STATE_GETTER_NAMES = {
     "speed_of_sound": "speed_sound",
     "conductivity": "conductivity",
 }
+
+# --- Constant-property fluid ------------------------------------------------
+#
+# FluidType.CONSTANT selects a fluid with user-given constant properties
+# instead of the CoolProp equation of state. Every public compute_* entry
+# point dispatches on it before any CoolProp machinery runs, so the solvers
+# keep calling the same interface with no special casing. Used by the
+# verification suite (tests/verification/) to compare simulation results
+# against closed-form analytical solutions that assume constant coefficients.
+
+
+@dataclass(frozen=True)
+class ConstantFluidProperties:
+    """Constant fluid properties served for FluidType.CONSTANT.
+
+    The isobaric expansion coefficient must be zero: with beta = 0 the
+    isentropic and isothermal compressibilities coincide (kappa_s = kappa_T
+    - T beta^2 / (rho cp) ) and cp = cv (cp - cv = T beta^2 / (rho kappa_T)),
+    which is what the derived speed_of_sound and Cvmass below assume.
+    """
+
+    density: float  # rho0 [kg/m^3]
+    isothermal_compressibility: float  # kappa_T [1/Pa]
+    viscosity: float  # mu [Pa s]
+    isobaric_specific_heat: float  # cp [J/(kg K)]
+    thermal_conductivity: float = 0.6  # k [W/(m K)]
+    isobaric_expansion_coefficient: float = 0.0  # beta [1/K], must stay 0
+
+    def __post_init__(self):
+        for name in (
+            "density",
+            "isothermal_compressibility",
+            "viscosity",
+            "isobaric_specific_heat",
+            "thermal_conductivity",
+        ):
+            if getattr(self, name) <= 0.0:
+                raise ValueError(f"ConstantFluidProperties.{name} must be positive.")
+        if self.isobaric_expansion_coefficient != 0.0:
+            raise ValueError(
+                "ConstantFluidProperties requires a zero expansion coefficient:"
+                " the derived speed_of_sound and Cvmass assume beta = 0."
+            )
+
+    @property
+    def speed_of_sound(self) -> float:
+        # a = 1/sqrt(rho kappa_s), and kappa_s = kappa_T at beta = 0.
+        return 1.0 / math.sqrt(self.density * self.isothermal_compressibility)
+
+    @property
+    def prandtl(self) -> float:
+        return (
+            self.viscosity
+            * self.isobaric_specific_heat
+            / self.thermal_conductivity
+        )
+
+    def _alias_value(self, alias: str) -> float:
+        values = {
+            "Dmass": self.density,
+            "viscosity": self.viscosity,
+            "isothermal_compressibility": self.isothermal_compressibility,
+            "isobaric_expansion_coefficient": self.isobaric_expansion_coefficient,
+            "Cpmass": self.isobaric_specific_heat,
+            "Cvmass": self.isobaric_specific_heat,  # cp = cv at beta = 0
+            "speed_of_sound": self.speed_of_sound,
+            "conductivity": self.thermal_conductivity,
+            "Prandtl": self.prandtl,
+        }
+        try:
+            return values[alias]
+        except KeyError:
+            raise ValueError(
+                f"Constant-property fluid does not define alias {alias!r}."
+            ) from None
+
+    def evaluate(self, alias: str, temperature, pressure):
+        """Evaluate a CoolProp property alias, matching the PropsSI return
+        contract: a float for scalar inputs, an ndarray of the broadcast
+        shape otherwise."""
+        temperature = np.asarray(temperature, dtype=float)
+        pressure = np.asarray(pressure, dtype=float)
+        shape = np.broadcast_shapes(temperature.shape, pressure.shape)
+        if alias == "Hmass":
+            # h(T) = cp T: the only temperature-dependent property; the
+            # arbitrary reference offset is irrelevant to enthalpy balances.
+            values = np.broadcast_to(
+                self.isobaric_specific_heat * temperature, shape
+            )
+            return float(values) if shape == () else np.array(values)
+        value = self._alias_value(alias)
+        return value if shape == () else np.full(shape, value)
+
+
+DEFAULT_CONSTANT_FLUID = ConstantFluidProperties(
+    density=1000.0,
+    isothermal_compressibility=1.0e-6,
+    viscosity=1.0e-3,
+    isobaric_specific_heat=4000.0,
+)
+
+_constant_fluid_registry: dict = {FluidType.CONSTANT: DEFAULT_CONSTANT_FLUID}
+
+
+def set_constant_fluid_properties(
+    properties: ConstantFluidProperties,
+) -> ConstantFluidProperties:
+    """Register the properties served for FluidType.CONSTANT; returns the
+    previous registration so callers (test fixtures) can restore it."""
+    previous = _constant_fluid_registry[FluidType.CONSTANT]
+    _constant_fluid_registry[FluidType.CONSTANT] = properties
+    return previous
+
+
+def get_constant_fluid_properties() -> ConstantFluidProperties:
+    return _constant_fluid_registry[FluidType.CONSTANT]
+
+
+def _constant_properties(
+    fluid_type: FluidType,
+) -> Optional[ConstantFluidProperties]:
+    return _constant_fluid_registry.get(fluid_type)
+
 
 # One reusable low-level state object per fluid (creation is expensive).
 _abstract_state_cache: dict = {}
@@ -174,7 +300,11 @@ def compute_isobaric_expansion_coefficient(fluid_type: FluidType,
         np.ndarray 
             isobaric expansion coefficient in 1/K
     """
-    return PropsSI("isobaric_expansion_coefficient", "T", temperature, 
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("isobaric_expansion_coefficient",
+                                 temperature, pressure)
+    return PropsSI("isobaric_expansion_coefficient", "T", temperature,
                    "P", pressure, fluid_type.value)
 
 
@@ -199,6 +329,9 @@ def compute_isobaric_specific_heat(fluid_type: FluidType,
         np.ndarray 
             isobaric specific heat in J/(kg K)
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("Cpmass", temperature, pressure)
     return PropsSI("Cpmass", "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -223,6 +356,9 @@ def compute_isochoric_specific_heat(fluid_type: FluidType,
         np.ndarray 
             isochoric specific heat in J/(kg K)
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("Cvmass", temperature, pressure)
     return PropsSI("Cvmass", "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -246,7 +382,11 @@ def compute_isothermal_compressibility(fluid_type: FluidType,
         np.ndarray 
             isothermal compressibility in 1/Pa
     """
-    return PropsSI("isothermal_compressibility", "T", temperature, 
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("isothermal_compressibility",
+                                 temperature, pressure)
+    return PropsSI("isothermal_compressibility", "T", temperature,
                    "P", pressure, fluid_type.value)
 
 
@@ -270,6 +410,9 @@ def compute_mass_density(fluid_type: FluidType,
         np.ndarray 
             mass density in kg/m³
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("Dmass", temperature, pressure)
     scalar_inputs = np.ndim(temperature) == 0 and np.ndim(pressure) == 0
     temperature = _shift_temperature_off_critical(
         fluid_type, np.asarray(temperature, dtype=float)
@@ -308,6 +451,9 @@ def compute_mass_specific_enthalpy(fluid_type: FluidType,
         np.ndarray 
             mass specifc enthalpy in J/kg
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("Hmass", temperature, pressure)
     return PropsSI("Hmass", "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -331,6 +477,9 @@ def compute_prandtl_number(fluid_type: FluidType,
         np.ndarray 
             Prandtl number (dimensionless)
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("Prandtl", temperature, pressure)
     return PropsSI("Prandtl", "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -354,6 +503,9 @@ def compute_speed_of_sound(fluid_type: FluidType,
         np.ndarray 
             speed of sound in m/s
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("speed_of_sound", temperature, pressure)
     return PropsSI("speed_of_sound", "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -377,6 +529,9 @@ def compute_thermal_conductivity(fluid_type: FluidType,
         np.ndarray 
             thermal conductivity in W/(m K)
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("conductivity", temperature, pressure)
     return PropsSI("conductivity", "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -400,6 +555,9 @@ def compute_viscosity(fluid_type: FluidType,
         np.ndarray 
             viscosity in Pa s
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate("viscosity", temperature, pressure)
     return PropsSI("viscosity", "T", temperature, "P", pressure, fluid_type.value)
 
 def compute_property(fluid_type: FluidType,
@@ -426,6 +584,9 @@ def compute_property(fluid_type: FluidType,
         np.ndarray
             the requested property in its CoolProp unit
     """
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return constant.evaluate(property_alias, temperature, pressure)
     return PropsSI(property_alias, "T", temperature, "P", pressure, fluid_type.value)
 
 
@@ -465,6 +626,16 @@ def compute_properties(fluid_type: FluidType,
     temperature = np.atleast_1d(np.asarray(temperature, dtype=float))
     pressure = np.atleast_1d(np.asarray(pressure, dtype=float))
     temperature, pressure = np.broadcast_arrays(temperature, pressure)
+
+    constant = _constant_properties(fluid_type)
+    if constant is not None:
+        return {
+            result_name: np.asarray(
+                constant.evaluate(alias, temperature, pressure), dtype=float
+            )
+            for result_name, alias in property_aliases.items()
+        }
+
     temperature = _shift_temperature_off_critical(fluid_type, temperature)
 
     bad = ~(np.isfinite(temperature) & np.isfinite(pressure))

@@ -63,6 +63,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "build_contact_incidence_matrix": "circuit_topology",
     # Matrix builders
     "build_resistance_matrix": "resistance",
+    "build_differential_resistance_matrix": "resistance",
     "build_inductance_matrix": "inductance",
     "evaluate_transversal_distance": "conductance",
     "evaluate_electric_conductance": "conductance",
@@ -120,6 +121,7 @@ __all__ = [
     "build_contact_incidence_matrix",
     # Matrix builders
     "build_resistance_matrix",
+    "build_differential_resistance_matrix",
     "build_inductance_matrix",
     "evaluate_transversal_distance",
     "evaluate_electric_conductance",

@@ -437,3 +437,18 @@ class JacketComponent(SolidComponent):
             )
         elif self.inputs.num_material_types == 1:
             return electrical_resistivity[0]
+
+    def _eddy_conductivity(self, conductor):
+        """Nodal electrical conductivity sigma(T) [S/m] of the jacket metal
+        for the eddy-current loss (get_eddy_loss). Uses ``jacket_material``
+        (e.g. Al6063). Only reached when the eddy geometry constant is set,
+        so a non-metallic jacket (insulation) with the source disabled is
+        never queried here."""
+        from properties_of_materials.electrical_conductivity import (
+            electrical_conductivity_of,
+        )
+
+        temperature = self.node_fields.temperature.ravel()
+        return electrical_conductivity_of(
+            self.inputs.jacket_material, temperature
+        )

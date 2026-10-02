@@ -51,6 +51,95 @@ def build_resistance_matrix(conductor: object) -> None:
     )
 
 
+def build_differential_resistance_matrix(conductor: object) -> None:
+    """Build the diagonal differential-resistance matrix d(V_e)/d(I_e).
+
+    Companion of :func:`build_resistance_matrix` for the Newton branch of
+    the steady-state consistency solver: same element interleaving, but the
+    entries are the exact derivatives of the per-element voltage with
+    respect to the element current, evaluated at the operating point of the
+    LAST ``build_resistance_matrix`` call (it consumes the regime data each
+    strand stored there). Result in
+    ``conductor.electric_differential_resistance_matrix``.
+
+    Args:
+        conductor: Conductor object on which ``build_resistance_matrix``
+            (via ``electric_preprocessing``) has just run.
+    """
+    n_elements = conductor.total_elements_current_carriers
+    n_strands = conductor.inventory.strands.number
+
+    differential = np.zeros(n_elements)
+    for ii, strand in enumerate(conductor.inventory.strands.collection):
+        differential[ii::n_strands] = (
+            combine_parallel_jacket_differential_resistance(
+                conductor,
+                strand,
+                strand.get_electric_resistance_derivative(conductor),
+            )
+        )
+
+    conductor.electric_differential_resistance_matrix = diags(
+        differential,
+        offsets=0,
+        shape=(n_elements, n_elements),
+        format="csr",
+        dtype=float,
+    )
+
+
+def combine_parallel_jacket_differential_resistance(
+    conductor: object, strand: object, strand_differential: np.ndarray
+) -> np.ndarray:
+    """Differential resistance of the strand-jacket parallel chain.
+
+    Mirrors :func:`combine_parallel_jacket_resistance` (same jackets, same
+    chaining order) but is side-effect free and propagates the derivative of
+    the residual as assembled: with V = R_par(I) * I and
+    R_par = R_eff(I) || R_j (R_j current-independent),
+
+        d(R_par * I)/dI = R_par + (R_j / (R_eff + R_j))**2 * (d_eff - R_eff)
+
+    where d_eff = d(R_eff * I)/dI of the chain so far. NOTE: this is NOT
+    the parallel of d_eff with R_j — using that form silently degrades
+    Newton convergence on quench fronts.
+
+    Args:
+        conductor: Conductor object (coupling matrices and mesh available).
+        strand: the current-carrying strand component.
+        strand_differential: per-element d(V)/d(I) of the strand alone (Ohm).
+
+    Returns:
+        np.ndarray: per-element differential resistance of the parallel
+        chain in Ohm.
+    """
+    effective_resistance = strand._electric_resistance_strand_only
+    effective_differential = strand_differential
+
+    mode_matrix = conductor.coupling.electric_conductance_mode
+    for jacket in conductor.inventory.jackets.collection:
+        mode = ElectricConductanceMode.get_electric_conductance_mode(
+            int(mode_matrix[strand.identifier, jacket.identifier])
+        )
+        if mode is ElectricConductanceMode.NO_CONDUCTANCE:
+            continue
+        jacket_resistance = (
+            jacket.jacket_electrical_resistivity(jacket.gauss_fields)
+            * conductor.mesh.element_lengths
+            / (jacket.inputs.cross_section * jacket.inputs.cos_theta)
+        )
+        parallel_resistance = (
+            effective_resistance * jacket_resistance
+            / (effective_resistance + jacket_resistance)
+        )
+        effective_differential = parallel_resistance + (
+            jacket_resistance / (effective_resistance + jacket_resistance)
+        ) ** 2 * (effective_differential - effective_resistance)
+        effective_resistance = parallel_resistance
+
+    return effective_differential
+
+
 def combine_parallel_jacket_resistance(
     conductor: object, strand: object, strand_resistance: np.ndarray
 ) -> np.ndarray:

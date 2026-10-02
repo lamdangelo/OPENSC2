@@ -18,6 +18,7 @@ from electromagnetics.electromagnetic_flags import (
     ElectricSolver,
     ElectricConductanceMode,
 )
+from hydraulics.hydraulic_flags import HydraulicFormulation
 from conductor.coupling import CouplingMatrix
 
 
@@ -44,10 +45,20 @@ class ConductorInputs:
     outlet_heated_zone_start: float  # XJBEOUT - start of the heated zone in the outlet joint
     outlet_heated_zone_end: float  # XJENOUT - end of the heated zone in the outlet joint
 
-    # Solver data 
+    # Solver data
     thermohydraulic_method: MethodFlag # METHOD - numerical method for the thermohydraulic problem
     upwind: bool # UPWIND - whether to use upwind scheme for the spatial discretization of the thermohydraulic problem
-    external_free_convection_correlation: ExternalFreeConvectionCorrelation  
+    # HYDRAULIC_FORMULATION - declared primary variables of the channel
+    # hydraulics (auto | velocity | mass_flow); AUTO resolves at setup time
+    # (see hydraulics/formulation.py). YAML-only option: absent (and on the
+    # deprecated Excel front end) it stays AUTO.
+    hydraulic_formulation: HydraulicFormulation
+    # EXPLICIT_MASS_FLOW_FORMULATION - assemble a mass-flow formulation from
+    # the written-out (mdot, p, T) coefficients (hydraulics/
+    # mass_flow_equations.py) instead of the runtime similarity transform;
+    # False (default, absent key) keeps every existing deck unchanged.
+    explicit_mass_flow_formulation: bool
+    external_free_convection_correlation: ExternalFreeConvectionCorrelation
     electric_method: MethodFlag  # ELECTRIC_METHOD - numerical method for the electric problem
     electric_time_step: float 
 
@@ -99,6 +110,19 @@ class ConductorOperations:
     inductance_mode: InductanceMode  # INDUCTANCE_MODE : method to evaluate the indutance
     self_inductance_mode: SelfInductanceMode  # SELF_INDUCTANCE_MODE : method to evaluate the self-inductance
     electric_solver: ElectricSolver  # ELECTRIC_SOLVER : solver for the electric problem (steady-state or transient)
+    # ELECTRIC_CURRENT_CONSISTENCY : iterate the steady electric solve until
+    # the strand resistances are consistent with the solved currents
+    # (multi-strand current sharing); MAXIMUM_ITERATION_NUMBER is the cap.
+    electric_current_consistency: bool = False
+    # ELECTRIC_RESISTANCE_FLOOR : relative floor of the superconducting
+    # element resistance used by the current-consistency Newton solve,
+    # R >= floor * E0 * L_e / Ic. Below Ic the power law gives R -> 0, so
+    # the split of the transport current among parallel superconducting
+    # strands is undetermined (any loop current has zero residual) and the
+    # steady solve drifts from step to step until a loop current exceeds
+    # Ic. The floor pins the split to the resistive share while leaving
+    # the resistive regimes untouched (0 = off, legacy behaviour).
+    electric_resistance_floor: float = 0.0
 
 
 @dataclass
