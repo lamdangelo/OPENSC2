@@ -274,7 +274,17 @@ source_code/GUI_icons/**/
 TDD_examples/**/
 refactoring/*
 W7-X/*
-models/*
+models/HELIAS-VIPER/*
+# W7-X publication models (models/w7x): decks and validation data are
+# tracked despite the global *.csv / *.txt rules; run products are not.
+!models/w7x/**/*.csv
+!models/w7x/**/*.txt
+models/w7x/**/simulation_results/
+models/w7x/**/smoke_runs/
+models/w7x/**/figures/
+models/w7x/**/publication-ready/
+models/w7x/**/hotspot_log.tsv
+models/w7x/**/final_run_log.tsv
 analysis/*
 .vscode/*
 
