@@ -1,0 +1,22 @@
+format: opensc2-yaml/1
+simulation:
+  name: W7X_QT
+  end_time: 15.0
+  time_stepping:
+    adaptivity: ERROR_CONTROLLED
+    minimum_step: 0.001
+    maximum_step: 0.1
+    tolerance: 0.003
+    reference_time: 0
+    reference_duration: 10
+environment:
+  medium: Air
+  temperature: 300.15
+  pressure: 101325
+conductors:
+- file: conductor_CONDUCTOR_100.yaml
+- file: conductor_CONDUCTOR_200.yaml
+- file: conductor_CONDUCTOR_300.yaml
+- file: conductor_CONDUCTOR_400.yaml
+- file: conductor_CONDUCTOR_500.yaml
+- file: conductor_CONDUCTOR_600.yaml

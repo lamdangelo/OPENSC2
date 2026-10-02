@@ -1,0 +1,234 @@
+format: opensc2-yaml/1
+simulation:
+  name: W7X_QT
+  end_time: 10000.0
+  time_stepping:
+    adaptivity: ERROR_CONTROLLED
+    minimum_step: 0.001
+    maximum_step: 1.0
+    tolerance: 0.001
+    reference_time: 0
+    reference_duration: 10
+environment:
+  medium: Air
+  temperature: 300.15
+  pressure: 101325
+conductors:
+- file: conductor_CONDUCTOR_100.yaml
+- file: conductor_CONDUCTOR_200.yaml
+- file: conductor_CONDUCTOR_300.yaml
+- file: conductor_CONDUCTOR_400.yaml
+- file: conductor_CONDUCTOR_500.yaml
+- file: conductor_CONDUCTOR_600.yaml
+hydraulic_network:
+  fluid_type: helium
+  nodes:
+  - identifier: supply
+    kind: reservoir
+    pressure: 595030.0
+    temperature: 6.176
+    
+  - identifier: filter
+    kind: internal
+    initial_pressure: 595030.0
+    initial_temperature: 6.176
+    volume: 0.0018
+    
+  - identifier: pair3_header
+    kind: internal
+    initial_pressure: 595030.0
+    initial_temperature: 6.176
+    volume: 0.0000
+   
+  - identifier: pair2_header
+    kind: internal
+    initial_pressure: 595030.0
+    initial_temperature: 6.176
+    volume: 0.0000
+    
+  - identifier: pair1_header
+    kind: internal
+    initial_pressure: 595030.0
+    initial_temperature: 6.176
+    volume: 0.0000
+    
+  - identifier: outlet4_header
+    kind: internal
+    initial_pressure: 556981.0321152706
+    initial_temperature: 6.176
+    volume: 0.0000
+    
+  - identifier: outlet3_header
+    kind: internal
+    initial_pressure: 554305.5686759099
+    initial_temperature: 6.176
+    volume: 0.0000
+    
+  - identifier: outlet2_header
+    kind: internal
+    initial_pressure: 554344.851847966
+    initial_temperature: 6.176
+    volume: 0.0000
+    
+  - identifier: outlet1_header
+    kind: internal
+    initial_pressure: 552194.5360034326
+    initial_temperature: 6.176
+    volume: 0.0000
+    
+  - identifier: return_manifold
+    kind: internal
+    initial_pressure: 533190.0
+    initial_temperature: 6.176
+    volume: 0.0018
+    
+  - identifier: return_line
+    kind: reservoir
+    pressure: 533190.0
+    temperature: 6.176
+    
+  branches:
+  - identifier: supply_to_filter
+    kind: valve
+    from: supply
+    to: filter
+    linear_resistance: 0.0
+    quadratic_resistance: 100000000.0
+    inertance: 0.0
+    initial_mass_flow: 0.0037
+    
+  - identifier: filter_to_pair3
+    kind: pipe
+    from: filter
+    to: pair3_header
+    length: 0.145
+    hydraulic_diameter: 0.021
+    cross_section: 0.000346
+    friction_factor_model: 110
+    initial_mass_flow: 0.0037
+    
+  - identifier: pair3_to_pair2
+    kind: pipe 
+    from: pair3_header
+    to: pair2_header
+    length: 0.261
+    hydraulic_diameter: 0.021
+    cross_section: 0.000346
+    friction_factor_model: 110
+    initial_mass_flow: 0.0024
+    
+  - identifier: pair2_to_pair1
+    kind: pipe
+    from: pair2_header
+    to: pair1_header
+    length: 0.270
+    hydraulic_diameter: 0.021
+    cross_section: 0.000346
+    friction_factor_model: 110
+    initial_mass_flow: 0.0012
+    
+  - identifier: outlet4_to_return
+    kind: valve
+    from: outlet4_header
+    to: return_manifold
+    linear_resistance: 1.0
+    quadratic_resistance: 0.0
+    inertance: 0.0
+    initial_mass_flow: 0.0006
+    
+  - identifier: outlet3_to_return
+    kind: valve
+    from: outlet3_header
+    to: return_manifold
+    linear_resistance: 1.0
+    quadratic_resistance: 0.0
+    inertance: 0.0
+    initial_mass_flow: 0.0012
+    
+  - identifier: outlet2_to_return
+    kind: valve
+    from: outlet2_header
+    to: return_manifold
+    linear_resistance: 1.0
+    quadratic_resistance: 0.0
+    inertance: 0.0
+    initial_mass_flow: 0.0012
+ 
+  - identifier: outlet1_to_return
+    kind: valve
+    from: outlet1_header
+    to: return_manifold
+    linear_resistance: 1.0
+    quadratic_resistance: 0.0
+    inertance: 0.0
+    initial_mass_flow: 0.0006
+    
+  - identifier: to_return_line
+    kind: valve 
+    from: return_manifold
+    to: return_line 
+    linear_resistance: 0.0
+    quadratic_resistance: 100000000.0
+    inertance: 0.0
+    initial_mass_flow: 0.0006
+  
+  ports:
+  - node: pair1_header
+    conductor: CONDUCTOR_100
+    channel: CHAN1_D1
+    end: inlet
+    
+  - node: outlet1_header
+    conductor: CONDUCTOR_100
+    channel: CHAN1_D1
+    end: outlet
+    
+  - node: pair1_header
+    conductor: CONDUCTOR_200
+    channel: CHAN1_D2
+    end: inlet
+    
+  - node: outlet2_header
+    conductor: CONDUCTOR_200
+    channel: CHAN1_D2
+    end: outlet
+    
+  - node: pair2_header
+    conductor: CONDUCTOR_300
+    channel: CHAN1_D3
+    end: inlet
+    
+  - node: outlet2_header
+    conductor: CONDUCTOR_300
+    channel: CHAN1_D3
+    end: outlet
+    
+  - node: pair2_header
+    conductor: CONDUCTOR_400
+    channel: CHAN1_D4
+    end: inlet
+    
+  - node: outlet3_header
+    conductor: CONDUCTOR_400
+    channel: CHAN1_D4
+    end: outlet
+    
+  - node: pair3_header
+    conductor: CONDUCTOR_500
+    channel: CHAN1_D5
+    end: inlet
+    
+  - node: outlet3_header
+    conductor: CONDUCTOR_500
+    channel: CHAN1_D5
+    end: outlet
+    
+  - node: pair3_header
+    conductor: CONDUCTOR_600
+    channel: CHAN1_D6
+    end: inlet
+    
+  - node: outlet4_header
+    conductor: CONDUCTOR_600
+    channel: CHAN1_D6
+    end: outlet

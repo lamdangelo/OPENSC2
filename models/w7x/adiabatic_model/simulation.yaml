@@ -1,0 +1,18 @@
+# OPENSC2 simulation input (YAML schema v2), converted from the Excel workbooks.
+format: opensc2-yaml/1
+simulation:
+  name: W7X
+  end_time: 10.0
+  time_stepping:
+    adaptivity: ERROR_CONTROLLED
+    minimum_step: 0.001
+    maximum_step: 0.1
+    tolerance: 0.001
+    reference_time: 0
+    reference_duration: 10
+environment:
+  medium: Air
+  temperature: 300.15
+  pressure: 101325
+conductors:
+- file: conductor_CONDUCTOR_1.yaml
