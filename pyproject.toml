@@ -55,6 +55,13 @@ dev = [
 "line-profiler>=4.1",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: runs a full Simulation (minutes); deselect with -m 'not slow'",
+    "regression: compares a TDD example against committed reference data",
+    "verification: analytical verification suite (tests/verification)",
+]
+
 [tool.black]
 line-length = 88
 target-version = ["py311"]
