@@ -2,11 +2,7 @@ import warnings
 from components.solid.solid_component import SolidComponent
 from electromagnetics.electromagnetic_flags import CurrentMode
 import numpy as np
-from utility_functions.auxiliary_functions import (
-    load_auxiliary_files,
-    build_interpolator,
-    do_interpolation,
-)
+from numerics.interpolation import do_interpolation
 
 # from utility_functions.InitializationFunctions import Read_input_file
 # NbTi properties
@@ -364,19 +360,13 @@ class StrandComponent(SolidComponent):
             # compute alpha_B in each node (cdp, 07/2020)
             if self.operations.alpha_b_mode <= -1:  # read from file
                 if conductor.cond_time[-1] == 0:
-                    # Build file path.
-                    file_path = conductor.file_paths.external_alphab
-                    # Load auxiliary input file.
-                    alphab_df, self.flagSpecfield_alpha_b = load_auxiliary_files(
-                        file_path, sheetname=self.identifier
+                    # Tabulated alpha_B (ports.external_inputs).
+                    series = self.external_inputs.tabulated_series(
+                        "alphab", self.identifier, self.operations.alpha_b_interpolation
                     )
-                    # Build interpolator and get the interpolaion flag (space_only,time_only or space_and_time).
-                    (
-                        self.alphab_interpolator,
-                        self.alphab_interp_flag,
-                    ) = build_interpolator(
-                        alphab_df, self.operations.alpha_b_interpolation
-                    )
+                    self.flagSpecfield_alpha_b = series.unit_flag
+                    self.alphab_interpolator = series.interpolator
+                    self.alphab_interp_flag = series.interpolation_flag
 
                 # call load_user_defined_quantity on the component.
                 self.node_fields.alpha_B = do_interpolation(
@@ -637,16 +627,14 @@ class StrandComponent(SolidComponent):
             if self.operations.strain_mode < 0:  # strain from file strain.dat
 
                 if conductor.cond_time[-1] == 0:
-                    # Build file path.
-                    file_path = conductor.file_paths.external_strain
-                    # Load auxiliary input file.
-                    eps_df, self.flagSpecfield_eps = load_auxiliary_files(
-                        file_path, sheetname=self.identifier
+                    # Tabulated strain (ports.external_inputs).
+                    series = self.external_inputs.tabulated_series(
+                        "strain", self.identifier,
+                        self.operations.operating_current_interpolation,
                     )
-                    # Build interpolator and get the interpolaion flag (space_only,time_only or space_and_time).
-                    self.eps_interpolator, self.eps_interp_flag = build_interpolator(
-                        eps_df, self.operations.operating_current_interpolation
-                    )
+                    self.flagSpecfield_eps = series.unit_flag
+                    self.eps_interpolator = series.interpolator
+                    self.eps_interp_flag = series.interpolation_flag
 
                 # call load_user_defined_quantity on the component.
                 self.node_fields.Epsilon = do_interpolation(
@@ -684,36 +672,7 @@ class StrandComponent(SolidComponent):
         Method that read file scaling_input.dat to get the user scaling for SuperConductors strands and convert it into an attribute dictionary (cdp, 10/2020)
         """
 
-        # declare dictionary (cdp, 10/2020)
-        # construct list of integer values (cdp, 10/2020)
-        list_integer = ["emode", "ieavside"]
-        # Loop to read file scaling_input.dat by lines and construct a \
-        # dictionary (cdp, 10/2020)
-        with open("scaling_input.dat", "r") as scaling:
-            # Read lines (cdp, 10/2020)
-            for line in scaling:
-                if line[0] == "#" or line[0] == "\n":
-                    # escape comments and void lines (cdp, 10/2020)
-                    pass
-                else:
-                    # split the list into two fields, fields[0] is dictionary key,
-                    # fields[1] is the corresponding value. The final \n is ignored \
-                    # considering only the first [:-1] characters in string fields[1] \
-                    # (cdp, 10/2020)
-                    fields = line.split(" = ")
-                    if fields[0] in list_integer:
-                        # convert to integer (cdp, 10/2020)
-                        self.dict_scaling_input[fields[0]] = int(fields[1][:-1])
-                    elif fields[0] == "superconducting_material":
-                        # flag to
-                        self.dict_scaling_input[fields[0]] = str(fields[1][:-1])
-                    else:
-                        # convert to float (cdp, 10/2020)
-                        self.dict_scaling_input[fields[0]] = float(fields[1][:-1])
-                    # end if fields[0] (cdp, 10/2020)
-                # end if line[0] (cdp, 10/2020)
-            # end for line (cdp, 10/2020)
-        # end with (cdp, 10/2020)
+        self.dict_scaling_input = self.external_inputs.scaling_input()
 
     # end method User_scaling_margin (cdp, 10/2020)
 

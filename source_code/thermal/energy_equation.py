@@ -497,12 +497,10 @@ def build_smat_env_solid_interface(
 
     # Convective heating with the external environment (implicit treatment).
     if (
-        HTC_Choice.get_htc_choice_flag(
-            conductor.coupling.htc_choice[
+        conductor.coupling.htc_choice[
                 interface.comp_1.KIND,
                 interface.comp_2.identifier,
             ]
-        )
         == HTC_Choice.CONVECTION_HTC_COMPUTED
         and conductor.inputs.is_rectangular
     ):
@@ -613,11 +611,9 @@ def build_svec_env_jacket_interface(
     # Add the contribution of the external heating by convection to the
     # known term vector.
     if (
-        HTC_Choice.get_htc_choice_flag(
-            conductor.coupling.htc_choice[
+        conductor.coupling.htc_choice[
                 env.KIND, s_comp.identifier
             ]
-        )
         == HTC_Choice.CONVECTION_HTC_COMPUTED
         and conductor.inputs.is_rectangular
     ):

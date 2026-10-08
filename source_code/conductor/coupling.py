@@ -22,8 +22,13 @@ class CouplingMatrix(Generic[T]):
     "Environment").
     """
 
-    def __init__(self, data_frame: pd.DataFrame, dtype: type[T]):
-        self.matrix = np.triu(data_frame.to_numpy(dtype=dtype))  # np.ndarray
+    def __init__(self, data_frame: pd.DataFrame, dtype: type[T], decoder=None):
+        """``decoder`` (optional) maps every raw sheet value to a domain
+        value, e.g. a file code to its Enum member, once at load time."""
+        values = data_frame.to_numpy(dtype=object if decoder else dtype)
+        if decoder is not None:
+            values = np.vectorize(decoder, otypes=[object])(values)
+        self.matrix = np.triu(values)  # np.ndarray
         self.component_names = data_frame.columns.tolist()  # List[str]
         self.type = dtype
         self._name_to_index = {

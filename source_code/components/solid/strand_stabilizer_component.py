@@ -95,6 +95,7 @@ class StrandStabilizerComponent(StrandComponent):
         """
 
         super().__init__(inputs, operations)
+        self.external_inputs = build.external_inputs
         self.name = name
         self.identifier = identifier
 
@@ -105,10 +106,7 @@ class StrandStabilizerComponent(StrandComponent):
         self.dict_scaling_input = dict()
 
         self.initialize_heat_flux_schedule(build.time_stepping)
-        if self.operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
-            self.operations.magnetic_field_units = None
 
-        self.deal_with_flag_IOP_MODE()
 
         self.radius = np.sqrt(self.inputs.cross_section / np.pi)
 

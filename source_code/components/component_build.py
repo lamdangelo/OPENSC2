@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ports.external_inputs import ExternalInputReader
 from runtime.time_stepping import TimeSteppingSettings
 
 
@@ -13,3 +14,4 @@ class ComponentBuildSettings:
     conductor_identifier: str
     conductor_length: float  # ZLENGTH [m]
     time_stepping: TimeSteppingSettings
+    external_inputs: ExternalInputReader

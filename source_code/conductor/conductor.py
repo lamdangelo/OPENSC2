@@ -79,7 +79,6 @@ from electromagnetics.operating_conditions import (
 
 # import functions
 from numerics.interpolation import set_diagnostic
-from adapters.input.auxiliary_files import get_from_xlsx
 from numerics.initial_flow import gen_flow
 from numerics.transient_solution_functions import evaluate_time_accuracy_eigenvalue
 from adapters.output.solution_writer import (
@@ -125,6 +124,8 @@ class Conductor:
         self.number = int(self.identifier.split("_")[1])
         self.workbook_name = definition.definition_file
         self.workbook_sheet_name = definition.sheet_names
+        # Reader of the auxiliary input files (ports.external_inputs).
+        self.external_inputs = definition.external_inputs
 
         # TODO: loading and checking external files if any
 
@@ -188,6 +189,7 @@ class Conductor:
             time_stepping=TimeSteppingSettings.from_transient_settings(
                 simulation.transient_input
             ),
+            external_inputs=self.external_inputs,
         )
         for component_definition in self.definition.components:
             self.inventory.add(build_component(component_definition, build))
@@ -527,7 +529,7 @@ class Conductor:
     Questo per il momento non lo considero!!!!! (cdp)
     """
 
-        gen_flow(self, get_from_xlsx)
+        gen_flow(self, self.external_inputs.read_flow_parameters)
         # C*SET THE INITIAL VALUE OF THE FLOW VARIABLES (LINEAR P AND T)
 
         temp_ave = np.zeros(self.mesh.number_of_nodes)
@@ -1212,11 +1214,8 @@ class Conductor:
         Returns:
             [type]: [description]
         """
-        fname = getattr(self.file_paths, key.lower())
-        file_extension = str(fname).split(".")[1]
-        # Call function used to open the file
-        return simulation.func_open_aux[file_extension](
-            fname, sheet_name, simulation.default_vals[file_extension]
-        )
+        # ``simulation`` is unused (kept for call-site compatibility); the
+        # reader comes from the conductor definition.
+        return self.external_inputs.user_defined_quantity(key, sheet_name)
 
         # End method load_user_defined_quantity.

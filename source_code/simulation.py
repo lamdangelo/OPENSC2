@@ -12,7 +12,6 @@ from electromagnetics.electromagnetic_flags import CurrentMode
 from adapters.input.environment_loader import load_environment
 from hydraulics.network.coupling import build_coupled_network
 from numerics.coupled_step import solve_coupled_conductors_step
-from adapters.input.auxiliary_files import with_read_csv, with_read_excel
 from hydraulics.formulation import resolve_hydraulic_formulation
 from hydraulics.hydraulic_flags import (
     HydraulicFormulation,
@@ -94,16 +93,6 @@ class Simulation:
         self.environment = load_environment(
             os.path.join(self.basePath, self.transient_input["ENVIRONMENT"])
         )
-        # Define dictionary with default values for functions with_read_csv and with_read_excel.
-        self.default_vals = dict(dat="\t", csv=";", tsv="\t", xlsx=0)
-        # Define dictionaty with the pointers to the function to be called according to the file extension if some quantities should be loaded from an auxiliary input file.
-        self.func_open_aux = dict(
-            dat=with_read_csv,
-            csv=with_read_csv,
-            tsv=with_read_csv,
-            xlsx=with_read_excel,
-        )
-
         # Property aliases of the coolant (kept as attribute for callers;
         # the domain reads ports.fluid_properties.COOLANT_PROPERTY_ALIASES).
         self.fluid_prop_aliases = COOLANT_PROPERTY_ALIASES

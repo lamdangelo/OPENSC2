@@ -119,11 +119,9 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
             conductor.inventory.jackets.collection[rr + 1 :]
         ):
             if (
-                HTC_Choice.get_htc_choice_flag(
-                    conductor.coupling.htc_choice[
+                conductor.coupling.htc_choice[
                         jacket.identifier, jacket_c.identifier
                     ]
-                )
                 in _RADIATIVE_HTC_CHOICES
             ):
                 # Evaluate the inner heat exchange by radiation in nodal

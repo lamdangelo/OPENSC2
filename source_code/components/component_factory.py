@@ -29,7 +29,8 @@ def build_component(
 ) -> Component:
     if definition.component_type is ComponentType.FLUID:
         return FluidComponent(
-            definition.identifier, definition.inputs, definition.operations
+            definition.identifier, definition.inputs, definition.operations,
+            external_inputs=build.external_inputs,
         )
     try:
         component_class = _SOLID_CLASSES[definition.component_type]

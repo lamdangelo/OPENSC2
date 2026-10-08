@@ -91,6 +91,7 @@ class JacketComponent(SolidComponent):
         build: ComponentBuildSettings,
     ):
         super().__init__(inputs, operations)
+        self.external_inputs = build.external_inputs
         self.name = name
         self.identifier = identifier
 
@@ -101,10 +102,7 @@ class JacketComponent(SolidComponent):
         self.radiative_heat_inn = dict()
         self.coordinate = dict()
 
-        if self.operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
-            self.operations.magnetic_field_units = None
 
-        self.deal_with_flag_IOP_MODE()
 
         self.__reorganize_input()
         self.__check_consistency(build.conductor_identifier)

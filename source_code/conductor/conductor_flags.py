@@ -132,6 +132,8 @@ class HTC_Choice(IntEnum):
     @staticmethod
     def get_htc_choice_flag(htc_choice: int):
         """Convert the HTC_choice value from the Excel file to a HTC_Choice."""
+        if isinstance(htc_choice, HTC_Choice):
+            return htc_choice
         if htc_choice == 0:
             return HTC_Choice.NO_HTC
         elif htc_choice == 1:

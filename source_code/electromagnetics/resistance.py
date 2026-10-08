@@ -118,9 +118,7 @@ def combine_parallel_jacket_differential_resistance(
 
     mode_matrix = conductor.coupling.electric_conductance_mode
     for jacket in conductor.inventory.jackets.collection:
-        mode = ElectricConductanceMode.get_electric_conductance_mode(
-            int(mode_matrix[strand.identifier, jacket.identifier])
-        )
+        mode = mode_matrix[strand.identifier, jacket.identifier]
         if mode is ElectricConductanceMode.NO_CONDUCTANCE:
             continue
         jacket_resistance = (
@@ -175,9 +173,7 @@ def combine_parallel_jacket_resistance(
 
     mode_matrix = conductor.coupling.electric_conductance_mode
     for jacket in conductor.inventory.jackets.collection:
-        mode = ElectricConductanceMode.get_electric_conductance_mode(
-            int(mode_matrix[strand.identifier, jacket.identifier])
-        )
+        mode = mode_matrix[strand.identifier, jacket.identifier]
         if mode is ElectricConductanceMode.NO_CONDUCTANCE:
             continue
         jacket_resistance = (

@@ -104,11 +104,9 @@ def evaluate_channel_solid_htc(conductor: object, simulation: object, dict_dummy
                     dict_dummy_chan_r[flag_nodal]["temperature"].shape
                 )
                 if (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         fluid_comp_r.identifier, s_comp.identifier
                     ]
-                    )
                     == HTC_Choice.CONVECTION_HTC_COMPUTED
                 ):
                     htc_Kapitza = (
@@ -153,11 +151,9 @@ def evaluate_channel_solid_htc(conductor: object, simulation: object, dict_dummy
                         htc_full_transient,
                     )
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         fluid_comp_r.identifier, s_comp.identifier
                     ]
-                    )
                     == HTC_Choice.CONVECTION_HTC_READ_FROM_FILE
                 ):
                     dict_dummy.HTC["ch_sol"][
@@ -218,11 +214,9 @@ def evaluate_channel_channel_htc(conductor: object, simulation: object, dict_dum
                     f"{fluid_comp_r.identifier}_{fluid_comp_c.identifier}"
                 )
                 if (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         fluid_comp_r.identifier, fluid_comp_c.identifier
                     ]
-                    )
                     == HTC_Choice.CONVECTION_HTC_COMPUTED
                 ):
                     # dummy
@@ -250,11 +244,9 @@ def evaluate_channel_channel_htc(conductor: object, simulation: object, dict_dum
                         1 / htc1 + 1 / htc2 + R_wall
                     )
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         fluid_comp_r.identifier, fluid_comp_c.identifier
                     ]
-                    )
                     == HTC_Choice.CONVECTION_HTC_READ_FROM_FILE
                 ):
                     # in this case it is assumed that both open and close hct have the same value (cdp, 07/2020)
@@ -337,11 +329,9 @@ def evaluate_solid_solid_htc(conductor: object, simulation: object, dict_dummy: 
                 # New solid-solid interface (cdp, 09/2020)
                 htc_len = htc_len + 1
                 if (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         s_comp_r.identifier, s_comp_c.identifier
                     ]
-                    )
                     == HTC_Choice.CONDUCTION_HTC_COMPUTED
                 ):
 
@@ -392,11 +382,9 @@ def evaluate_solid_solid_htc(conductor: object, simulation: object, dict_dummy: 
                         ]
                     ] = mlt * htc_solid
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         s_comp_r.identifier, s_comp_c.identifier
                     ]
-                    )
                     == HTC_Choice.CONDUCTION_HTC_READ_FROM_FILE
                 ):
                     # Thermal contact.
@@ -410,11 +398,9 @@ def evaluate_solid_solid_htc(conductor: object, simulation: object, dict_dummy: 
                         dict_dummy_comp_r[flag_nodal]["temperature"].shape
                     ) * mlt
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         s_comp_r.identifier, s_comp_c.identifier
                     ]
-                    )
                     == HTC_Choice.RADIATIVE_HTC_COMPUTED
                 ):
                     # Radiative heat transfer.
@@ -475,11 +461,9 @@ def evaluate_solid_solid_htc(conductor: object, simulation: object, dict_dummy: 
                         # End if s_comp_r.inputs.outer_perimeter.
                     # End if emissivity.
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         s_comp_r.identifier, s_comp_c.identifier
                     ]
-                    )
                     == HTC_Choice.RADIATIVE_HTC_READ_FROM_FILE
                 ):
                     # Radiative heat transfer from sheet contact_HTC of file conductor_coupling.xlsx.
@@ -544,11 +528,9 @@ def evaluate_environment_solid_htc(conductor: object, simulation: object, dict_d
                     rad=np.zeros(dict_dummy_comp_r[flag_nodal]["temperature"].size),
                 )
                 if (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         simulation.environment.KIND, s_comp_r.identifier
                     ]
-                    )
                     == HTC_Choice.CONVECTION_HTC_COMPUTED
                 ):
                     # Heat transfer by convection: heat transfer coefficient evaluated from air properties.
@@ -585,11 +567,9 @@ def evaluate_environment_solid_htc(conductor: object, simulation: object, dict_d
                                 * conductor.inputs.phi_convective
                             )
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         simulation.environment.KIND, s_comp_r.identifier
                     ]
-                    )
                     == HTC_Choice.CONVECTION_HTC_READ_FROM_FILE
                 ):
                     # Heat transfer by convection: from sheet contact_HTC of file conductor_coupling.xlsx.
@@ -603,11 +583,9 @@ def evaluate_environment_solid_htc(conductor: object, simulation: object, dict_d
                         ) * mlt
                     )
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         simulation.environment.KIND, s_comp_r.identifier
                     ]
-                    )
                     == HTC_Choice.RADIATIVE_HTC_COMPUTED
                 ):
                     # Heat transfer by radiation.
@@ -621,11 +599,9 @@ def evaluate_environment_solid_htc(conductor: object, simulation: object, dict_d
                         dict_dummy_comp_r[flag_nodal]["temperature"],
                     ) * mlt
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         simulation.environment.KIND, s_comp_r.identifier
                     ]
-                    )
                     == HTC_Choice.RADIATIVE_HTC_READ_FROM_FILE
                 ):
                     # Heat transfer by radiation: from sheet contact_HTC of file conductor_coupling.xlsx.
@@ -639,11 +615,9 @@ def evaluate_environment_solid_htc(conductor: object, simulation: object, dict_d
                         ) * mlt
                     )
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         simulation.environment.KIND, s_comp_r.identifier
                     ]
-                    )
                     == HTC_Choice.MIXED_CONVECTION_AND_RADIATION_COMPUTED
                 ):
                     # Heat transfer by radiation and free convection: code evaluation
@@ -663,11 +637,9 @@ def evaluate_environment_solid_htc(conductor: object, simulation: object, dict_d
                         dict_dummy_comp_r[flag_nodal]["temperature"],
                     ) * mlt
                 elif (
-                    HTC_Choice.get_htc_choice_flag(
-                        conductor.coupling.htc_choice[
+                    conductor.coupling.htc_choice[
                         simulation.environment.KIND, s_comp_r.identifier
                     ]
-                    )
                     == HTC_Choice.MIXED_CONVECTION_AND_RADIATION_FROM_FILE
                 ):
                     # Heat transfer by radiation and free convection: from sheet contact_HTC of file conductor_coupling.xlsx.

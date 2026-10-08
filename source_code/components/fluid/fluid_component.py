@@ -15,7 +15,7 @@ properties:
 
 import numpy as np
 from collections import namedtuple
-from adapters.input.auxiliary_files import get_from_xlsx
+from ports.external_inputs import ExternalInputReader
 
 from components.component import Component 
 from components.fluid.fluid_component_inputs import (
@@ -39,8 +39,12 @@ class FluidComponent(Component):
 
     def __init__(self, identifier: str, inputs: FluidComponentInputs, 
                  operations: FluidComponentOperations,
-                 fluid_properties: FluidPropertyProvider = None):
+                 fluid_properties: FluidPropertyProvider = None,
+                 external_inputs: ExternalInputReader = None):
         self.identifier = identifier
+        # Reader of the auxiliary input files (flow boundary values from
+        # file); ports.external_inputs.
+        self.external_inputs = external_inputs
         self.channel = Channel(identifier, inputs, operations)
         self.coolant = Coolant(identifier, inputs, operations, fluid_properties)
         self.coordinate = dict()
@@ -272,7 +276,7 @@ class FluidComponent(Component):
             T_out = self.coolant.operations.outlet_temperature
         else:
             # get from file with interpolation in time.
-            [flow_par, flagSpecfield] = get_from_xlsx(
+            [flow_par, flagSpecfield] = self.external_inputs.read_flow_parameters(
                 conductor,
                 path,
                 self,
@@ -396,7 +400,7 @@ class FluidComponent(Component):
             T_out = self.coolant.operations.outlet_temperature
         else:  # N.B va aggiustato per renderlo conforme caso positivo!
             # all values from flow_dummy.xlsx: call get_from_xlsx.
-            [flow_par, flagSpecfield] = get_from_xlsx(
+            [flow_par, flagSpecfield] = self.external_inputs.read_flow_parameters(
                 conductor,
                 path,
                 self,
@@ -504,7 +508,7 @@ class FluidComponent(Component):
             T_out = self.coolant.operations.outlet_temperature
         else:  # N.B va aggiustato per renderlo conforme caso positivo!
             # all values from flow_dummy.xlsx: call get_from_xlsx.
-            [flow_par, flagSpecfield] = get_from_xlsx(
+            [flow_par, flagSpecfield] = self.external_inputs.read_flow_parameters(
                 conductor,
                 path,
                 self,

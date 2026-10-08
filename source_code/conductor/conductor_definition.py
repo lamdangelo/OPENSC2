@@ -17,6 +17,7 @@ from conductor.conductor_inputs import (
     ConductorOperations,
 )
 from conductor.conductor_mesh import ConductorMesh
+from ports.external_inputs import ExternalInputReader
 
 
 @dataclass
@@ -41,6 +42,7 @@ class ConductorDefinition:
     coupling: ConductorCoupling
     spatial_save_times: np.ndarray  # diagnostics: save spatial distributions at
     time_save_positions: np.ndarray  # diagnostics: save time evolutions at
+    external_inputs: ExternalInputReader = None  # auxiliary file reader
     components: List[ComponentDefinition] = field(default_factory=list)
     definition_file: Path = None  # legacy workbook_name
     sheet_names: List[str] = field(default_factory=list)

@@ -68,11 +68,9 @@ def compute_radiative_heat_exchange_jk(conductor: object) -> None:
             conductor.inventory.jackets.collection[rr + 1 :]
         ):
             if (
-                HTC_Choice.get_htc_choice_flag(
-                    conductor.coupling.htc_choice[
+                conductor.coupling.htc_choice[
                         jk_r.identifier, jk_c.identifier
                     ]
-                )
                 in _RADIATIVE_HTC_CHOICES
             ):
                 conductor.heat_rad_jk[f"{jk_r.identifier}_{jk_c.identifier}"] = (

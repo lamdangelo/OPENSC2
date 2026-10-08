@@ -1,8 +1,7 @@
 import numpy as np
 import warnings
 
-from adapters.input.auxiliary_files import load_auxiliary_files
-from numerics.interpolation import build_interpolator, do_interpolation
+from numerics.interpolation import do_interpolation
 
 from components.component_flags import ComponentType
 from components.solid.solid_component_inputs import (
@@ -28,6 +27,9 @@ class SolidComponent(Component):
         """
         self.inputs = inputs
         self.operations = operations
+        # Reader of the auxiliary input files (ports.external_inputs); set
+        # by the subclass constructors from the build settings.
+        self.external_inputs = None
 
     # end method __init__ (cdp, 11/2020)
 
@@ -393,19 +395,14 @@ class SolidComponent(Component):
             if conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FROM_FILE:
 
                 if conductor.cond_time[-1] == 0:
-                    # Build file path.
-                    file_path = conductor.file_paths.external_current
-                    # Load auxiliary input file.
-                    current_df, self.flagSpecfield_current = load_auxiliary_files(
-                        file_path, sheetname=self.identifier
+                    # Tabulated external current (ports.external_inputs).
+                    series = self.external_inputs.tabulated_series(
+                        "current", self.identifier,
+                        self.operations.operating_current_interpolation,
                     )
-                    # Build interpolator and get the interpolaion flag (space_only,time_only or space_and_time).
-                    (
-                        self.current_interpolator,
-                        self.current_interp_flag,
-                    ) = build_interpolator(
-                        current_df, self.operations.operating_current_interpolation
-                    )
+                    self.flagSpecfield_current = series.unit_flag
+                    self.current_interpolator = series.interpolator
+                    self.current_interp_flag = series.interpolation_flag
 
                 # Evaluate current of generic solid component object by
                 # interpolation.
@@ -565,19 +562,13 @@ class SolidComponent(Component):
                 # (read from file) flags -> ibifun.eq.-3, see below (August 29, 2018)
 
                 if conductor.cond_time[-1] == 0:
-                    # Build file path.
-                    file_path = conductor.file_paths.external_bfield
-                    # Load auxiliary input file.
-                    bfield_df, _ = load_auxiliary_files(
-                        file_path, sheetname=self.identifier
+                    # Tabulated external field (ports.external_inputs).
+                    series = self.external_inputs.tabulated_series(
+                        "bfield", self.identifier,
+                        self.operations.magnetic_field_interpolation,
                     )
-                    # Build interpolator and get the interpolaion flag (space_only,time_only or space_and_time).
-                    (
-                        self.bfield_interpolator,
-                        self.bfield_interp_flag,
-                    ) = build_interpolator(
-                        bfield_df, self.operations.magnetic_field_interpolation
-                    )
+                    self.bfield_interpolator = series.interpolator
+                    self.bfield_interp_flag = series.interpolation_flag
 
                 # call load_user_defined_quantity on the component.
                 self.node_fields.B_field = do_interpolation(
@@ -692,14 +683,12 @@ class SolidComponent(Component):
             # end if (cdp, 10/2020)
         elif self.operations.heat_flux_mode == HeatExcitation.FROM_FILE:
             if conductor.cond_time[-1] == 0:
-                # Build file path.
-                file_path = conductor.file_paths.external_heat
-                # Load auxiliary input file.
-                heat_df, _ = load_auxiliary_files(file_path, sheetname=self.identifier)
-                # Build interpolator and get the interpolaion flag (space_only,time_only or space_and_time).
-                self.heat_interpolator, self.heat_interp_flag = build_interpolator(
-                    heat_df, self.operations.heat_flux_interpolation
+                # Tabulated external heat (ports.external_inputs).
+                series = self.external_inputs.tabulated_series(
+                    "heat", self.identifier, self.operations.heat_flux_interpolation
                 )
+                self.heat_interpolator = series.interpolator
+                self.heat_interp_flag = series.interpolation_flag
 
                 # compute external heating at conductor initialization calling function do_interpolation.
 

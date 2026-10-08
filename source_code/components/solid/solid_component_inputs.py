@@ -137,6 +137,39 @@ class StrandComponentOperations(SolidComponentOperations):
     tape_hysteresis_loss: bool = field(default=False, kw_only=True)
 
 
+def normalize_operating_current_mode(value: Any, identifier: str = "") -> Any:
+    """Canonical in-memory value of IOP_MODE: None for "carries no imposed
+    current" (CURRENT_NOT_DEFINED or the string 'none'), 1/0 for the
+    workbook booleans, the raw code otherwise (formerly
+    SolidComponent.deal_with_flag_IOP_MODE, applied in the constructor)."""
+    if value is CurrentMode.CURRENT_NOT_DEFINED:
+        return None
+    if isinstance(value, str):
+        if value.lower() == "none":
+            return None
+        raise ValueError(
+            "Not valid value to flag operating_current_mode. Possible values "
+            f"are -1, 0 or 'none', current value is {value!r}. Check sheet "
+            f"{identifier} of input file conuctor_operation.xlsx.\n"
+        )
+    if value == True:  # noqa: E712 (workbook booleans)
+        return 1
+    if value == False:  # noqa: E712
+        return 0
+    return value
+
+
+def finalize_solid_operations(operations: SolidComponentOperations, identifier: str = ""):
+    """Loader-time normalisation formerly done by the component constructors:
+    IOP_MODE canonical value; B_field_units only meaningful for FROM_FILE."""
+    operations.operating_current_mode = normalize_operating_current_mode(
+        operations.operating_current_mode, identifier
+    )
+    if operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
+        operations.magnetic_field_units = None
+    return operations
+
+
 def loss_constant(value: Any) -> Any:
     """Parse an optional loss constant that may be a scalar or a list (one
     entry per coupling-loop family): None/empty/NaN -> 0.0; YAML lists ->

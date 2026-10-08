@@ -23,6 +23,7 @@ from components.solid.solid_component_inputs import (
     SolidComponentInputs,
     SolidComponentOperations,
     StrandComponentOperations,
+    finalize_solid_operations,
     loss_constant,
 )
 from components.solid.stack_component_inputs import StackComponentInputs, TapeLayer
@@ -158,7 +159,7 @@ class JacketComponentInputLoader:
         if isinstance(iop_mode_raw, bool):
             iop_mode_raw = 1 if iop_mode_raw else 0
 
-        return SolidComponentOperations(
+        return finalize_solid_operations(SolidComponentOperations(
             magnetic_field_bc_mode=BFieldDefinitionType.get_bfield_definition_type(int(wb["IBIFUN"])),
             magnetic_field_units=str(wb.get("B_field_units", "")) or None,
             magnetic_field_inlet_initial=float(wb["BISS"]),
@@ -184,7 +185,7 @@ class JacketComponentInputLoader:
             eddy_loss_geometry_constant=float(
                 wb.get("EDDY_LOSS_GEOMETRY_CONSTANT", 0.0) or 0.0
             ),
-        )
+        ), self.identifier)
 
 
 class StackComponentInputLoader:
@@ -267,7 +268,7 @@ class StackComponentInputLoader:
         if isinstance(iop_mode_raw, bool):
             iop_mode_raw = 1 if iop_mode_raw else 0
 
-        return StrandComponentOperations(
+        return finalize_solid_operations(StrandComponentOperations(
             magnetic_field_bc_mode=BFieldDefinitionType.get_bfield_definition_type(int(wb["IBIFUN"])),
             magnetic_field_units=str(wb.get("B_field_units", "")) or None,
             magnetic_field_inlet_initial=float(wb["BISS"]),
@@ -329,7 +330,7 @@ class StackComponentInputLoader:
             transverse_coupling_file=str(
                 wb.get("TRANSVERSE_COUPLING_FILE", "") or ""
             ),
-        )
+        ), self.identifier)
 
 
 class StrandMixedInputLoader:
@@ -392,7 +393,7 @@ class StrandMixedInputLoader:
         if isinstance(iop_mode_raw, bool):
             iop_mode_raw = 1 if iop_mode_raw else 0
 
-        return StrandComponentOperations(
+        return finalize_solid_operations(StrandComponentOperations(
             magnetic_field_bc_mode=BFieldDefinitionType.get_bfield_definition_type(int(wb["IBIFUN"])),
             magnetic_field_units=str(wb.get("B_field_units", "")) or None,
             magnetic_field_inlet_initial=float(wb["BISS"]),
@@ -446,7 +447,7 @@ class StrandMixedInputLoader:
             filament_diameter=float(
                 wb.get("FILAMENT_DIAMETER", 0.0) or 0.0
             ),
-        )
+        ), self.identifier)
 
 
 class StrandStabilizerInputLoader:
@@ -513,7 +514,7 @@ class StrandStabilizerInputLoader:
         if isinstance(iop_mode_raw, bool):
             iop_mode_raw = 1 if iop_mode_raw else 0
 
-        return StrandComponentOperations(
+        return finalize_solid_operations(StrandComponentOperations(
             magnetic_field_bc_mode=BFieldDefinitionType.get_bfield_definition_type(int(wb["IBIFUN"])),
             magnetic_field_units=str(wb.get("B_field_units", "")) or None,
             magnetic_field_inlet_initial=float(wb["BISS"]),
@@ -577,4 +578,4 @@ class StrandStabilizerInputLoader:
             transverse_coupling_file=str(
                 wb.get("TRANSVERSE_COUPLING_FILE", "") or ""
             ),
-        )
+        ), self.identifier)

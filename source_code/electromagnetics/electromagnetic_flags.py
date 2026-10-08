@@ -126,6 +126,8 @@ class ElectricConductanceMode(IntEnum):
         Convert the electric_conductance_mode value from the Excel file to an
         ElectricConductanceMode.
         """
+        if isinstance(flag, ElectricConductanceMode):
+            return flag
         if flag == 0:
             return ElectricConductanceMode.NO_CONDUCTANCE
         elif flag == 1:

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from adapters.output.solution_writer import _performed_saves
 
 from components.component_flags import ComponentType
+from conductor.conductor_flags import HTC_Choice
 
 import numpy as np
 import pandas as pd
@@ -461,13 +462,11 @@ def make_plots(simulation, kind="Space_distr"):
                 for _, jk_c in enumerate(
                     cond.inventory.solids.collection[rr + 1 :]
                 ):
-                    if (
-                        abs(
-                            cond.coupling.htc_choice[
-                                jk_r.identifier, jk_c.identifier
-                            ]
-                        )
-                        == 3
+                    if cond.coupling.htc_choice[
+                        jk_r.identifier, jk_c.identifier
+                    ] in (
+                        HTC_Choice.RADIATIVE_HTC_COMPUTED,
+                        HTC_Choice.RADIATIVE_HTC_READ_FROM_FILE,
                     ):
                         prop = f"Heat_rad_{jk_r.identifier}_{jk_c.identifier}"
                         # Build file path.

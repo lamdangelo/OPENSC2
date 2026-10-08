@@ -103,8 +103,7 @@ def evaluate_electric_conductance(
         # Array indices into gauss_node_distance (offset for fluids only)
         arr_ind = indexes + n_fluid
 
-        raw_mode = int(conductor.electric_conductance_mode[indexes[0], indexes[1]])
-        mode = ElectricConductanceMode.get_electric_conductance_mode(raw_mode)
+        mode = conductor.electric_conductance_mode[indexes[0], indexes[1]]
 
         sigma = conductor.electric_conductance[indexes[0], indexes[1]]
         gnd_i = conductor.gauss_node_distance[arr_ind[0]::n_all]

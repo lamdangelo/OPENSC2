@@ -26,6 +26,7 @@ import conductor.external_inputs as external_inputs
 import adapters.input.yaml_input_registry as yaml_input_registry
 from adapters.input import open_input_source
 from ports.input_source import InputSource
+from adapters.input.external_inputs import FileExternalInputReader
 from components.component_flags import ComponentType, get_component_type
 from conductor.conductor_definition import ComponentDefinition, ConductorDefinition
 from adapters.input.component_loaders import (
@@ -176,12 +177,17 @@ class ConductorInputLoader:
             return ConductorCoupling(
                     contact_perimeter_flag=CouplingMatrix(workbook["contact_perimeter_flag"], int),
                     contact_perimeter=CouplingMatrix(workbook["contact_perimeter"], float),
-                    htc_choice=CouplingMatrix(workbook["HTC_choice"], cf.HTC_Choice),
+                    htc_choice=CouplingMatrix(
+                        workbook["HTC_choice"], cf.HTC_Choice, cf.HTC_Choice.get_htc_choice_flag
+                    ),
                     htc_contact=CouplingMatrix(workbook["contact_HTC"], float),
                     thermal_contact_resistance=CouplingMatrix(workbook["thermal_contact_resistance"], float),
                     htc_multiplier=CouplingMatrix(workbook["HTC_multiplier"], float),
-                    electric_conductance_mode=CouplingMatrix(workbook["electric_conductance_mode"], 
-                                                            emf.ElectricConductanceMode),
+                    electric_conductance_mode=CouplingMatrix(
+                        workbook["electric_conductance_mode"],
+                        emf.ElectricConductanceMode,
+                        emf.ElectricConductanceMode.get_electric_conductance_mode,
+                    ),
                     electric_conductance=CouplingMatrix(workbook["electric_conductance"], float), 
                     open_perimeter_fraction=CouplingMatrix(workbook["open_perimeter_fract"], float), 
                     interface_thickness=CouplingMatrix(workbook["interf_thickness"], float),
@@ -388,6 +394,7 @@ def load_conductor_definition(
     coupling = loader.load_coupling_data()
     validator.check_equipotential_surface_coordinate(operations, inputs.zlength)
     validator.check_for_unphysical_coupling_data(coupling)
+    file_paths = loader.load_input_files()
     definition_file = (
         base_path / magnet_file_name if magnet_file_name is not None
         else loader.definition_path
@@ -398,11 +405,12 @@ def load_conductor_definition(
         identifier=loader.conductor_identifier,
         inputs=inputs,
         operations=operations,
-        file_paths=loader.load_input_files(),
+        file_paths=file_paths,
         mesh=loader.load_grid_input(inputs.zlength),
         coupling=coupling,
         spatial_save_times=np.array(source.diagnostic_spatial_times(counter), dtype=float),
         time_save_positions=np.array(source.diagnostic_time_positions(counter), dtype=float),
+        external_inputs=FileExternalInputReader(file_paths),
         components=load_component_definitions(source, counter),
         definition_file=definition_file,
         sheet_names=list(loader.conductor_sheet_names),

@@ -151,6 +151,7 @@ class StrandMixedComponent(StrandComponent):
         """
 
         super().__init__(inputs, operations)
+        self.external_inputs = build.external_inputs
         self.name = name
         self.identifier = identifier
 
@@ -163,10 +164,7 @@ class StrandMixedComponent(StrandComponent):
         self.__compute_cross_section()
         self.__get_current_density_cross_section()
         self.initialize_heat_flux_schedule(build.time_stepping)
-        if self.operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
-            self.operations.magnetic_field_units = None
 
-        self.deal_with_flag_IOP_MODE()
 
         self.radius = np.sqrt(self.inputs.cross_section / np.pi)
 
