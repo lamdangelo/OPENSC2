@@ -1,14 +1,12 @@
 from decimal import Decimal
-from openpyxl import load_workbook
 import adapters.input.yaml_input_registry as yaml_input_registry
+from adapters.input import open_input_source
 import numpy as np
 import pandas as pd
 import os
 from typing import Union
 
 from conductor.conductor import Conductor
-from conductor.input_loader import ConductorInputLoader
-from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
 from adapters.input.environment_loader import load_environment
 from hydraulics.network.coupling import build_coupled_network
@@ -74,28 +72,13 @@ class Simulation:
         for f_name in input_files:
             if "transitory_input" in f_name:
                 self.starter_file = f_name
-        # A directory containing simulation.yaml is YAML-driven: every
-        # configuration read is served by the registry instead of the Excel
-        # workbooks (see interfaces/yaml_input_registry.py).
+        # Input source (ports.input_source): YAML when the directory holds
+        # simulation.yaml, otherwise the legacy Excel workbooks.
+        self.input_source = open_input_source(self.basePath)
         self.yaml_registry = yaml_input_registry.get_registry(self.basePath)
         if self.yaml_registry is not None:
             self.starter_file = yaml_input_registry.SIMULATION_FILE_NAME
-            self.transient_input = self.yaml_registry.transient_settings()
-        else:
-            # Load input file transitory_input.xlsx and convert to a dictionary.
-            self.transient_input = pd.read_excel(
-                os.path.join(self.basePath, self.starter_file),
-                sheet_name="TRANSIENT",
-                skiprows=1,
-                header=0,
-                index_col=0,
-                usecols=["Variable name", "Value"],
-            )["Value"].to_dict()
-            # Checkpointing settings are YAML-only (the Excel front end is
-            # deprecated): force the defaults so both input paths always
-            # yield the two keys.
-            self.transient_input["RESTART"] = False
-            self.transient_input["AUTOSAVE_INTERVAL"] = None
+        self.transient_input = self.input_source.transient_settings()
         self.flag_start = False
         # Optional lumped hydraulic network coupled to conductor channel
         # ends; built in conductor_initialization from the YAML input
@@ -175,12 +158,7 @@ class Simulation:
     def conductor_instance(self):
         # Load spread-sheet conductor_definition.xlsx
         conductor_definition_path = os.path.join(self.basePath, self.transient_input["MAGNET"])
-        if self.yaml_registry is not None:
-            self.numObj = self.yaml_registry.conductor_count
-        else:
-            list_conductor_sheet = ConductorInputLoader.load_conductor_definition_sheets(
-                conductor_definition_path)
-            self.numObj = int(list_conductor_sheet[0].cell(row=1, column=2).value)
+        self.numObj = self.input_source.conductor_count
 
         # LOAD MAIN CONDUCTORS PARAMETERS
         for ii in range(1, 1 + self.numObj):
@@ -188,22 +166,13 @@ class Simulation:
             conductor = Conductor(
                 self.basePath,
                 ii,
-                self.transient_input["MAGNET"]
+                self.transient_input["MAGNET"],
+                input_source=self.input_source,
             )
             conductor.initialize_with_simulation(self)
             self.list_of_Conductors.append(conductor)
         # end for ii (cdp, 12/2020)
-        if self.yaml_registry is not None:
-            self.contactBetweenConductors = (
-                self.yaml_registry.conductor_coupling_dataframe()
-            )
-        else:
-            self.contactBetweenConductors = pd.read_excel(
-                conductor_definition_path,
-                sheet_name="CONDUCTOR_coupling",
-                header=0,
-                index_col=0,
-            )
+        self.contactBetweenConductors = self.input_source.conductor_coupling_dataframe()
 
         # Loop to create the attributes required to make the real time plots (shortly rtp).
         for conductor in self.list_of_Conductors:
@@ -220,13 +189,12 @@ class Simulation:
         # declares a port on it; the network itself is built further below,
         # after the conductor loop.
         ported_conductor_identifiers = set()
-        if self.yaml_registry is not None:
-            network_mapping = self.yaml_registry.hydraulic_network()
-            if network_mapping is not None:
-                ported_conductor_identifiers = {
-                    port.get("conductor")
-                    for port in network_mapping.get("ports", [])
-                }
+        network_mapping = self.input_source.hydraulic_network()
+        if network_mapping is not None:
+            ported_conductor_identifiers = {
+                port.get("conductor")
+                for port in network_mapping.get("ports", [])
+            }
         for cond in self.list_of_Conductors:
             coupling_enabled = cond.identifier in ported_conductor_identifiers
             cond.hydraulic_formulation = resolve_hydraulic_formulation(
@@ -367,16 +335,15 @@ class Simulation:
         # coupled to conductor channel ends. Must run after the conductor
         # loop above: the port resolution reuses the boundary-condition
         # equation indices and the initial flow built there.
-        if self.yaml_registry is not None:
-            network_mapping = self.yaml_registry.hydraulic_network()
-            if network_mapping is not None:
-                self.hydraulic_network = build_coupled_network(
-                    self, network_mapping
-                )
-                # Write the header of the network time-evolution file and
-                # record the initial state (num_step is still 0 here).
-                for conductor in self.list_of_Conductors:
-                    save_network_simulation_time(self, conductor)
+        network_mapping = self.input_source.hydraulic_network()
+        if network_mapping is not None:
+            self.hydraulic_network = build_coupled_network(
+                self, network_mapping
+            )
+            # Write the header of the network time-evolution file and
+            # record the initial state (num_step is still 0 here).
+            for conductor in self.list_of_Conductors:
+                save_network_simulation_time(self, conductor)
 
     # end method Conductor_initialization
 
