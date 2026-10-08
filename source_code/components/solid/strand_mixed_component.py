@@ -5,17 +5,12 @@ from scipy import optimize
 from typing import Tuple, Union
 
 from components.solid.strand_component import StrandComponent
+from properties_of_materials.material import material_for
 from components.solid.strand_mixed_component_inputs import StrandMixedComponentInputs
 from components.solid.solid_component_inputs import StrandComponentOperations
 from components.component_build import ComponentBuildSettings
 
 # Aluminium properties
-from properties_of_materials.aluminium import (
-    thermal_conductivity_al,
-    isobaric_specific_heat_al,
-    density_al,
-    electrical_resistivity_al,
-)
 
 # Cu properties
 from properties_of_materials.copper import (
@@ -60,40 +55,9 @@ from properties_of_materials.niobium_titanium_w7x import (
 )
 
 
-DENSITY_FUNC = {
-    "al": density_al,
-    "cu": density_cu,
-    "nb3sn": density_nb3sn,
-    "nbti": density_nbti,
-    "nbti-w7x": density_nbti_w7x,
-    "ybco": density_re123,
-    "mgb2": density_mgb2,
-}
 
-THERMAL_CONDUCTIVITY_FUNC = {
-    "al": thermal_conductivity_al,
-    "cu": thermal_conductivity_cu_nist,
-    "nb3sn": thermal_conductivity_nb3sn,
-    "nbti": thermal_conductivity_nbti,
-    "nbti-w7x": thermal_conductivity_nbti_w7x,
-    "ybco": thermal_conductivity_re123,
-    "mgb2": thermal_conductivity_mgb2,
-}
 
-ISOBARIC_SPECIFIC_HEAT_FUNC = {
-    "al": isobaric_specific_heat_al,
-    "cu": isobaric_specific_heat_cu_nist,
-    "nb3sn": isobaric_specific_heat_nb3sn,
-    "nbti": isobaric_specific_heat_nbti,
-    "nbti-w7x": isobaric_specific_heat_nbti_w7x,
-    "ybco": isobaric_specific_heat_re123,
-    "mgb2": isobaric_specific_heat_mgb2,
-}
 
-ELECTRICAL_RESISTIVITY_FUNC = dict(
-    al=electrical_resistivity_al,
-    cu=electrical_resistivity_cu_nist,
-)
 
 INGEGNERISTIC_MODE = 0
 PHYSICAL_MODE = 1
@@ -288,32 +252,10 @@ class StrandMixedComponent(StrandComponent):
         # Total value of homogenization coefficients.
         self.homogenization_cefficients_sum = self.homogenization_cefficients.sum()
 
-        # Create numpy array with density functions according to the strand mixed
-        # material; order is consistent with values in self.strand_material.
-        self.density_function = np.array(
-            [DENSITY_FUNC[key] for key in self.strand_material]
-        )
-
-        # Create numpy array with electrical resistivity functions according to
-        # the strand mixed material; order is consistent with values in
-        # self.strand_material.
-        self.electrical_resistivity_function_not_sc = np.array(
-            [ELECTRICAL_RESISTIVITY_FUNC[key] for key in self.strand_material_not_sc]
-        )
-
-        # Create numpy array with isobaric specific heat functions according to
-        # the strand mixed material; order is consistent with values in
-        # self.strand_material.
-        self.isobaric_specific_heat_function = np.array(
-            [ISOBARIC_SPECIFIC_HEAT_FUNC[key] for key in self.strand_material]
-        )
-
-        # Create numpy array with thermal conductivity functions according to
-        # the strand mixed material; order is consistent with values in
-        # self.strand_material.
-        self.thermal_conductivity_function = np.array(
-            [THERMAL_CONDUCTIVITY_FUNC[key] for key in self.strand_material]
-        )
+        # Material objects (properties_of_materials.material), one per
+        # constituent; order is consistent with self.strand_material.
+        self.materials = [material_for(key) for key in self.strand_material]
+        self.materials_not_sc = [material_for(key) for key in self.strand_material_not_sc]
 
     def __check_consistency(self, conductor_identifier: str):
         """Private method that checks consistency of strand mixed user definition.
@@ -346,7 +288,7 @@ class StrandMixedComponent(StrandComponent):
         # specific heat.
         self.__strand_density_flag = True
         density = np.array(
-            [func(property.temperature) for func in self.density_function]
+            [material.density(property.temperature) for material in self.materials]
         )
         # Evaluate homogenized density of the strand mixed:
         # rho_eq = (rho_sc + stab_non_stab * rho_stab)/(1 + stab_non_stab)
@@ -377,29 +319,14 @@ class StrandMixedComponent(StrandComponent):
         isobaric_specific_heat = np.zeros(
             (property.temperature.size, self.inputs.num_material_types)
         )
-        for ii, func in enumerate(self.isobaric_specific_heat_function):
-            if func.__name__ == "isobaric_specific_heat_nb3sn":
-                isobaric_specific_heat[:, ii] = func(
-                    property.temperature,
-                    property.T_cur_sharing_min,
-                    property.T_critical,
-                    self.inputs.critical_temperature_at_0T,
-                )
-            elif func.__name__ == "isobaric_specific_heat_nbti":
-                isobaric_specific_heat[:, ii] = func(
-                    property.temperature,
-                    property.B_field,
-                    property.T_cur_sharing_min,
-                    property.T_critical,
-                )
-            elif func.__name__ == "isobaric_specific_heat_nbti_w7x":
-                isobaric_specific_heat[:, ii] = func(
-                    property.temperature,
-                    property.T_critical,
-                    self.inputs.critical_temperature_at_0T,
-                )
-            else:
-                isobaric_specific_heat[:, ii] = func(property.temperature)
+        for ii, material in enumerate(self.materials):
+            isobaric_specific_heat[:, ii] = material.isobaric_specific_heat(
+                property.temperature,
+                magnetic_field=property.B_field,
+                current_sharing_temperature=property.T_cur_sharing_min,
+                critical_temperature=property.T_critical,
+                critical_temperature_at_zero_field=self.inputs.critical_temperature_at_0T,
+            )
 
         # Evaluate homogenized isobaric specific heat of the strand mixed:
         # cp_eq = (cp_sc*rho_sc + stab_non_stab*cp_stab*rho_stab)/(rho_sc + stab_non_stab * rho_stab)
@@ -420,20 +347,12 @@ class StrandMixedComponent(StrandComponent):
         thermal_conductivity = np.zeros(
             (property.temperature.size, self.inputs.num_material_types)
         )
-        for ii, func in enumerate(self.thermal_conductivity_function):
-            if "cu" in func.__name__:
-                thermal_conductivity[:, ii] = func(
-                    property.temperature,
-                    property.B_field,
-                    self.inputs.residual_resistivity_ratio,
-                )
-            elif "mgb2" in func.__name__:
-                thermal_conductivity[:, ii] = func(
-                    property.temperature,
-                    property.B_field,
-                )
-            else:
-                thermal_conductivity[:, ii] = func(property.temperature)
+        for ii, material in enumerate(self.materials):
+            thermal_conductivity[:, ii] = material.thermal_conductivity(
+                property.temperature,
+                magnetic_field=property.B_field,
+                residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+            )
         # Evaluate homogenized thermal conductivity of the strand mixed:
         # k_eq = (K_sc + stab_non_stab * K_stab)/(1 + stab_non_stab)
         return (thermal_conductivity * self.homogenization_cefficients).sum(
@@ -452,15 +371,12 @@ class StrandMixedComponent(StrandComponent):
         electrical_resistivity = np.zeros(
             (property.temperature.size, self.inputs.num_material_types - 1)
         )
-        for ii, func in enumerate(self.electrical_resistivity_function_not_sc):
-            if "cu" in func.__name__:
-                electrical_resistivity[:, ii] = func(
-                    property.temperature,
-                    property.B_field,
-                    self.inputs.residual_resistivity_ratio,
-                )
-            else:
-                electrical_resistivity[:, ii] = func(property.temperature)
+        for ii, material in enumerate(self.materials_not_sc):
+            electrical_resistivity[:, ii] = material.electrical_resistivity(
+                property.temperature,
+                magnetic_field=property.B_field,
+                residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+            )
         if self.inputs.num_material_types - 1 > 1:
             # Evaluate homogenized electrical resistivity of the strand mixed:
             # rho_el_eq = A_not_sc * (sum(A_i/rho_el_i))^-1 for any i not sc

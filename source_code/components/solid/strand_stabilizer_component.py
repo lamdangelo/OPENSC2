@@ -2,18 +2,13 @@ import numpy as np
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType
 from physical_fields.physical_field import FieldContainer, GridLocation
 from components.solid.strand_component import StrandComponent
+from properties_of_materials.material import material_for
 
 from components.solid.strand_stabilizer_component_inputs import StrandStabilizerComponentInputs
 from components.solid.solid_component_inputs import StrandComponentOperations
 from components.component_build import ComponentBuildSettings
 
 # Aluminium properties
-from properties_of_materials.aluminium import (
-    thermal_conductivity_al,
-    isobaric_specific_heat_al,
-    density_al,
-    electrical_resistivity_al,
-)
 
 # Cu properties
 from properties_of_materials.copper import (
@@ -23,25 +18,9 @@ from properties_of_materials.copper import (
     electrical_resistivity_cu_nist,
 )
 
-DENSITY_FUNC = dict(
-    al=density_al,
-    cu=density_cu,
-)
 
-THERMAL_CONDUCTIVITY_FUNC = dict(
-    al=thermal_conductivity_al,
-    cu=thermal_conductivity_cu_nist,
-)
 
-ISOBARIC_SPECIFIC_HEAT_FUNC = dict(
-    al=isobaric_specific_heat_al,
-    cu=isobaric_specific_heat_cu_nist,
-)
 
-ELECTRICAL_RESISTIVITY_FUNC = dict(
-    al=electrical_resistivity_al,
-    cu=electrical_resistivity_cu_nist,
-)
 
 
 class StrandStabilizerComponent(StrandComponent):
@@ -109,6 +88,8 @@ class StrandStabilizerComponent(StrandComponent):
 
 
         self.radius = np.sqrt(self.inputs.cross_section / np.pi)
+        # Stabilizer material object (properties_of_materials.material).
+        self.material = material_for(self.inputs.stabilizer_material)
 
         self.deal_with_fixed_potential(build.conductor_length)
 
@@ -127,7 +108,7 @@ class StrandStabilizerComponent(StrandComponent):
         Returns:
             np.ndarray: array with density of the stabilizer in kg/m^3.
         """
-        return DENSITY_FUNC[self.inputs.stabilizer_material](property.temperature)
+        return self.material.density(property.temperature)
 
     def strand_isobaric_specific_heat(self, property: dict) -> np.ndarray:
         """Method that evaluates isobaric specific heat of the stabilizer.
@@ -138,9 +119,7 @@ class StrandStabilizerComponent(StrandComponent):
         Returns:
             np.ndarray: array with isobaric specific heat of the stabilizer in kg/m^3.
         """
-        return ISOBARIC_SPECIFIC_HEAT_FUNC[self.inputs.stabilizer_material](
-            property.temperature
-        )
+        return self.material.isobaric_specific_heat(property.temperature)
 
     def strand_thermal_conductivity(self, property: dict) -> np.ndarray:
         """Method that evaluates thermal conductivity of the stabilizer.
@@ -151,16 +130,11 @@ class StrandStabilizerComponent(StrandComponent):
         Returns:
             np.ndarray: array with thermal conductivity of the stabilizer in W/m/K.
         """
-        if self.inputs.stabilizer_material == "cu":
-            return THERMAL_CONDUCTIVITY_FUNC[self.inputs.stabilizer_material](
-                property.temperature,
-                property.B_field,
-                self.inputs.residual_resistivity_ratio,
-            )
-        else:
-            return THERMAL_CONDUCTIVITY_FUNC[self.inputs.stabilizer_material](
-                property.temperature
-            )
+        return self.material.thermal_conductivity(
+            property.temperature,
+            magnetic_field=property.B_field,
+            residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+        )
 
     def strand_electrical_resistivity(self, property: dict) -> np.ndarray:
         """Method that evaluates electrical resistivity of the stabilizer.
@@ -171,16 +145,11 @@ class StrandStabilizerComponent(StrandComponent):
         Returns:
             np.ndarray: array with electrical resistivity of the stabilizer in Ohm*m.
         """
-        if self.inputs.stabilizer_material == "cu":
-            return ELECTRICAL_RESISTIVITY_FUNC[self.inputs.stabilizer_material](
-                property.temperature,
-                property.B_field,
-                self.inputs.residual_resistivity_ratio,
-            )
-        else:
-            return ELECTRICAL_RESISTIVITY_FUNC[self.inputs.stabilizer_material](
-                property.temperature
-            )
+        return self.material.electrical_resistivity(
+            property.temperature,
+            magnetic_field=property.B_field,
+            residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+        )
 
     def get_electric_resistance(self, conductor: object) -> np.ndarray:
         f"""Method that evaluate the electric resistance in Gauss node only, used to build the electric_resistance_matrix.

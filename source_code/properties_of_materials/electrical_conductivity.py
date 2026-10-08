@@ -17,22 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from properties_of_materials.copper import electrical_resistivity_cu_nist
-from properties_of_materials.aluminium_6063 import (
-    electrical_resistivity_al6063,
-)
-from properties_of_materials.stainless_steel import electrical_resistivity_ss
-
-# Material-name aliases (compared case-insensitively) -> canonical key.
-_ALIASES = {
-    "cu": "cu",
-    "copper": "cu",
-    "al6063": "al6063",
-    "aluminium_6063": "al6063",
-    "aluminum_6063": "al6063",
-    "ss": "ss",
-    "stainless_steel": "ss",
-}
+from properties_of_materials.material import material_for
 
 
 def electrical_resistivity_of(
@@ -54,25 +39,26 @@ def electrical_resistivity_of(
         KeyError: if no correlation is registered for ``material``.
         ValueError: if a required argument for the material is missing.
     """
-    key = _ALIASES.get(str(material).strip().lower())
-    if key == "cu":
-        if magnetic_field is None or residual_resistivity_ratio is None:
-            raise ValueError(
-                "copper resistivity needs magnetic_field and "
-                "residual_resistivity_ratio"
-            )
-        return np.asarray(
-            electrical_resistivity_cu_nist(
-                temperature, magnetic_field, residual_resistivity_ratio
-            )
+    try:
+        material_object = material_for(material)
+    except KeyError:
+        raise KeyError(
+            f"no electrical resistivity correlation registered for material "
+            f"'{material}'"
+        ) from None
+    if material_object.name == "cu" and (
+        magnetic_field is None or residual_resistivity_ratio is None
+    ):
+        raise ValueError(
+            "copper resistivity needs magnetic_field and "
+            "residual_resistivity_ratio"
         )
-    if key == "al6063":
-        return np.asarray(electrical_resistivity_al6063(temperature))
-    if key == "ss":
-        return np.asarray(electrical_resistivity_ss(temperature))
-    raise KeyError(
-        f"no electrical resistivity correlation registered for material "
-        f"'{material}'"
+    return np.asarray(
+        material_object.electrical_resistivity(
+            temperature,
+            magnetic_field=magnetic_field,
+            residual_resistivity_ratio=residual_resistivity_ratio,
+        )
     )
 
 

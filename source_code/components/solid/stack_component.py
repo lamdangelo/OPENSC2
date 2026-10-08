@@ -8,17 +8,12 @@ from typing import Tuple, Union
 
 # Import classes
 from components.solid.strand_component import StrandComponent
+from properties_of_materials.material import material_for
 
 from components.solid.stack_component_inputs import StackComponentInputs
 from components.solid.solid_component_inputs import StrandComponentOperations
 
 # Cu properties
-from properties_of_materials.copper import (
-    thermal_conductivity_cu_nist,
-    isobaric_specific_heat_cu_nist,
-    density_cu,
-    electrical_resistivity_cu_nist,
-)
 
 # RE123 properties
 from properties_of_materials.rare_earth_123 import (
@@ -74,48 +69,9 @@ from properties_of_materials.aluminium import (
     electrical_resistivity_al,
 )
 
-DENSITY_FUNC = dict(
-    ag=density_ag,
-    al=density_al,
-    cu=density_cu,
-    ge=density_ge,
-    hc276=density_hc276,
-    re123=density_re123,
-    sn60pb40=density_sn60pb40,
-    ss=density_ss,
-)
 
-THERMAL_CONDUCTIVITY_FUNC = dict(
-    ag=thermal_conductivity_ag,
-    al=thermal_conductivity_al,
-    cu=thermal_conductivity_cu_nist,
-    ge=thermal_conductivity_ge,
-    hc276=thermal_conductivity_hc276,
-    re123=thermal_conductivity_re123,
-    sn60pb40=thermal_conductivity_sn60pb40,
-    ss=thermal_conductivity_ss,
-)
 
-ISOBARIC_SPECIFIC_HEAT_FUNC = dict(
-    ag=isobaric_specific_heat_ag,
-    al=isobaric_specific_heat_al,
-    cu=isobaric_specific_heat_cu_nist,
-    ge=isobaric_specific_heat_ge,
-    hc276=isobaric_specific_heat_hc276,
-    re123=isobaric_specific_heat_re123,
-    sn60pb40=isobaric_specific_heat_sn60pb40,
-    ss=isobaric_specific_heat_ss,
-)
 
-ELECTRICAL_RESISTIVITY_FUNC = dict(
-    ag=electrical_resistivity_ag,
-    al=electrical_resistivity_al,
-    cu=electrical_resistivity_cu_nist,
-    # ge=electrical_resistivity_ge, not defined
-    hc276=electrical_resistivity_hc276,
-    sn60pb40=electrical_resistivity_sn60pb40,
-    ss=electrical_resistivity_ss,
-)
 
 
 class StackComponent(StrandComponent):
@@ -283,32 +239,10 @@ class StackComponent(StrandComponent):
         )
         self.tape_thickness_not_sc = self.material_thickness_not_sc.sum()
 
-        # Create numpy array with density functions according to the tape
-        # material; order is consistent with values in self.tape_material.
-        self.density_function = np.array(
-            [DENSITY_FUNC[key] for key in self.tape_material]
-        )
-
-        # Create numpy array with electrical resistivity functions according to
-        # the tape material; order is consistent with values in
-        # self.tape_material.
-        self.electrical_resistivity_function_not_sc = np.array(
-            [ELECTRICAL_RESISTIVITY_FUNC[key] for key in self.tape_material_not_sc]
-        )
-
-        # Create numpy array with isobaric specific heat functions according to
-        # the tape material; order is consistent with values in
-        # self.tape_material.
-        self.isobaric_specific_heat_function = np.array(
-            [ISOBARIC_SPECIFIC_HEAT_FUNC[key] for key in self.tape_material]
-        )
-
-        # Create numpy array with thermal conductivity functions according to
-        # the tape material; order is consistent with values in
-        # self.tape_material.
-        self.thermal_conductivity_function = np.array(
-            [THERMAL_CONDUCTIVITY_FUNC[key] for key in self.tape_material]
-        )
+        # Material objects (properties_of_materials.material), one per tape
+        # layer; order is consistent with self.tape_material.
+        self.materials = [material_for(key) for key in self.tape_material]
+        self.materials_not_sc = [material_for(key) for key in self.tape_material_not_sc]
 
     def __check_consistency(self, conductor_identifier: str):
         """Private method that checks consistency of stack and or tape user definition.
@@ -399,7 +333,7 @@ class StackComponent(StrandComponent):
         # specific heat.
         self.__stack_density_flag = True
         density = np.array(
-            [func(property.temperature) for func in self.density_function]
+            [material.density(property.temperature) for material in self.materials]
         )
         # Evaluate homogenized density of the stack:
         # rho_eq = sum(s_i*rho_i)/s
@@ -429,8 +363,8 @@ class StackComponent(StrandComponent):
         self.__stack_density_flag = False
         isobaric_specific_heat = np.array(
             [
-                func(property.temperature)
-                for func in self.isobaric_specific_heat_function
+                material.isobaric_specific_heat(property.temperature)
+                for material in self.materials
             ]
         )
         # Evaluate homogenized isobaric specific heat of the stack:
@@ -451,15 +385,12 @@ class StackComponent(StrandComponent):
         thermal_conductivity = np.zeros(
             (property.temperature.size, self.inputs.num_material_layers)
         )
-        for ii, func in enumerate(self.thermal_conductivity_function):
-            if "cu" in func.__name__:
-                thermal_conductivity[:, ii] = func(
-                    property.temperature,
-                    property.B_field,
-                    self.inputs.residual_resistivity_ratio,
-                )
-            else:
-                thermal_conductivity[:, ii] = func(property.temperature)
+        for ii, material in enumerate(self.materials):
+            thermal_conductivity[:, ii] = material.thermal_conductivity(
+                property.temperature,
+                magnetic_field=property.B_field,
+                residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+            )
         # Evaluate homogenized thermal conductivity of the stack:
         # k_eq = sum(s_i*k_i)/s
         return (thermal_conductivity * self.material_thickness).sum(
@@ -478,15 +409,12 @@ class StackComponent(StrandComponent):
         electrical_resistivity = np.zeros(
             (property.temperature.size, self.inputs.num_material_layers - 1)
         )
-        for ii, func in enumerate(self.electrical_resistivity_function_not_sc):
-            if "cu" in func.__name__:
-                electrical_resistivity[:, ii] = func(
-                    property.temperature,
-                    property.B_field,
-                    self.inputs.residual_resistivity_ratio,
-                )
-            else:
-                electrical_resistivity[:, ii] = func(property.temperature)
+        for ii, material in enumerate(self.materials_not_sc):
+            electrical_resistivity[:, ii] = material.electrical_resistivity(
+                property.temperature,
+                magnetic_field=property.B_field,
+                residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
+            )
         if self.inputs.num_material_layers - 1 > 1:
             # Evaluate homogenized electrical resistivity of the stack:
             # rho_el_eq = s_not_sc * (sum(s_i/rho_el_i))^-1 for any i not sc

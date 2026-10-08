@@ -1,4 +1,5 @@
 from components.solid.solid_component import SolidComponent
+from properties_of_materials.material import material_for
 from components.component_build import ComponentBuildSettings
 import numpy as np
 from physical_fields.physical_field import FieldContainer, GridLocation
@@ -10,12 +11,6 @@ from electromagnetics.electromagnetic_flags import BFieldDefinitionType
 
 
 # Stainless steel properties
-from properties_of_materials.stainless_steel import (
-    thermal_conductivity_ss,
-    isobaric_specific_heat_ss,
-    density_ss,
-    electrical_resistivity_ss,
-)
 
 # Glass-epoxy properties
 from properties_of_materials.glass_epoxy import (
@@ -33,22 +28,6 @@ from properties_of_materials.aluminium_6063 import (
     electrical_resistivity_al6063,
 )
 
-DENSITY_FUNC = dict(ge=density_ge, ss=density_ss, al6063=density_al6063)
-ISOBARIC_SPECIFIC_HEAT_FUNC = dict(
-    ge=isobaric_specific_heat_ge,
-    ss=isobaric_specific_heat_ss,
-    al6063=isobaric_specific_heat_al6063,
-)
-THERMAL_CONDUCTIVITY_FUNC = dict(
-    ge=thermal_conductivity_ge,
-    ss=thermal_conductivity_ss,
-    al6063=thermal_conductivity_al6063,
-)
-ELECTRICAL_RESISTIVITY_FUNC = dict(
-    ge=electrical_resistivity_ge,
-    ss=electrical_resistivity_ss,
-    al6063=electrical_resistivity_al6063,
-)
 
 
 class JacketComponent(SolidComponent):
@@ -256,30 +235,9 @@ class JacketComponent(SolidComponent):
         # Total value of homogenization coefficients.
         self.__cross_section = self.cross_sections.sum()
 
-        # Create numpy array with density functions according to jacket
-        # materials; order is consistent with values in self.materials.
-        self.density_function = np.array([DENSITY_FUNC[key] for key in self.materials])
-
-        # Create numpy array with electrical resistivity functions according to
-        # jacket materials; order is consistent with values in
-        # self.materials.
-        self.electrical_resistivity_function = np.array(
-            [ELECTRICAL_RESISTIVITY_FUNC[key] for key in self.materials]
-        )
-
-        # Create numpy array with isobaric specific heat functions according to
-        # jacket materials; order is consistent with values in
-        # self.materials.
-        self.isobaric_specific_heat_function = np.array(
-            [ISOBARIC_SPECIFIC_HEAT_FUNC[key] for key in self.materials]
-        )
-
-        # Create numpy array with thermal conductivity functions according to
-        # jacket material; order is consistent with values in
-        # self.materials.
-        self.thermal_conductivity_function = np.array(
-            [THERMAL_CONDUCTIVITY_FUNC[key] for key in self.materials]
-        )
+        # Material objects (properties_of_materials.material); order is
+        # consistent with self.materials names.
+        self.material_objects = [material_for(key) for key in self.materials]
 
     def __check_consistency(self, conductor_identifier: str):
         """Private method that checks consistency of jacket user definition.
@@ -340,7 +298,7 @@ class JacketComponent(SolidComponent):
         # specific heat.
         self.__jacket_density_flag = True
         density = np.array(
-            [func(property.temperature) for func in self.density_function]
+            [material.density(property.temperature) for material in self.material_objects]
         )
         if self.inputs.num_material_types > 1:
             # Evaluate homogenized density of the jacket:
@@ -373,8 +331,8 @@ class JacketComponent(SolidComponent):
         self.__jacket_density_flag = False
         isobaric_specific_heat = np.array(
             [
-                func(property.temperature)
-                for func in self.isobaric_specific_heat_function
+                material.isobaric_specific_heat(property.temperature)
+                for material in self.material_objects
             ]
         )
         if self.inputs.num_material_types > 1:
@@ -398,8 +356,8 @@ class JacketComponent(SolidComponent):
         """
         thermal_conductivity = np.array(
             [
-                func(property.temperature)
-                for func in self.thermal_conductivity_function
+                material.thermal_conductivity(property.temperature)
+                for material in self.material_objects
             ]
         )
         if self.inputs.num_material_types > 1:
@@ -423,8 +381,8 @@ class JacketComponent(SolidComponent):
 
         electrical_resistivity = np.array(
             [
-                func(property.temperature)
-                for func in self.electrical_resistivity_function
+                material.electrical_resistivity(property.temperature)
+                for material in self.material_objects
             ]
         )
         if self.inputs.num_material_types > 1:
