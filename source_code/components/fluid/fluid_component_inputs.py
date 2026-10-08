@@ -5,7 +5,7 @@ This module contains the dataclasses storing fluid component user inputs.
 from dataclasses import dataclass 
 import pandas as pd
 
-import interfaces.yaml_input_registry as yaml_input_registry 
+import adapters.input.yaml_input_registry as yaml_input_registry 
 from pathlib import Path 
 
 import components.component_flags as cf

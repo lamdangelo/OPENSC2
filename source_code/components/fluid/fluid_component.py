@@ -15,7 +15,7 @@ properties:
 
 import numpy as np
 from collections import namedtuple
-from utility_functions.auxiliary_functions import get_from_xlsx
+from adapters.input.auxiliary_files import get_from_xlsx
 
 from components.component import Component 
 from components.fluid.fluid_component_inputs import (
@@ -32,7 +32,7 @@ from hydraulics.hydraulic_flags import (
 from hydraulics.channel import Channel
 from hydraulics.coolant import Coolant
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 
 
 class FluidComponent(Component):

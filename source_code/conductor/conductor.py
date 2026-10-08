@@ -10,7 +10,7 @@ import thermal.radiation as thermal_radiation
 import thermal.htc_evaluation as htc_evaluation
 import thermal.energy_balance as energy_balance
 import conductor.conductor_topology as conductor_topology
-import interfaces.yaml_input_registry as yaml_input_registry
+import adapters.input.yaml_input_registry as yaml_input_registry
 
 import numpy as np
 import pandas as pd
@@ -25,7 +25,7 @@ from hydraulics.hydraulic_flags import (
     HydraulicFormulation,
     MASS_FLOW_FORMULATIONS,
 )
-from conductor.conductor_mesh import MeshType
+from conductor.conductor_flags import MeshType
 from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from conductor.solver_structures import (
     BandStructure,
@@ -77,17 +77,17 @@ from electromagnetics.operating_conditions import (
 )
 
 # import functions
-from utility_functions.auxiliary_functions import (
-    set_diagnostic,
-)
+from numerics.interpolation import set_diagnostic
+from adapters.input.auxiliary_files import get_from_xlsx
 from conductor.input_validator import ConductorInputValidator
-from utility_functions.gen_flow import gen_flow
-from utility_functions.output import (
+from numerics.initial_flow import gen_flow
+from numerics.transient_solution_functions import evaluate_time_accuracy_eigenvalue
+from adapters.output.solution_writer import (
     save_properties,
     save_convergence_data,
     save_geometry_discretization,
 )
-from utility_functions.plots import update_real_time_plots, create_legend_rtp
+from adapters.plotting.plots import update_real_time_plots, create_legend_rtp
 from thermal.temperature_field import (
     solid_components_temperature_initialization,
 )
@@ -393,12 +393,6 @@ class Conductor:
 
         # evaluate attribute time_accuracy_eigenvalue exploiting function
         # evaluate_time_accuracy_eigenvalue (cdp, 08/2020)
-        # Deferred import: utility_functions.transient_solution_functions
-        # imports Conductor from this module, so importing it at module
-        # level here would create a circular import.
-        from utility_functions.transient_solution_functions import (
-            evaluate_time_accuracy_eigenvalue,
-        )
         evaluate_time_accuracy_eigenvalue(self)
         path_diagnostic = self.file_paths.diagnostics_path
         # Load the diagnostic save times: from the YAML registry when the
@@ -612,7 +606,7 @@ class Conductor:
     Questo per il momento non lo considero!!!!! (cdp)
     """
 
-        gen_flow(self)
+        gen_flow(self, get_from_xlsx)
         # C*SET THE INITIAL VALUE OF THE FLOW VARIABLES (LINEAR P AND T)
 
         temp_ave = np.zeros(self.mesh.number_of_nodes)

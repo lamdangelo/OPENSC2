@@ -9,7 +9,7 @@ class FluidType(Enum):
     """Coolants; the value is the CoolProp fluid name.
 
     CONSTANT is not a CoolProp fluid: it selects the constant-property fluid
-    registered in interfaces.coolprop_interface (see ConstantFluidProperties),
+    registered in adapters.fluid_properties.coolprop_provider (see ConstantFluidProperties),
     used by the verification suite to compare against closed-form solutions.
     """
     HELIUM = "helium"

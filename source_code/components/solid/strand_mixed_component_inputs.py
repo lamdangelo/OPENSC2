@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pandas as pd
 
-import interfaces.yaml_input_registry as yaml_input_registry
+import adapters.input.yaml_input_registry as yaml_input_registry
 
 from components.solid.solid_component_inputs import (
     SolidComponentInputs,
     StrandComponentOperations,
     loss_constant,
 )
-from utility_functions.auxiliary_functions import check_costheta
+from components.component_ordering import check_costheta
 from conductor.conductor_flags import InterpolationType
 from thermal.thermal_flags import HeatExcitation
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode

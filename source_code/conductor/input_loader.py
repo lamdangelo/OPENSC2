@@ -24,7 +24,7 @@ from conductor.conductor_mesh import ConductorMesh
 from conductor.coupling import CouplingMatrix
 import conductor.input_validator as validator
 import conductor.external_inputs as external_inputs 
-import interfaces.yaml_input_registry as yaml_input_registry
+import adapters.input.yaml_input_registry as yaml_input_registry
 
 EnumType = TypeVar("EnumType", bound=Enum)
 

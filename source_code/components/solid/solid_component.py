@@ -1,11 +1,8 @@
 import numpy as np
 import warnings
 
-from utility_functions.auxiliary_functions import (
-    load_auxiliary_files,
-    build_interpolator,
-    do_interpolation,
-)
+from adapters.input.auxiliary_files import load_auxiliary_files
+from numerics.interpolation import build_interpolator, do_interpolation
 
 from components.component_flags import ComponentType
 from components.solid.solid_component_inputs import (

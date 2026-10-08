@@ -25,5 +25,4 @@ from hydraulics.network.coupling import (
     apply_network_port_boundary_conditions,
     build_coupled_network,
     resolve_network_coupling,
-    solve_coupled_conductors_step,
 )

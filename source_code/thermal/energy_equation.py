@@ -27,20 +27,26 @@ row-mixed functions here (``build_smat_fluid_solid_interface``,
 wholesale since they exclusively touch fluid/solid temperature dofs.
 """
 
+from __future__ import annotations
+
+
 from typing import NamedTuple
 
 import numpy as np
 
 from components.fluid.fluid_component import FluidComponent
 from components.solid.solid_component import SolidComponent
-from conductor.conductor import Conductor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # type-only (annotations); avoids a runtime import cycle
+    from conductor.conductor import Conductor
 from conductor.conductor_flags import (
     HTC_Choice,
     MethodFlag,
     ONE_STEP_METHODS,
     THETA_FAMILY_METHODS,
 )
-from utility_functions.step_matrix_construction import (
+from numerics.step_matrix_construction import (
     SystemMatrices,
     backward_difference_2_coefficients,
 )

@@ -7,10 +7,16 @@ Relocated from ``utility_functions/step_matrix_construction.py`` as part of
 consolidating the thermal calculations into the ``thermal`` package.
 """
 
+from __future__ import annotations
+
+
 import numpy as np
 
 from components.fluid.fluid_component import FluidComponent
-from conductor.conductor import Conductor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # type-only (annotations); avoids a runtime import cycle
+    from conductor.conductor import Conductor
 
 
 def build_transport_coefficients(conductor: Conductor) -> Conductor:

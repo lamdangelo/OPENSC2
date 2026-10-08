@@ -1,6 +1,6 @@
 from decimal import Decimal
 from openpyxl import load_workbook
-import interfaces.yaml_input_registry as yaml_input_registry
+import adapters.input.yaml_input_registry as yaml_input_registry
 import numpy as np
 import pandas as pd
 import os
@@ -11,32 +11,27 @@ from conductor.input_loader import ConductorInputLoader
 from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
 from environment.environment import Environment
-from hydraulics.network.coupling import (
-    build_coupled_network,
-    solve_coupled_conductors_step,
-)
-from utility_functions.auxiliary_functions import (
-    with_read_csv,
-    with_read_excel,
-)
+from hydraulics.network.coupling import build_coupled_network
+from numerics.coupled_step import solve_coupled_conductors_step
+from adapters.input.auxiliary_files import with_read_csv, with_read_excel
 from hydraulics.formulation import resolve_hydraulic_formulation
 from hydraulics.hydraulic_flags import (
     HydraulicFormulation,
     MASS_FLOW_FORMULATIONS,
 )
-from utility_functions.transient_solution_functions import get_time_step, step
-import utility_functions.simulation_paths as simulation_paths
-from utility_functions.output import (
+from numerics.transient_solution_functions import get_time_step, step
+import adapters.output.simulation_paths as simulation_paths
+from adapters.output.solution_writer import (
     save_simulation_space,
     reorganize_spatial_distribution,
     save_network_simulation_time,
     save_simulation_time,
     save_properties,
 )
-from utility_functions.checkpoint import restore_from_checkpoint, write_checkpoint
+from adapters.output.checkpoint import restore_from_checkpoint, write_checkpoint
 from adapters.output.diagnostics_npz import NpzDiagnosticsSink
-from utility_functions.simulation_log import SimulationSummary
-from utility_functions.plots import (
+from adapters.output.simulation_log import SimulationSummary
+from adapters.plotting.plots import (
     plot_properties,
     make_plots,
     create_real_time_plots,

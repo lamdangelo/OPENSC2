@@ -51,7 +51,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from conductor.conductor_flags import MethodFlag
 from hydraulics.friction_factor_factory import FrictionFactorFactory
 from hydraulics.friction_factor_models import FrictionFactorModelType
@@ -264,7 +264,7 @@ class HydraulicNetwork:
 
         # Record of the state time evolution (node pressures and branch
         # mass flow rates), buffered like Coolant.time_evol_io and flushed
-        # to file by utility_functions.output.save_network_simulation_time.
+        # to file by adapters.output.solution_writer.save_network_simulation_time.
         # With several coupled conductors the file is written exactly once
         # per time step, into the directory of the conductor named here
         # (assigned by coupling.build_coupled_network).

@@ -53,7 +53,7 @@ coefficient listing above already uses the exact identities
 
 to write the diagonal advection entries as 2v, -(gamma-1)v and gamma v; with
 the direct HEOS state these hold to roundoff (4e-16 measured), with the
-tabulated property path (interfaces.coolprop_interface.USE_TABULAR_PROPERTIES,
+tabulated property path (adapters.fluid_properties.coolprop_provider.USE_TABULAR_PROPERTIES,
 independent bicubic splines per property) to ~1e-8 on 4-40 K / 3-10 bar
 helium samples (tests/test_mass_flow_explicit.py; the table's own accuracy
 degrades towards the pseudo-critical specific-heat peak), which is then the
@@ -143,7 +143,7 @@ def build_amat_mass_flow(
 ) -> np.ndarray:
     """Flux-Jacobian block K~ of one channel in (mdot, p, T) (see module
     docstring); explicit counterpart of
-    utility_functions.step_matrix_construction.build_amat."""
+    numerics.step_matrix_construction.build_amat."""
     fields = f_comp.coolant.gauss_fields
     area = f_comp.channel.inputs.cross_section
     density = fields.total_density
@@ -188,7 +188,7 @@ def build_kmat_fluid_mass_flow(
     """Upwind/stabilisation block of one channel in (mdot, p, T).
 
     The structure of the velocity-formulation builder
-    (utility_functions.step_matrix_construction.build_kmat_fluid) is applied
+    (numerics.step_matrix_construction.build_kmat_fluid) is applied
     UNCHANGED to the (mdot, p, T) rows: diagonal artificial diffusion
     dz*u/2 with u the element-neighbourhood maximum of the nodal |v| (the
     stabilisation speed), and dz*(u + c)/2 on the mdot row (the acoustic

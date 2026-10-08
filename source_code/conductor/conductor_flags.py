@@ -2,7 +2,7 @@
 This module defines flags for the conductor simulation.
 """
 
-from enum import IntEnum, auto
+from enum import Enum, IntEnum, auto
 
 
 class MethodFlag(IntEnum):
@@ -152,3 +152,28 @@ class HTC_Choice(IntEnum):
             return HTC_Choice.MIXED_CONVECTION_AND_RADIATION_FROM_FILE
         else:
             raise ValueError(f"Invalid HTC_Choice value: {htc_choice}")
+
+
+class MeshType(Enum):
+    """
+    An enumeration class to define the type of mesh used for the conductor simulation.
+    """
+    UNIFORM = auto()  # fixed and uniform
+    REFINED = auto()  # fixed and refined zone
+    ADAPTED = auto()  # fixed and adapted with initial refinement
+    FROM_FILE = auto()  # read from file
+
+
+    @staticmethod
+    def get_mesh_type(mesh_type_flag: int):
+        """Convert mesh type flag from the input file to MeshType enum."""
+        if mesh_type_flag == 0:
+            return MeshType.UNIFORM
+        elif mesh_type_flag == 1:
+            return MeshType.REFINED
+        elif mesh_type_flag == 3:
+            return MeshType.ADAPTED
+        elif mesh_type_flag == -1:
+            return MeshType.FROM_FILE
+        else:
+            raise ValueError(f"Invalid mesh type flag: {mesh_type_flag}")

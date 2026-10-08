@@ -11,12 +11,18 @@ consolidating the thermal calculations into the ``thermal`` package (the
 matching split moved the temperature row out of these functions).
 """
 
+from __future__ import annotations
+
+
 from typing import NamedTuple
 
 import numpy as np
 
 from components.fluid.fluid_component import FluidComponent
-from conductor.conductor import Conductor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # type-only (annotations); avoids a runtime import cycle
+    from conductor.conductor import Conductor
 
 
 def build_smat_fluid_momentum(

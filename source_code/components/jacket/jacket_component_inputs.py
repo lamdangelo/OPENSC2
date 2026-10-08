@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import interfaces.yaml_input_registry as yaml_input_registry
+import adapters.input.yaml_input_registry as yaml_input_registry
 
 from components.solid.solid_component_inputs import SolidComponentInputs, SolidComponentOperations
 from thermal.thermal_flags import HeatExcitation

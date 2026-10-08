@@ -51,6 +51,9 @@ dev = [
 # Type checking
 "mypy>=1.10",
 
+# Layered-architecture contracts (lint-imports); mirrors tests/test_architecture.py
+"import-linter>=2.0",
+
 # Profiling
 "line-profiler>=4.1",
 ]
@@ -71,7 +74,28 @@ line-length = 88
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]
+select = ["E", "F", "I", "B", "T20"]
+
+# T20 (no print) applies to the domain and application layers; adapters,
+# drivers and tests may print. The per-file list below is the baseline of
+# domain modules that still print (docs/architecture_refactoring_plan.md,
+# Stage 5 replaces them with observers); it may only shrink.
+[tool.ruff.lint.per-file-ignores]
+"source_code/adapters/**" = ["T20"]
+"source_code/drivers/**" = ["T20"]
+"source_code/simulation.py" = ["T20"]
+"source_code/opensc2_gui.py" = ["T20"]
+"source_code/utility_functions/**" = ["T20"]
+"tests/**" = ["T20"]
+"scripts/**" = ["T20"]
+"models/**" = ["T20"]
+"tools/**" = ["T20"]
+"source_code/components/fluid/fluid_component.py" = ["T20"]
+"source_code/components/solid/solid_component.py" = ["T20"]
+"source_code/conductor/conductor_topology.py" = ["T20"]
+"source_code/numerics/initial_flow.py" = ["T20"]
+"source_code/thermal/energy_balance.py" = ["T20"]
+"source_code/thermal/temperature_field.py" = ["T20"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -84,3 +108,46 @@ package-dir = {"" = "source_code"}
 
 [tool.setuptools.packages.find]
 where = ["source_code"]
+
+# ---------------------------------------------------------------------------
+# Layered architecture (docs/architecture_refactoring_plan.md). Run with
+# `lint-imports` from the repository root. The pytest ratchet in
+# tests/test_architecture.py enforces the same direction with a baseline;
+# the contracts here are the end state and are expected to fail until the
+# refactoring stages are complete.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = [
+    "physical_fields", "properties_of_materials", "hydraulics", "thermal",
+    "electromagnetics", "components", "conductor", "environment", "numerics",
+    "runtime", "ports", "application", "adapters", "simulation", "drivers",
+]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: drivers -> adapters -> application -> domain"
+type = "layers"
+layers = [
+    "simulation | drivers",
+    "adapters",
+    "application",
+    "numerics | runtime | ports | conductor | components | thermal | electromagnetics | hydraulics | environment | properties_of_materials | physical_fields",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain and application do not use I/O or plotting libraries"
+type = "forbidden"
+source_modules = [
+    "physical_fields", "properties_of_materials", "hydraulics", "thermal",
+    "electromagnetics", "components", "conductor", "environment", "numerics",
+    "runtime", "ports", "application",
+]
+forbidden_modules = [
+    "pandas", "openpyxl", "yaml", "CoolProp", "matplotlib", "PIL", "tkinter", "IPython",
+]
+
+[[tool.importlinter.contracts]]
+name = "Adapters do not depend on the GUI toolkit"
+type = "forbidden"
+source_modules = ["adapters"]
+forbidden_modules = ["tkinter"]

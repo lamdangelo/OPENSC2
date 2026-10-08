@@ -5,41 +5,20 @@ data for the conductor simulation.
 
 import logging
 from decimal import Decimal
-from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
 import conductor.input_validator as validator
+from conductor.conductor_flags import MeshType  # noqa: F401 (re-export)
 from components.solid.strand_component import StrandComponent
+from conductor.initialization_functions import (
+    build_coordinates_of_barycenter,
+    user_defined_grid,
+)
 
 logger_discretization = logging.getLogger("opensc2Logger.discretization")
-
-
-class MeshType(Enum):
-    """
-    An enumeration class to define the type of mesh used for the conductor simulation.
-    """
-    UNIFORM = auto()  # fixed and uniform
-    REFINED = auto()  # fixed and refined zone
-    ADAPTED = auto()  # fixed and adapted with initial refinement
-    FROM_FILE = auto()  # read from file
-
-
-    @staticmethod
-    def get_mesh_type(mesh_type_flag: int):
-        """Convert mesh type flag from the input file to MeshType enum."""
-        if mesh_type_flag == 0:
-            return MeshType.UNIFORM
-        elif mesh_type_flag == 1:
-            return MeshType.REFINED
-        elif mesh_type_flag == 3:
-            return MeshType.ADAPTED
-        elif mesh_type_flag == -1:
-            return MeshType.FROM_FILE
-        else:
-            raise ValueError(f"Invalid mesh type flag: {mesh_type_flag}")
 
 
 class ConductorMesh:
@@ -858,14 +837,6 @@ class ConductorMesh:
 
 def evaluate_component_coordinates(conductor: object, simulation: object) -> None:
     """Evaluate the grid coordinates and assign them to the conductor objects and its components according to the value of flag mesh_type."""
-    # Deferred import: utility_functions.initialization_functions imports
-    # ConductorMesh from this module, so importing it at module level here
-    # would create a circular import.
-    from utility_functions.initialization_functions import (
-        build_coordinates_of_barycenter,
-        user_defined_grid,
-    )
-
     mesh = conductor.mesh
     if mesh.mesh_type != MeshType.FROM_FILE or mesh.mesh_file is not None:
         # Analytic meshes, and FROM_FILE meshes read from a node-coordinate

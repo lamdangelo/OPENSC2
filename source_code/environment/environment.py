@@ -5,7 +5,7 @@ import pandas as pd
 from scipy import constants
 from CoolProp.CoolProp import PropsSI
 
-import interfaces.yaml_input_registry as yaml_input_registry
+import adapters.input.yaml_input_registry as yaml_input_registry
 
 
 class Environment:
