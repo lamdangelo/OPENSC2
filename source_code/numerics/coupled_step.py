@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from hydraulics.hydraulic_flags import MASS_FLOW_FORMULATIONS
 from hydraulics.network.hydraulic_network import HydraulicNetwork
 from numerics.transient_solution_functions import (
     assemble_thermal_hydraulic_system,
