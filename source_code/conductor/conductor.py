@@ -181,7 +181,7 @@ class Conductor:
             conductor_identifier=self.identifier,
             conductor_length=self.inputs.zlength,
             time_stepping=TimeSteppingSettings.from_transient_settings(
-                simulation.transient_input
+                simulation.transient_settings
             ),
             external_inputs=self.external_inputs,
         )
@@ -353,14 +353,14 @@ class Conductor:
         self.Space_save = np.array(self.definition.spatial_save_times, dtype=float)
         # Adjust the user defined diagnostic.
         self.Space_save = set_diagnostic(
-            self.Space_save, lb=0.0, ub=simulation.transient_input["TEND"]
+            self.Space_save, lb=0.0, ub=simulation.transient_settings["TEND"]
         )
         # Check on spatial distribution diagnostic.
-        if self.Space_save.max() > simulation.transient_input["TEND"]:
+        if self.Space_save.max() > simulation.transient_settings["TEND"]:
             raise ValueError(
-                f"File {self.file_paths.diagnostics_path}, sheet Space, conductor {self.identifier}: impossible to save spatial distributions at time {self.Space_save.max()} s since it is larger than the end time of the simulation {simulation.transient_input['TEND']} s.\n"
+                f"File {self.file_paths.diagnostics_path}, sheet Space, conductor {self.identifier}: impossible to save spatial distributions at time {self.Space_save.max()} s since it is larger than the end time of the simulation {simulation.transient_settings['TEND']} s.\n"
             )
-        # End if self.Space_save.max() > simulation.transient_input["TEND"]
+        # End if self.Space_save.max() > simulation.transient_settings["TEND"]
         # index pointer to save solution spatial distribution (cdp, 12/2020)
         self.i_save = 0
         # list of number of time steps at wich save the spatial discretization
@@ -497,7 +497,7 @@ class Conductor:
     def initialization(self, simulation):
 
         time_simulation = simulation.simulation_time[-1]
-        sim_name = simulation.transient_input["SIMULATION"]
+        sim_name = simulation.transient_settings["SIMULATION"]
         # Total number of equations for each conductor (cdp, 09/2020)
         self.equation_counts.total_equations = (
             self.equation_counts.degrees_of_freedom_per_node * self.mesh.number_of_nodes
@@ -612,7 +612,7 @@ class Conductor:
             # check the imposition of SolidComponent temperature initial 
             # spatial distribution.
             # N.B. queste istruzioni posso inserirle in un metodo della classe.
-            self.enthalpy_balance = self.enthalpy_balance + simulation.transient_input[
+            self.enthalpy_balance = self.enthalpy_balance + simulation.transient_settings[
                 "STPMIN"
             ] * (
                 fluid_comp.coolant.node_fields.mass_flow_rate[-1]
@@ -622,13 +622,13 @@ class Conductor:
             )
             self.enthalpy_out = (
                 self.enthalpy_out
-                + simulation.transient_input["STPMIN"]
+                + simulation.transient_settings["STPMIN"]
                 * fluid_comp.coolant.node_fields.mass_flow_rate[-1]
                 * fluid_comp.coolant.node_fields.total_enthalpy[-1]
             )
             self.enthalpy_inl = (
                 self.enthalpy_inl
-                + simulation.transient_input["STPMIN"]
+                + simulation.transient_settings["STPMIN"]
                 * fluid_comp.coolant.node_fields.mass_flow_rate[0]
                 * fluid_comp.coolant.node_fields.total_enthalpy[0]
             )

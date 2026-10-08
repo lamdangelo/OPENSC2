@@ -332,7 +332,7 @@ def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
     coupled_identifiers = {port.conductor for port in inputs.ports}
     coupled_conductors = [
         conductor
-        for conductor in simulation.list_of_Conductors
+        for conductor in simulation.conductors
         if conductor.identifier in coupled_identifiers
     ]
     missing = coupled_identifiers - {
@@ -368,7 +368,7 @@ def build_coupled_network(simulation, mapping: dict) -> HydraulicNetwork:
             f"{sorted(formulation.value for formulation in formulations)}."
         )
     network = HydraulicNetwork(inputs, method=methods.pop())
-    resolve_network_coupling(network, simulation.list_of_Conductors)
+    resolve_network_coupling(network, simulation.conductors)
     for conductor in coupled_conductors:
         warn_on_partially_ported_parallel_groups(network, conductor)
     # The network state time evolution is written once per time step, into
