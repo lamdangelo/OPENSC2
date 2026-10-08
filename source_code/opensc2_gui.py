@@ -8,6 +8,13 @@ from pathlib import Path
 import platform
 import subprocess
 
+import matplotlib
+
+# The real-time plots of the GUI need an interactive backend; an explicitly
+# requested backend (MPLBACKEND) wins.
+if "MPLBACKEND" not in os.environ:
+    matplotlib.use("TkAgg")
+
 from simulation import Simulation
 
 
@@ -461,21 +468,10 @@ class OPENSC2_GUI:
         tk.messagebox.showinfo(
             parent=self.main_window, title=f"Start Simulation", message=messaggio
         )
-        # Create and instance of class Conductor for each user defined conductor \
-        # (cdp, 08/2020)
-        self.simulation.conductor_instance()
-        # Create the whole tree of folders to store the simulation data invoking \
-        # method Simulation_result_manager (cdp, 10/2020)
-        self.simulation.simulation_folders_manager()
-        # Save the input files in read only as metadata of the simulation outcome.
-        self.simulation.save_input_files()
-        # Initialize each user defined conductor (cdp, 08/2020)
-        self.simulation.conductor_initialization(self)
-        # Solve the linear system of equations at each time steps (cdp, 08/2020)
-        self.simulation.conductor_solution(self)
-        # Create plots of time evlustions and spatial distributions according to \
-        # user requirements (cdp, 08/2020)
-        self.simulation.conductor_post_processing()
+        # Run the whole workflow (input reading, initialization, transient
+        # solution, post-processing, summary) through the single public
+        # entry point of the Simulation facade.
+        self.simulation.run()
         # End simulation message (cdp, 12/2020)
         messaggio = (
             "Simulation called "

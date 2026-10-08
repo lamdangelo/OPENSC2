@@ -324,10 +324,15 @@ def layer_violations() -> set[str]:
 
 
 def deferred_imports() -> set[str]:
+    """Function-local imports of internal modules, outside the drivers layer
+    (drivers legitimately delay imports to control process setup, e.g. the
+    matplotlib backend before anything imports pyplot)."""
     internal = internal_packages()
     found = set()
     for path in iter_source_files():
         module = module_name(path)
+        if LAYER_OF.get(top_package(module)) == DRIVERS:
+            continue
         for target, local in collect_imports(path):
             if local and top_package(target) in internal:
                 found.add(f"{module} -> {target}")

@@ -3,7 +3,6 @@ This module provides an interface to the CoolProp module.
 """
 
 import math
-import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,6 +10,8 @@ import CoolProp
 from CoolProp import AbstractState
 from CoolProp.CoolProp import PropsSI
 import numpy as np
+
+from adapters.output.diagnostics_npz import NpzDiagnosticsSink
 from scipy.interpolate import RectBivariateSpline
 
 from hydraulics.hydraulic_flags import FluidType
@@ -641,9 +642,8 @@ def compute_properties(fluid_type: FluidType,
     bad = ~(np.isfinite(temperature) & np.isfinite(pressure))
     if bad.any():
         bad_points = np.nonzero(bad)[0]
-        dump_path = os.path.join(os.getcwd(), "nonfinite_coolprop_inputs.npz")
-        np.savez(
-            dump_path,
+        dump_path = NpzDiagnosticsSink().dump(
+            "nonfinite_coolprop_inputs",
             temperature=temperature,
             pressure=pressure,
             bad_points=bad_points,
@@ -684,9 +684,8 @@ def compute_properties(fluid_type: FluidType,
         try:
             state.update(CoolProp.PT_INPUTS, pressure_value, temperature_value)
         except ValueError as err:
-            dump_path = os.path.join(os.getcwd(), "failed_coolprop_update.npz")
-            np.savez(
-                dump_path,
+            dump_path = NpzDiagnosticsSink().dump(
+                "failed_coolprop_update",
                 temperature=temperature,
                 pressure=pressure,
                 failed_point=point,

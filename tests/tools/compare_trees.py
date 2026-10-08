@@ -22,6 +22,7 @@ recorded them.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -78,7 +79,10 @@ def run_case(case: str, input_format: str = "yaml") -> dict[str, str]:
         if shortening_module is not None:
             module = __import__(shortening_module)
             module.shorten_scenario(run_directory)
-        Simulation(str(run_directory)).run()
+        # The simulation still prints progress to stdout; keep the tool's
+        # own report readable.
+        with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink):
+            Simulation(str(run_directory)).run()
         return output_tree_hashes(run_directory)
 
 

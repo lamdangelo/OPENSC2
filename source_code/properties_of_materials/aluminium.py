@@ -1,4 +1,6 @@
 # Import python libraries and other functions
+import warnings
+
 import numpy as np
 
 # Function condal starts here
@@ -35,8 +37,8 @@ def thermal_conductivity_al(TT):
     k_Al = np.zeros(TT.shape)
     if (min(TT) < TMIN) or (max(TT) > TMAX):
 
-        print(
-            f"ERROR>Temperature outside valid range: T >= {TMIN} K and T <= {TMAX} K.\n"
+        warnings.warn(
+            f"Temperature outside valid range: T >= {TMIN} K and T <= {TMAX} K."
         )
 
     else:
@@ -135,8 +137,8 @@ def isobaric_specific_heat_al(TT):
     TMAX = 1000.0
 
     if (min(TT) < TMIN) or (max(TT) > TMAX):
-        print(
-            f"ERROR>Temperature outside valid range: T >= {TMIN} K and T <= {TMAX} K.\n"
+        warnings.warn(
+            f"Temperature outside valid range: T >= {TMIN} K and T <= {TMAX} K."
         )
 
     else:

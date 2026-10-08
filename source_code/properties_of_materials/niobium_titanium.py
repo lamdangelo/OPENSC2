@@ -264,13 +264,8 @@ def reduced_magnetic_field_nbti(magnetic_field, temperature, B_c20, T_c0, nn=1.7
     temperature, B_c20, T_c0, nn
     )
 
-    print("Bc min =", np.nanmin(bc))
-    print("Bc max =", np.nanmax(bc))
-    print("any Bc == 0:", np.any(bc == 0))
-
     bb = magnetic_field / bc
-    print("bb max =", np.nanmax(bb))
-    return bb 
+    return bb
 
 
 # End function reduced_magnetic_field_nbti

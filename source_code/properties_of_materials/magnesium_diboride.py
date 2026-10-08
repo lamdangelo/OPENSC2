@@ -433,7 +433,7 @@ def electrical_resistivity_cu_nist(t, b, rrr):
         rho[jok] = rhoN[jok] * (1.0 + ccc[jok])
 
     if jng.size > 0:  # jng is not empty, modified by Placido Daniele
-        print(" *** Warning: some data out of range in rhoecu")
+        warnings.warn("some data out of range in rhoecu")
 
     return rho  # end of the function
 

@@ -100,6 +100,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ports.diagnostics import DiagnosticsSink, NULL_DIAGNOSTICS
+
 from hydraulics.hydraulic_flags import (
     FlowDirection,
     HydraulicBC,
@@ -566,7 +568,8 @@ def _coupling_blocks(conductor, network: HydraulicNetwork,
 
 def solve_coupled_conductors_step(conductors: list,
                                   network: HydraulicNetwork,
-                                  qsource_by_identifier: dict):
+                                  qsource_by_identifier: dict,
+                                  diagnostics: DiagnosticsSink = NULL_DIAGNOSTICS):
     """One monolithic time step of every network-coupled conductor and the
     network (see module docstring).
 
@@ -655,6 +658,7 @@ def solve_coupled_conductors_step(conductors: list,
             particular - border_influence @ network_increment[ported_columns],
             known_term,
             row_scaling_factors,
+            diagnostics,
         )
     network.advance(old_network_state + network_increment, time_step)
 

@@ -75,6 +75,7 @@ interfaces.  :func:`check_source_consistency` asserts these facts on the
 assembled block when the debug switch is on.
 """
 
+import functools
 import os
 from typing import NamedTuple
 
@@ -82,14 +83,20 @@ import numpy as np
 
 from hydraulics.hydraulics import compute_gruneisen
 
-# Debug switch: OPENSC2_DEBUG_CHECKS=1 turns on the per-step source-block
-# consistency assertion (read once at import so production runs pay nothing).
-DEBUG_CHECKS_ENABLED = os.environ.get("OPENSC2_DEBUG_CHECKS", "").strip().lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
+
+
+@functools.lru_cache(maxsize=1)
+def debug_checks_enabled() -> bool:
+    """Debug switch: OPENSC2_DEBUG_CHECKS=1 turns on the per-step source-block
+    consistency assertion. Read lazily (not at import) and cached, so
+    importing this module has no side effect and production runs pay
+    nothing per step."""
+    return os.environ.get("OPENSC2_DEBUG_CHECKS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 # Tolerances of check_source_consistency.
 # Temperature columns: the identity is exact by construction (same phi, rho,
@@ -385,7 +392,7 @@ def check_source_consistency(
 
     Returns the maximal relative residuals found (for reporting); raises
     AssertionError naming the channel, column and Gauss point otherwise.
-    Called from the assembly when DEBUG_CHECKS_ENABLED; callable directly
+    Called from the assembly when debug_checks_enabled(); callable directly
     by tests."""
     eq_idx = conductor.equation_index
     temperature_columns = [

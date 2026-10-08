@@ -113,4 +113,4 @@ class ComponentInventory:
                 self.solids.add(component)
 
         else:
-            ValueError(f"Unknown component type {type(component).__name__}.")
+            raise ValueError(f"Unknown component type {type(component).__name__}.")

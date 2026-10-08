@@ -26,5 +26,5 @@ def get_component_type(component_name: str) -> ComponentType:
     elif component_name == "Z_JACKET":
         return ComponentType.JACKET
     else:
-        ValueError(f"Unknown component type {component_name}.")
+        raise ValueError(f"Unknown component type {component_name}.")
 

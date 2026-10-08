@@ -1,7 +1,6 @@
 # Functions invoked to solve conductors transient (cdp, 07/2020)
 
 import numpy as np
-import os
 from scipy.linalg import solve_banded
 from utility_functions.auxiliary_functions import (
     get_from_xlsx,
@@ -43,12 +42,13 @@ from thermal.energy_equation import (
     build_known_therm_vector,
 )
 from hydraulics.formulation import transform_gauss_matrices_to_mass_flow
+from ports.diagnostics import DiagnosticsSink, NULL_DIAGNOSTICS, dumped_to
 from hydraulics.hydraulic_flags import (
     HydraulicFormulation,
     MASS_FLOW_FORMULATIONS,
 )
 from hydraulics.mass_flow_equations import (
-    DEBUG_CHECKS_ENABLED,
+    debug_checks_enabled,
     build_amat_mass_flow,
     build_kmat_fluid_mass_flow,
     build_smat_fluid_energy_mass_flow,
@@ -83,7 +83,7 @@ ADAPTIVE_SAFETY_FACTOR = 0.9
 ADAPTIVE_MAX_GROWTH = 1.5
 ADAPTIVE_MAX_SHRINK = 0.25
 
-def get_time_step(conductor, transient_input, num_step):
+def get_time_step(conductor, transient_input, num_step, report=print):
 
     """
     ##############################################################################
@@ -162,7 +162,7 @@ def get_time_step(conductor, transient_input, num_step):
             error_ratio_msg = (
                 f"{error_ratio:.3e}" if error_ratio is not None else "n/a"
             )
-            print(
+            report(
                 f"Selected conductor time step is: {conductor.time_step:.6e} "
                 f"(local truncation error ratio {error_ratio_msg}, "
                 f"tolerance {tolerance:.1e})\n"
@@ -283,7 +283,7 @@ def get_time_step(conductor, transient_input, num_step):
             conductor.time_step, transient_input["TEND"] - conductor.cond_time[-1]
         )
         # C --------------
-        print(
+        report(
             f"Selected conductor time step is: {conductor.time_step} "
             f"(accuracy optimum {OPTSTP:.3e})\n"
         )
@@ -621,7 +621,7 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
         # the fluid rows of the source vector are identically zero, so both
         # stay untouched.
         transform_gauss_matrices_to_mass_flow(gauss_point_matrices, conductor)
-    elif explicit_mass_flow and DEBUG_CHECKS_ENABLED:
+    elif explicit_mass_flow and debug_checks_enabled():
         # Debug-mode assertion of the heat-source consistency
         # q_p = phi rho c_v q_T on the assembled source block
         # (OPENSC2_DEBUG_CHECKS=1).
@@ -695,18 +695,6 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
         conductor,
     )
 
-    # Call function to save ndarrays before the application of BC; this can be 
-    # useful to create and make tests according to TDD approach.
-    #   ** Decomment the following lines to save ndarrays **
-    # save_ndarray(
-    #     conductor,
-    #     (
-    #         system_matrices.masmat,system_matrices.flxmat,system_matrices.difmat,
-    #         system_matrices.sormat,system_matrix,conductor.time_integration.solution,
-    #         conductor.time_integration.load_vector
-    #     )
-    # )
-
     # IMPOSE BOUNDARY CONDITIONS AT INLET/OUTLET
     for f_comp in conductor.inventory.fluids.collection:
 
@@ -749,7 +737,8 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     return system_matrix, known_term_vector, row_scaling_factors
 
 
-def step(conductor, environment, qsource, num_step):
+def step(conductor, environment, qsource, num_step,
+         diagnostics: DiagnosticsSink = NULL_DIAGNOSTICS):
     """One transient step of an uncoupled conductor: assemble, one banded
     solve, post-solve bookkeeping.
 
@@ -771,14 +760,19 @@ def step(conductor, environment, qsource, num_step):
     solution = solve_thermal_banded_system(
         conductor, system_matrix, known_term_vector
     )
-    finalize_step(conductor, solution, known_term_vector, row_scaling_factors)
+    finalize_step(conductor, solution, known_term_vector, row_scaling_factors,
+                  diagnostics)
 
 
 def finalize_step(conductor, solution, known_term_vector,
-                  row_scaling_factors):
+                  row_scaling_factors,
+                  diagnostics: DiagnosticsSink = NULL_DIAGNOSTICS):
     """Post-solve phase of one transient step: local-truncation-error
     estimate, solution history shift, sanity checks, solution norms and
-    reorganization of the solution into the component fields."""
+    reorganization of the solution into the component fields.
+
+    ``diagnostics`` receives the state arrays when a sanity check fails
+    (ports.diagnostics); the numerics never write files themselves."""
 
     TINY = 1.0e-5
 
@@ -817,11 +811,8 @@ def finalize_step(conductor, solution, known_term_vector,
     if not np.all(np.isfinite(solution)):
         bad_equations = np.nonzero(~np.isfinite(solution))[0]
         ndf = conductor.equation_counts.degrees_of_freedom_per_node
-        dump_path = os.path.join(
-            os.getcwd(), f"nonfinite_solution_step_{conductor.cond_num_step}.npz"
-        )
-        np.savez(
-            dump_path,
+        dump_path = diagnostics.dump(
+            f"nonfinite_solution_step_{conductor.cond_num_step}",
             time=conductor.cond_time[-1],
             time_step=conductor.time_step,
             solution=solution,
@@ -833,8 +824,8 @@ def finalize_step(conductor, solution, known_term_vector,
             f"Non-finite thermal-hydraulic solution at t = "
             f"{conductor.cond_time[-1]:.6f} s (step {conductor.cond_num_step}): "
             f"{bad_equations.size} equations affected, first at node "
-            f"{bad_equations[0] // ndf} (dof {bad_equations[0] % ndf}). "
-            f"State dumped to {dump_path}."
+            f"{bad_equations[0] // ndf} (dof {bad_equations[0] % ndf})."
+            + dumped_to(dump_path)
         )
 
     # COMPUTE THE NORM OF THE SOLUTION AND OF THE SOLUTION CHANGE (START)
@@ -877,13 +868,9 @@ def finalize_step(conductor, solution, known_term_vector,
                 invalid |= field <= 0.0
             if invalid.any():
                 bad_nodes = np.nonzero(invalid)[0]
-                dump_path = os.path.join(
-                    os.getcwd(),
+                dump_path = diagnostics.dump(
                     f"nonfinite_{f_comp.identifier}_{field_name}_step_"
-                    f"{conductor.cond_num_step}.npz",
-                )
-                np.savez(
-                    dump_path,
+                    f"{conductor.cond_num_step}",
                     time=conductor.cond_time[-1],
                     velocity=fields.velocity,
                     pressure=fields.pressure,
@@ -894,8 +881,8 @@ def finalize_step(conductor, solution, known_term_vector,
                     f"Invalid {f_comp.identifier} {field_name} after "
                     f"solution reorganization at t = {conductor.cond_time[-1]:.6f} s "
                     f"(step {conductor.cond_num_step}): first at node "
-                    f"{bad_nodes[0]} (value {field[bad_nodes[0]]}). "
-                    f"State dumped to {dump_path}."
+                    f"{bad_nodes[0]} (value {field[bad_nodes[0]]})."
+                    + dumped_to(dump_path)
                 )
     
     # COMPUTE THE NORM OF THE SOLUTION CHANGE, THE EIGENVALUES AND RECOVER THE \
@@ -1274,34 +1261,3 @@ def reorganize_th_solution(
             s_comp.node_fields.temperature[:-1]
             + s_comp.node_fields.temperature[1:]
         ) / 2. - old_temperature[s_comp.identifier]
-
-def save_ndarray(conductor:Conductor,ndarrays:tuple):
-    """Function that saves selected ndarrays to perform test according to the TDD approach. The path to the directory where to save the ndarrays is hardcoded in the function. This is not optimum but it is not trivial to do it in a different way.
-
-    Args:
-        conductor (Conductor): object with all the information of the conductor.
-        ndarrays (tuple): collection of ndarrays in the following order: mass_capacity, flux_jacobian, diffusion, source_jacobian, system_matrix, solution, load_vector
-    """
-    
-    if conductor.cond_num_step == 1 or np.isclose(conductor.Space_save[conductor.i_save],conductor.cond_time[-1]):
-
-        path_matr = os.path.join("D:/refactoring/function_step", "matrices/before")
-        os.makedirs(path_matr, exist_ok = True)
-
-        if conductor.cond_num_step == 1:
-            sfx = conductor.i_save - 1
-        else:
-            sfx = conductor.i_save
-        # Collection of ndimensional array.
-        nda_name = (
-            "mass_capacity","flux_jacobian","diffusion","source_jacobian",
-            "system_matrix","solution","load_vector"
-        )
-        # Build path to save ndimensional array.
-        paths = tuple(
-            os.path.join(path_matr, f"{name}_{sfx}.tsv") for name in nda_name
-        )
-        # Loop to save ndimensional array at the given path
-        for save_path,nda in zip(paths,ndarrays):
-            with open(save_path, "w") as writer:
-                np.savetxt(writer, nda, delimiter = "\t")

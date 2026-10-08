@@ -34,6 +34,7 @@ from utility_functions.output import (
     save_properties,
 )
 from utility_functions.checkpoint import restore_from_checkpoint, write_checkpoint
+from adapters.output.diagnostics_npz import NpzDiagnosticsSink
 from utility_functions.simulation_log import SimulationSummary
 from utility_functions.plots import (
     plot_properties,
@@ -45,9 +46,6 @@ from utility_functions.plots import (
 
 class Simulation:
 
-    # Current working directory
-    CWD = os.getcwd()
-
     def __init__(self, base_path, step_callback=None):
 
         # Optional per-step hook, called at the top of every transient
@@ -55,15 +53,20 @@ class Simulation:
         # time-dependent boundary schedules, event detection and source
         # switching). A truthy return value stops the transient.
         self.step_callback = step_callback
+        # Where the solvers drop state dumps when a step turns non-finite
+        # (ports.diagnostics): npz files in the working directory, as before.
+        self.diagnostics = NpzDiagnosticsSink()
         # Current working directory: SCMagnetCode (cdp, 10/2020)
         # self.cwd = os.getcwd()
         # Ask User the name of the cable. (cdp, 10/2020)
         # Default results root, used only when no target directory is given
         # to simulation_folders_manager (GUI flow); headless runs override it
         # with the model directory. Created on demand, never eagerly.
+        # Working directory at construction (not at import) time.
+        self.cwd = os.getcwd()
         self.dict_path = dict(
-            Current_work_dir=self.CWD,
-            Results_dir=os.path.join(self.CWD, "..", "Simulations_results"),
+            Current_work_dir=self.cwd,
+            Results_dir=os.path.join(self.cwd, "..", "Simulations_results"),
         )
         self.basePath = base_path
         # loop inside self.basePath (cdp, 10/2020)
@@ -533,6 +536,7 @@ class Simulation:
                         self.environment,
                         self.dict_qsource[conductor.identifier],
                         self.num_step,
+                        self.diagnostics,
                     )
             # End for conductor: preparation and uncoupled solves.
 
@@ -543,6 +547,7 @@ class Simulation:
                     coupled_conductors,
                     self.hydraulic_network,
                     self.dict_qsource,
+                    self.diagnostics,
                 )
 
             for conductor in self.list_of_Conductors:

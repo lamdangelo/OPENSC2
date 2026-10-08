@@ -1,12 +1,9 @@
 import os
 
-import matplotlib
-
-# The GUI's real-time plots need an interactive backend, but an explicitly
-# requested backend (e.g. MPLBACKEND=Agg for headless/CI runs) must win —
-# TkAgg cannot even be imported on machines without a display/Tk.
-if "MPLBACKEND" not in os.environ:
-    matplotlib.use("TkAgg")
+# No backend selection here: importing a plotting module must not have
+# side effects. The GUI selects its interactive backend itself
+# (opensc2_gui.py); headless runs rely on matplotlib's default/Agg choice
+# or on MPLBACKEND.
 import matplotlib.pyplot as plt
 
 from components.component_flags import ComponentType
