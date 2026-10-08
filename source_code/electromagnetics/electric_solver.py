@@ -69,7 +69,7 @@ def _solve_steady_reduced(conductor, matrix, right_hand_side):
     if permutation is None or permutation.size != matrix.shape[0]:
         structure = (abs(matrix) + abs(matrix).T).tocsr()
         permutation = reverse_cuthill_mckee(structure, symmetric_mode=True)
-        conductor._steady_state_permutation = permutation
+        conductor.electric._steady_state_permutation = permutation
 
     permuted = matrix[permutation][:, permutation].tocsc()
     solution_permuted = splu(permuted, permc_spec="NATURAL").solve(
@@ -99,32 +99,32 @@ def _steady_solve_once(conductor: object) -> None:
     ``current_for_resistance`` bindings)."""
     conductor.electric_preprocessing()
 
-    n_size = conductor.electric_known_term_vector.shape[0]
+    n_size = conductor.electric.electric_known_term_vector.shape[0]
     if n_size == 0:
-        conductor.electric_known_term_vector = np.zeros(
-            conductor.electric_stiffness_matrix.shape[0]
+        conductor.electric.electric_known_term_vector = np.zeros(
+            conductor.electric.electric_stiffness_matrix.shape[0]
         )
 
-    conductor.electric_solution = np.zeros(
-        conductor.electric_known_term_vector.shape[0]
+    conductor.electric.electric_solution = np.zeros(
+        conductor.electric.electric_known_term_vector.shape[0]
     )
 
     build_known_term_vector(conductor)
     idx = reduce_system(conductor)
 
     # Use the known-term vector as the RHS (steady-state has no mass-matrix term)
-    conductor.electric_right_hand_side = conductor.electric_known_term_vector
+    conductor.electric.electric_right_hand_side = conductor.electric.electric_known_term_vector
     electric_solution_reduced = _solve_steady_reduced(
         conductor,
-        conductor.electric_stiffness_matrix,
-        conductor.electric_right_hand_side,
+        conductor.electric.electric_stiffness_matrix,
+        conductor.electric.electric_right_hand_side,
     )
 
     assemble_solution(conductor, idx, electric_solution_reduced)
 
     # Reset the known-term vector to its full (unreduced) size for the next call
-    conductor.electric_known_term_vector = np.zeros(
-        conductor.total_elements_current_carriers
+    conductor.electric.electric_known_term_vector = np.zeros(
+        conductor.electric.total_elements_current_carriers
         + conductor.total_nodes_current_carriers
     )
 
@@ -218,8 +218,8 @@ def solve_steady_state(conductor: object) -> None:
     the correct general form (the legacy reduction is only consistent
     for zero fixed values; all shipped decks use zero).
 
-    The solution is stored in ``conductor.electric_solution`` and a copy is
-    kept in ``conductor.electric_solution_steady`` for use as the initial
+    The solution is stored in ``conductor.electric.electric_solution`` and a copy is
+    kept in ``conductor.electric.electric_solution_steady`` for use as the initial
     condition of the transient loop (and as the Newton warm start of the
     next thermal step).
 
@@ -237,24 +237,24 @@ def solve_steady_state(conductor: object) -> None:
     if not conductor.operations.electric_current_consistency:
         # Legacy path: single build-and-solve from the imposed current.
         _steady_solve_once(conductor)
-        conductor.electric_solution_steady = conductor.electric_solution.copy()
+        conductor.electric.electric_solution_steady = conductor.electric.electric_solution.copy()
         return
 
     _solve_steady_newton(conductor)
-    conductor.electric_solution_steady = conductor.electric_solution.copy()
+    conductor.electric.electric_solution_steady = conductor.electric.electric_solution.copy()
 
 
 def _solve_steady_newton(conductor: object) -> None:
     """Damped Newton iteration for the steady current-consistent solve.
 
     See :func:`solve_steady_state` for the formulation. Postconditions:
-    ``conductor.electric_solution`` holds the adopted full-size state;
+    ``conductor.electric.electric_solution`` holds the adopted full-size state;
     the stiffness matrix, the strand ``electric_resistance`` fields and
     ``parallel_jacket_pairs`` are consistent with it (the last residual
     evaluation ran at the adopted state); the full-size
     ``electric_known_term_vector`` buffer invariant is preserved.
     """
-    n_elements = conductor.total_elements_current_carriers
+    n_elements = conductor.electric.total_elements_current_carriers
     full_size = n_elements + conductor.total_nodes_current_carriers
     strands = conductor.inventory.strands.collection
     n_strands = conductor.inventory.strands.number
@@ -272,7 +272,7 @@ def _solve_steady_newton(conductor: object) -> None:
     warm = getattr(conductor, "electric_solution_steady", None)
     if warm is None or np.asarray(warm).shape[0] != full_size:
         _steady_solve_once(conductor)
-        warm = conductor.electric_solution
+        warm = conductor.electric.electric_solution
     x = np.real(np.asarray(warm)).astype(float).copy()
 
     def bind(x_full):
@@ -289,11 +289,11 @@ def _solve_steady_newton(conductor: object) -> None:
         """
         bind(x_full)
         conductor.electric_preprocessing()
-        operator = conductor.electric_reduction_operator
+        operator = conductor.electric.electric_reduction_operator
         known = np.zeros(full_size)
         known[n_elements:] = conductor.node_fields.op_current
         return (
-            operator.T @ (conductor.electric_stiffness_matrix @ x_full - known),
+            operator.T @ (conductor.electric.electric_stiffness_matrix @ x_full - known),
             operator,
         )
 
@@ -302,22 +302,22 @@ def _solve_steady_newton(conductor: object) -> None:
         members and inserts the fixed potential values, exactly like
         ``assemble_solution``)."""
         x_full = operator @ x_reduced
-        if conductor.fixed_potential_index.size > 0:
-            x_full[conductor.fixed_potential_index] = (
-                conductor.fixed_potential_value
+        if conductor.electric.fixed_potential_index.size > 0:
+            x_full[conductor.electric.fixed_potential_index] = (
+                conductor.electric.fixed_potential_value
             )
         return x_full
 
     def converged(residual_reduced, x_full):
         """Blockwise test: element rows are volts, node rows amperes."""
-        retained = conductor.electric_retained_index
+        retained = conductor.electric.electric_retained_index
         element_rows = retained < n_elements
         residual_elements = residual_reduced[element_rows]
         residual_nodes = residual_reduced[~element_rows]
         current_scale = max(
             float(np.abs(conductor.node_fields.op_current).max()), 1.0
         )
-        along_voltage = conductor.incidence_matrix @ x_full[n_elements:]
+        along_voltage = conductor.electric.incidence_matrix @ x_full[n_elements:]
         voltage_scale = max(
             float(np.abs(along_voltage).max()) if along_voltage.size else 0.0,
             _steady_voltage_scale_floor(conductor),
@@ -335,7 +335,7 @@ def _solve_steady_newton(conductor: object) -> None:
     # Canonicalize the warm start through the reduction operator (the
     # first residual() call also builds the topology if needed).
     residual_reduced, operator = residual(x)
-    x = scatter(x[conductor.electric_retained_index], operator)
+    x = scatter(x[conductor.electric.electric_retained_index], operator)
     residual_reduced, operator = residual(x)
     best_norm = float(np.linalg.norm(residual_reduced))
     best_state = x.copy()
@@ -350,12 +350,12 @@ def _solve_steady_newton(conductor: object) -> None:
         jacobian = bmat(
             [
                 [
-                    conductor.electric_differential_resistance_matrix,
-                    conductor.incidence_matrix,
+                    conductor.electric.electric_differential_resistance_matrix,
+                    conductor.electric.incidence_matrix,
                 ],
                 [
-                    -conductor.incidence_matrix_transposed,
-                    conductor.electric_conductance_matrix,
+                    -conductor.electric.incidence_matrix_transposed,
+                    conductor.electric.electric_conductance_matrix,
                 ],
             ],
             format="csr",
@@ -386,7 +386,7 @@ def _solve_steady_newton(conductor: object) -> None:
         # trial residual is always the true residual (full resistance
         # rebuild per trial - no factorization, so trials are cheap).
         norm_previous = float(np.linalg.norm(residual_reduced))
-        x_reduced = x[conductor.electric_retained_index]
+        x_reduced = x[conductor.electric.electric_retained_index]
         step = 1.0
         norm_trial = np.inf
         for _ in range(STEADY_NEWTON_MAX_BACKTRACKS + 1):
@@ -433,13 +433,13 @@ def _solve_steady_newton(conductor: object) -> None:
     # The last residual() evaluation ran at the adopted x, so K, the
     # strand electric_resistance fields and parallel_jacket_pairs are
     # consistent with the solution: Joule power downstream is exact.
-    conductor.electric_solution = x
-    conductor._steady_newton_iterations = iteration
+    conductor.electric.electric_solution = x
+    conductor.electric._steady_newton_iterations = iteration
     # Restore the full-size known-term buffer invariant (transient path
     # sizes itself from this attribute).
-    conductor.electric_known_term_vector = np.zeros(full_size)
+    conductor.electric.electric_known_term_vector = np.zeros(full_size)
 
-    conductor.electric_solution_steady = conductor.electric_solution.copy()
+    conductor.electric.electric_solution_steady = conductor.electric.electric_solution.copy()
 
 
 def solve_transient(conductor: object) -> None:
@@ -451,7 +451,7 @@ def solve_transient(conductor: object) -> None:
     currently applies only to the steady-state solve.
 
     Iterates ``ELECTRIC_TIME_STEP_NUMBER`` sub-steps of size
-    ``conductor.electric_time_step``.  At each sub-step:
+    ``conductor.electric.electric_time_step``.  At each sub-step:
 
     1. Update electromagnetic operating conditions.
     2. Rebuild the resistance matrix (only resistance changes with T).
@@ -469,72 +469,72 @@ def solve_transient(conductor: object) -> None:
             ``electric_time_step`` set up.
     """
     n_total = (
-        conductor.total_elements_current_carriers
+        conductor.electric.total_elements_current_carriers
         + conductor.total_nodes_current_carriers
     )
-    if conductor.electric_known_term_vector.shape[0] == 0:
-        conductor.electric_known_term_vector = np.zeros_like(
-            conductor.electric_solution_steady
+    if conductor.electric.electric_known_term_vector.shape[0] == 0:
+        conductor.electric.electric_known_term_vector = np.zeros_like(
+            conductor.electric.electric_solution_steady
         )
 
-    if conductor.cond_el_num_step == 0:
-        conductor.electric_solution = conductor.electric_solution_steady.copy()
+    if conductor.electric.cond_el_num_step == 0:
+        conductor.electric.electric_solution = conductor.electric.electric_solution_steady.copy()
 
     build_known_term_vector(conductor)
-    conductor.electric_known_term_vector_old = (
-        conductor.electric_known_term_vector.copy()
+    conductor.electric.electric_known_term_vector_old = (
+        conductor.electric.electric_known_term_vector.copy()
     )
 
     # Number of electric sub-steps needed to cover the thermal time step
     # (the loop was previously hardcoded to ELECTRIC_TIME_STEP_NUMBER
     # iterations regardless of the user-defined electric time step).
     number_of_substeps = max(
-        1, round(conductor.electric_time_end / conductor.electric_time_step)
+        1, round(conductor.electric.electric_time_end / conductor.electric.electric_time_step)
     )
 
     for nn in range(1, number_of_substeps + 1):
-        conductor.electric_time += conductor.electric_time_step
-        conductor.cond_el_num_step = nn
+        conductor.electric.electric_time += conductor.electric.electric_time_step
+        conductor.electric.cond_el_num_step = nn
 
         conductor.operating_conditions_em()
         conductor.eval_total_operating_current()
         conductor.electric_preprocessing()
 
         # Form the transient stiffness matrix: M/dt + theta*K
-        K_static = conductor.electric_stiffness_matrix.copy()
-        conductor.electric_stiffness_matrix = (
-            conductor.electric_mass_matrix / conductor.electric_time_step
-            + conductor.electric_theta * K_static
+        K_static = conductor.electric.electric_stiffness_matrix.copy()
+        conductor.electric.electric_stiffness_matrix = (
+            conductor.electric.electric_mass_matrix / conductor.electric.electric_time_step
+            + conductor.electric.electric_theta * K_static
         )
 
         # The "foo" matrix contributes M/dt * x_old - (1-theta)*K*x_old to the RHS
         foo = (
-            conductor.electric_mass_matrix / conductor.electric_time_step
-            - (1.0 - conductor.electric_theta) * K_static
+            conductor.electric.electric_mass_matrix / conductor.electric.electric_time_step
+            - (1.0 - conductor.electric.electric_theta) * K_static
         )
 
         # Initialise known-term to zero before reduction (required by reduce_system)
-        conductor.electric_known_term_vector = np.zeros_like(
-            conductor.electric_solution_steady
+        conductor.electric.electric_known_term_vector = np.zeros_like(
+            conductor.electric.electric_solution_steady
         )
         idx = reduce_system(conductor)
-        electric_known_term_reduced = conductor.electric_known_term_vector.copy()
+        electric_known_term_reduced = conductor.electric.electric_known_term_vector.copy()
 
         # Restore full-size known-term and rebuild for this sub-step
-        conductor.electric_known_term_vector = np.zeros(
-            np.zeros_like(conductor.electric_known_term_vector_old).shape
+        conductor.electric.electric_known_term_vector = np.zeros(
+            np.zeros_like(conductor.electric.electric_known_term_vector_old).shape
         )
         build_known_term_vector(conductor)
 
         build_right_hand_side(conductor, foo, electric_known_term_reduced, idx)
 
         electric_solution_reduced = spsolve(
-            conductor.electric_stiffness_matrix,
-            conductor.electric_right_hand_side,
+            conductor.electric.electric_stiffness_matrix,
+            conductor.electric.electric_right_hand_side,
         )
 
-        conductor.electric_known_term_vector_old = (
-            conductor.electric_known_term_vector.copy()
+        conductor.electric.electric_known_term_vector_old = (
+            conductor.electric.electric_known_term_vector.copy()
         )
         assemble_solution(conductor, idx, electric_solution_reduced)
 
@@ -560,18 +560,18 @@ def assemble_solution(
         electric_solution_reduced: Solution vector for the reduced system.
     """
     if np.iscomplex(electric_solution_reduced).any():
-        conductor.electric_solution = conductor.electric_solution.astype(complex)
+        conductor.electric.electric_solution = conductor.electric.electric_solution.astype(complex)
 
-    conductor.electric_solution[idx] = electric_solution_reduced
+    conductor.electric.electric_solution[idx] = electric_solution_reduced
 
-    if conductor.fixed_potential_index.size > 0:
-        conductor.electric_solution[conductor.fixed_potential_index] = (
-            conductor.fixed_potential_value
+    if conductor.electric.fixed_potential_index.size > 0:
+        conductor.electric.electric_solution[conductor.electric.fixed_potential_index] = (
+            conductor.electric.fixed_potential_value
         )
 
     if conductor.operations.do_equipotential_surfaces_exist:
-        for _, row in enumerate(conductor.equipotential_node_index):
-            conductor.electric_solution[row[1:]] = conductor.electric_solution[row[0]]
+        for _, row in enumerate(conductor.electric.equipotential_node_index):
+            conductor.electric.electric_solution[row[1:]] = conductor.electric.electric_solution[row[0]]
 
 
 # ---------------------------------------------------------------------------
@@ -581,11 +581,11 @@ def assemble_solution(
 def reorganize_solution(conductor: object) -> None:
     """Distribute the flat electric solution vector to per-strand arrays.
 
-    Splits ``conductor.electric_solution`` into:
+    Splits ``conductor.electric.electric_solution`` into:
     * **Edge currents** (first ``n_el`` entries): stored in each strand's
       ``gauss_fields.current_along``.
     * **Nodal potentials** (last ``n_nd`` entries): stored in
-      ``conductor.nodal_potential``.
+      ``conductor.electric.nodal_potential``.
 
     Also computes:
     * ``delta_voltage_along``: longitudinal voltage drop per element
@@ -597,13 +597,13 @@ def reorganize_solution(conductor: object) -> None:
         conductor: Conductor object with the electric solution and inventory
             already set up.
     """
-    n_el = conductor.total_elements_current_carriers
+    n_el = conductor.electric.total_elements_current_carriers
     n_strands = conductor.inventory.strands.number
 
-    current_along = conductor.electric_solution[:n_el]
-    conductor.nodal_potential = conductor.electric_solution[n_el:]
+    current_along = conductor.electric.electric_solution[:n_el]
+    conductor.electric.nodal_potential = conductor.electric.electric_solution[n_el:]
 
-    delta_voltage_along = -conductor.incidence_matrix @ conductor.nodal_potential
+    delta_voltage_along = -conductor.electric.incidence_matrix @ conductor.electric.nodal_potential
 
     for ii, strand in enumerate(conductor.inventory.strands.collection):
         strand.gauss_fields.current_along = current_along[ii::n_strands]
@@ -642,13 +642,13 @@ def evaluate_joule_power_conductance(conductor: object) -> None:
         return
 
     delta_voltage_across = np.real(
-        conductor.contact_incidence_matrix @ conductor.nodal_potential
+        conductor.electric.contact_incidence_matrix @ conductor.electric.nodal_potential
     )
     current_across = np.real(
         np.conj(
-            conductor.electric_conductance_diag_matrix
-            @ conductor.contact_incidence_matrix
-            @ conductor.nodal_potential
+            conductor.electric.electric_conductance_diag_matrix
+            @ conductor.electric.contact_incidence_matrix
+            @ conductor.electric.nodal_potential
         )
     )
 
@@ -661,7 +661,7 @@ def evaluate_joule_power_conductance(conductor: object) -> None:
 
     joule_power_across = delta_voltage_across * current_across
     joule_power_per_node = (
-        np.abs(conductor.contact_incidence_matrix.T) @ joule_power_across
+        np.abs(conductor.electric.contact_incidence_matrix.T) @ joule_power_across
     ) / 2
 
     n_strands = conductor.inventory.strands.number
@@ -670,8 +670,8 @@ def evaluate_joule_power_conductance(conductor: object) -> None:
             ii::n_strands
         ]
 
-    conductor.delta_voltage_across = delta_voltage_across
-    conductor.current_across = current_across
+    conductor.electric.delta_voltage_across = delta_voltage_across
+    conductor.electric.current_across = current_across
 
 
 def compute_voltage_sum(conductor: object) -> None:

@@ -36,6 +36,7 @@ from components.fluid.fluid_component import FluidComponent
 from components.component_factory import build_component
 from components.component_build import ComponentBuildSettings
 from conductor.conductor_definition import ConductorDefinition
+from conductor.electric_state import ELECTRIC_ATTRIBUTES, ElectricState
 from runtime.time_stepping import TimeSteppingSettings
 from components.jacket.jacket_component import JacketComponent
 from components.solid.stack_component import StackComponent
@@ -106,6 +107,9 @@ class Conductor:
         """Makes an instance of class conductor from its typed definition
         (see adapters.input.conductor_loader.load_conductor_definition)."""
         self.definition = definition
+        # Electric network state (matrices, right-hand sides, solution, clock);
+        # written by the electromagnetics package through conductor.electric.
+        self.electric = ElectricState()
         self.base_path = Path(definition.file_paths.base_path)
         self.counter = definition.counter
         self.file_paths = definition.file_paths
@@ -170,6 +174,18 @@ class Conductor:
         # Call private method __initialize_attributes to initialize all the other useful and necessary attributes of class Conductor.
         self.__initialize_attributes(simulation)
 
+
+    # -- transitional: old spelling conductor.<electric attribute> -------
+    def __getattr__(self, name):
+        if name in ELECTRIC_ATTRIBUTES and name != "electric":
+            return getattr(self.electric, name)
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+
+    def __setattr__(self, name, value):
+        if name in ELECTRIC_ATTRIBUTES and "electric" in self.__dict__:
+            setattr(self.electric, name, value)
+        else:
+            object.__setattr__(self, name, value)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(Type: {self.KIND}, identifier: {self.identifier})"
@@ -304,7 +320,7 @@ class Conductor:
             MethodFlag.BACKWARD_DIFFERENCE_2: 1.0,
         }
         self.theta_method = _[self.inputs.thermohydraulic_method]
-        self.electric_theta = _[self.inputs.electric_method]
+        self.electric.electric_theta = _[self.inputs.electric_method]
         # Time step of the previously completed step, needed by the
         # variable-step BDF2 coefficients and by the local-truncation-error
         # estimator of the adaptive time stepping; set at the end of every
@@ -388,7 +404,7 @@ class Conductor:
             self.mesh.number_of_elements + 1
         ) * self.inventory.all_components.number
 
-        self.total_elements_current_carriers = (
+        self.electric.total_elements_current_carriers = (
             self.mesh.number_of_elements * self.inventory.strands.number
         )
         self.total_nodes_current_carriers = (
@@ -403,20 +419,20 @@ class Conductor:
             self.inventory.fluids.number + 1,
             self.inventory.fluids.number + self.inventory.strands.number + 1,
         )
-        self.electric_conductance = (
+        self.electric.electric_conductance = (
             self.coupling.electric_conductance.matrix[strand_block, strand_block]
         )
-        self.electric_conductance_mode = (
+        self.electric.electric_conductance_mode = (
             self.coupling.electric_conductance_mode.matrix[strand_block, strand_block]
         )
 
         # Initialize resistance matrix to a dummy value (sparse matrix)
-        self.electric_resistance_matrix = diags(
-            10.0 * np.ones(self.total_elements_current_carriers),
+        self.electric.electric_resistance_matrix = diags(
+            10.0 * np.ones(self.electric.total_elements_current_carriers),
             offsets=0,
             shape=(
-                self.total_elements_current_carriers,
-                self.total_elements_current_carriers,
+                self.electric.total_elements_current_carriers,
+                self.electric.total_elements_current_carriers,
             ),
             format="csr",
             dtype=float,
@@ -429,32 +445,32 @@ class Conductor:
         from electromagnetics.electromagnetic_flags import ElectricSolver
 
         if self.operations.electric_solver == ElectricSolver.TRANSIENT:
-            self.inductance_matrix = np.zeros(
+            self.electric.inductance_matrix = np.zeros(
                 (
-                    self.total_elements_current_carriers,
-                    self.total_elements_current_carriers,
+                    self.electric.total_elements_current_carriers,
+                    self.electric.total_elements_current_carriers,
                 )
             )
         else:
-            self.inductance_matrix = None
+            self.electric.inductance_matrix = None
 
-        self.electric_conductance_matrix = csr_matrix(
+        self.electric.electric_conductance_matrix = csr_matrix(
             (self.total_nodes_current_carriers, self.total_nodes_current_carriers),
             dtype=float,
         )
 
         self.build_electric_topology_flag = True
-        self.electric_mass_matrix = lil_matrix(
+        self.electric.electric_mass_matrix = lil_matrix(
             (
-                self.total_elements_current_carriers
+                self.electric.total_elements_current_carriers
                 + self.total_nodes_current_carriers,
-                self.total_elements_current_carriers
+                self.electric.total_elements_current_carriers
                 + self.total_nodes_current_carriers,
             ),
             dtype=float,
         )
 
-        self.equipotential_node_index = np.zeros(
+        self.electric.equipotential_node_index = np.zeros(
             (
                 self.operations.number_of_equipotential_surfaces
                 if self.operations.do_equipotential_surfaces_exist
@@ -468,27 +484,27 @@ class Conductor:
         for obj in self.inventory.strands.collection:
             nn += obj.operations.fix_potential_number
 
-        self.fixed_potential_index = np.zeros(nn, dtype=int)
-        self.fixed_potential_value = np.zeros(nn)
+        self.electric.fixed_potential_index = np.zeros(nn, dtype=int)
+        self.electric.fixed_potential_value = np.zeros(nn)
 
         # Initialization moved in method build_electric_known_term_vector.
         # self.node_fields.op_current = np.zeros(self.total_nodes_current_carriers)
 
-        self.electric_known_term_vector = np.zeros(
-            self.total_elements_current_carriers + self.total_nodes_current_carriers
+        self.electric.electric_known_term_vector = np.zeros(
+            self.electric.total_elements_current_carriers + self.total_nodes_current_carriers
         )
 
-        self.electric_right_hand_side = np.zeros(
-            self.total_elements_current_carriers + self.total_nodes_current_carriers
+        self.electric.electric_right_hand_side = np.zeros(
+            self.electric.total_elements_current_carriers + self.total_nodes_current_carriers
         )
 
         # Electric time initialization, to be understood where to actually do
         # this
-        self.electric_time = 0.0  # s
+        self.electric.electric_time = 0.0  # s
         # Initialize the number of electric time steps to 0. This attribute 
         # will be updated at each electric time step; for each thermal time 
         # step it will start from 1. Value 0 is assumed only at initialization.
-        self.cond_el_num_step = 0
+        self.electric.cond_el_num_step = 0
 
         conductor_mesh.initialize_mesh_dataframes(self)
 
@@ -957,15 +973,15 @@ class Conductor:
         if electric_step is None or (
             isinstance(electric_step, float) and np.isnan(electric_step)
         ):
-            self.electric_time_step = self.time_step / ELECTRIC_TIME_STEP_NUMBER
+            self.electric.electric_time_step = self.time_step / ELECTRIC_TIME_STEP_NUMBER
         else:
             if electric_step <= 0.0:
                 raise ValueError(
                     f"Electric time step must be > 0.0 s; current value is: {electric_step=} s\n"
                 )
-            self.electric_time_step = min(electric_step, self.time_step)
+            self.electric.electric_time_step = min(electric_step, self.time_step)
 
-        self.electric_time_end = self.time_step
+        self.electric.electric_time_end = self.time_step
 
     def build_right_hand_side(self, foo: np.ndarray, bar: np.ndarray, idx: np.ndarray):
         """Build the RHS vector for the transient electric time step."""
@@ -1002,7 +1018,7 @@ class Conductor:
             # keep the electric clock on the thermal one; from-file operating
             # currents are interpolated at electric_time, which otherwise
             # stays at 0 and freezes them at their initial value.
-            self.electric_time = self.cond_time[-1]
+            self.electric.electric_time = self.cond_time[-1]
             solve_steady_state(self)
         else:
             self.__get_electric_time_step()

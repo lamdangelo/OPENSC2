@@ -94,8 +94,8 @@ def _collect_conductor_state(state: dict, conductor) -> None:
     _put(state, f"{prefix}/enthalpy_inl", conductor.enthalpy_inl)
     _put(state, f"{prefix}/i_save", conductor.i_save)
     _put(state, f"{prefix}/num_step_save", conductor.num_step_save)
-    _put(state, f"{prefix}/electric_time", conductor.electric_time)
-    _put(state, f"{prefix}/cond_el_num_step", conductor.cond_el_num_step)
+    _put(state, f"{prefix}/electric_time", conductor.electric.electric_time)
+    _put(state, f"{prefix}/cond_el_num_step", conductor.electric.cond_el_num_step)
     _put(
         state,
         f"{prefix}/electric_solution",
@@ -268,10 +268,10 @@ def _restore_conductor_state(archive, conductor) -> None:
     conductor.enthalpy_inl = _get(archive, f"{prefix}/enthalpy_inl")
     conductor.i_save = _get(archive, f"{prefix}/i_save")
     conductor.num_step_save[...] = archive[f"{prefix}/num_step_save"]
-    conductor.electric_time = _get(archive, f"{prefix}/electric_time")
-    conductor.cond_el_num_step = _get(archive, f"{prefix}/cond_el_num_step")
+    conductor.electric.electric_time = _get(archive, f"{prefix}/electric_time")
+    conductor.electric.cond_el_num_step = _get(archive, f"{prefix}/cond_el_num_step")
     if f"{prefix}/electric_solution" in archive:
-        conductor.electric_solution = archive[f"{prefix}/electric_solution"]
+        conductor.electric.electric_solution = archive[f"{prefix}/electric_solution"]
 
     for f_comp in conductor.inventory.fluids.collection:
         fluid_prefix = f"{prefix}/fluid/{f_comp.identifier}"

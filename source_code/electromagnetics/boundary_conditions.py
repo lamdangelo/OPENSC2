@@ -30,7 +30,7 @@ from scipy.sparse import csr_matrix
 
 
 def assign_equipotential_surfaces(conductor: object) -> None:
-    """Fill ``conductor.equipotential_node_index`` from the operation settings.
+    """Fill ``conductor.electric.equipotential_node_index`` from the operation settings.
 
     For each prescribed equipotential surface coordinate, finds the last
     ``n_strands`` nodes whose axial position does not exceed the coordinate
@@ -48,14 +48,14 @@ def assign_equipotential_surfaces(conductor: object) -> None:
     if not conductor.operations.do_equipotential_surfaces_exist:
         return
 
-    n_el = conductor.total_elements_current_carriers
+    n_el = conductor.electric.total_elements_current_carriers
     n_strands = conductor.inventory.strands.number
     z_values = conductor.nodal_coordinates.loc["StrandComponent", "z"].to_numpy()
 
     for ii, coord in enumerate(
         conductor.operations.equipotential_surface_coordinates
     ):
-        conductor.equipotential_node_index[ii, :] = (
+        conductor.electric.equipotential_node_index[ii, :] = (
             np.nonzero(z_values <= round(coord, conductor.mesh.position_precision))[0][
                 -n_strands:
             ]
@@ -64,7 +64,7 @@ def assign_equipotential_surfaces(conductor: object) -> None:
 
 
 def assign_fixed_potential(conductor: object) -> None:
-    """Fill ``conductor.fixed_potential_index`` and ``conductor.fixed_potential_value``.
+    """Fill ``conductor.electric.fixed_potential_index`` and ``conductor.electric.fixed_potential_value``.
 
     Iterates over all strand objects that have a fixed potential prescribed
     (``ops.fix_potential_flag`` is truthy) and records the global node
@@ -81,7 +81,7 @@ def assign_fixed_potential(conductor: object) -> None:
     """
     tol = 1e-10
     z_values = conductor.nodal_coordinates.xs("StrandComponent").z.to_numpy()
-    offset = conductor.total_elements_current_carriers
+    offset = conductor.electric.total_elements_current_carriers
     jj = 0
 
     for strand in conductor.inventory.strands.collection:
@@ -90,7 +90,7 @@ def assign_fixed_potential(conductor: object) -> None:
             continue
 
         n = ops.fix_potential_number
-        conductor.fixed_potential_value[jj : jj + n] = ops.fix_potential_value
+        conductor.electric.fixed_potential_value[jj : jj + n] = ops.fix_potential_value
 
         for ii, coord in enumerate(ops.fix_potential_coordinate, start=jj):
             diff = np.abs(z_values - coord)
@@ -100,7 +100,7 @@ def assign_fixed_potential(conductor: object) -> None:
                     f"No node found at z = {coord} for strand "
                     f"'{strand.identifier}' (tolerance {tol})."
                 )
-            conductor.fixed_potential_index[ii] = match[0] + offset
+            conductor.electric.fixed_potential_index[ii] = match[0] + offset
 
         jj += n
 
@@ -122,8 +122,8 @@ def build_reduction_operator(conductor: object) -> None:
     operator is built once and :func:`reduce_system` only performs the cheap
     sparse products at every electric time step.
 
-    Stores ``conductor.electric_reduction_operator`` (CSR) and
-    ``conductor.electric_retained_index`` (the retained degree-of-freedom
+    Stores ``conductor.electric.electric_reduction_operator`` (CSR) and
+    ``conductor.electric.electric_retained_index`` (the retained degree-of-freedom
     indices in full-size numbering).
 
     Args:
@@ -132,13 +132,13 @@ def build_reduction_operator(conductor: object) -> None:
     """
     # Deduplicate the fixed-potential DOFs (was previously redone at every
     # reduction call).
-    conductor.fixed_potential_index, unique_idx = np.unique(
-        conductor.fixed_potential_index, return_index=True
+    conductor.electric.fixed_potential_index, unique_idx = np.unique(
+        conductor.electric.fixed_potential_index, return_index=True
     )
-    conductor.fixed_potential_value = conductor.fixed_potential_value[unique_idx]
+    conductor.electric.fixed_potential_value = conductor.electric.fixed_potential_value[unique_idx]
 
     full_size = (
-        conductor.total_elements_current_carriers
+        conductor.electric.total_elements_current_carriers
         + conductor.total_nodes_current_carriers
     )
 
@@ -150,13 +150,13 @@ def build_reduction_operator(conductor: object) -> None:
     if conductor.operations.do_equipotential_surfaces_exist:
         fixed_lookup = dict(
             zip(
-                conductor.fixed_potential_index.tolist(),
-                conductor.fixed_potential_value.tolist(),
+                conductor.electric.fixed_potential_index.tolist(),
+                conductor.electric.fixed_potential_value.tolist(),
             )
         )
         extra_fixed_index = []
         extra_fixed_value = []
-        for group in conductor.equipotential_node_index:
+        for group in conductor.electric.equipotential_node_index:
             fixed_members = [g for g in group if g in fixed_lookup]
             if fixed_members:
                 value = fixed_lookup[fixed_members[0]]
@@ -169,14 +169,14 @@ def build_reduction_operator(conductor: object) -> None:
                 merge_groups.append(group)
         if extra_fixed_index:
             index = np.concatenate(
-                (conductor.fixed_potential_index, extra_fixed_index)
+                (conductor.electric.fixed_potential_index, extra_fixed_index)
             )
             value = np.concatenate(
-                (conductor.fixed_potential_value, extra_fixed_value)
+                (conductor.electric.fixed_potential_value, extra_fixed_value)
             )
             order = np.argsort(index)
-            conductor.fixed_potential_index = index[order].astype(int)
-            conductor.fixed_potential_value = value[order]
+            conductor.electric.fixed_potential_index = index[order].astype(int)
+            conductor.electric.fixed_potential_value = value[order]
 
     if merge_groups:
         redundant_index = np.concatenate(
@@ -188,7 +188,7 @@ def build_reduction_operator(conductor: object) -> None:
     retained_index = np.setdiff1d(
         np.arange(full_size),
         np.unique(
-            np.concatenate((conductor.fixed_potential_index, redundant_index))
+            np.concatenate((conductor.electric.fixed_potential_index, redundant_index))
         ),
     )
 
@@ -206,11 +206,11 @@ def build_reduction_operator(conductor: object) -> None:
     rows = np.concatenate(rows)
     columns = np.concatenate(columns)
 
-    conductor.electric_reduction_operator = csr_matrix(
+    conductor.electric.electric_reduction_operator = csr_matrix(
         (np.ones(rows.size), (rows, columns)),
         shape=(full_size, retained_index.size),
     )
-    conductor.electric_retained_index = retained_index
+    conductor.electric.electric_retained_index = retained_index
 
 
 def reduce_system(conductor: object) -> np.ndarray:
@@ -227,8 +227,8 @@ def reduce_system(conductor: object) -> np.ndarray:
     arithmetic (the previous implementation densified the full system at
     every electric time step).
 
-    The reduced ``conductor.electric_stiffness_matrix`` and
-    ``conductor.electric_known_term_vector`` are stored back on the conductor.
+    The reduced ``conductor.electric.electric_stiffness_matrix`` and
+    ``conductor.electric.electric_known_term_vector`` are stored back on the conductor.
 
     Args:
         conductor: Conductor object with the stiffness matrix and known-term
@@ -240,13 +240,13 @@ def reduce_system(conductor: object) -> np.ndarray:
         :func:`~electromagnetics.electric_solver.assemble_solution` to place
         the reduced solution back into the full vector.
     """
-    operator = conductor.electric_reduction_operator
+    operator = conductor.electric.electric_reduction_operator
 
-    conductor.electric_stiffness_matrix = (
-        operator.T @ conductor.electric_stiffness_matrix @ operator
+    conductor.electric.electric_stiffness_matrix = (
+        operator.T @ conductor.electric.electric_stiffness_matrix @ operator
     ).tocsr()
-    conductor.electric_known_term_vector = (
-        operator.T @ conductor.electric_known_term_vector
+    conductor.electric.electric_known_term_vector = (
+        operator.T @ conductor.electric.electric_known_term_vector
     )
 
-    return conductor.electric_retained_index
+    return conductor.electric.electric_retained_index

@@ -98,7 +98,7 @@ def update_em_operating_conditions(conductor: object) -> None:
 
         if not isinstance(strand, StrandStabilizerComponent):
             if strand.inputs.superconducting_material == "nb3sn":
-                if conductor.cond_el_num_step <= 1:
+                if conductor.electric.cond_el_num_step <= 1:
                     strand.get_eps(conductor)
             strand.get_superconductor_critical_prop(conductor)
             if (
@@ -107,10 +107,10 @@ def update_em_operating_conditions(conductor: object) -> None:
             ):
                 strand.get_tcs()
             elif strand.operations.tcs_evaluation == True:
-                if conductor.cond_el_num_step <= 1:
+                if conductor.electric.cond_el_num_step <= 1:
                     strand.get_tcs()
 
-        if conductor.cond_el_num_step <= 1:
+        if conductor.electric.cond_el_num_step <= 1:
             strand.eval_sol_comp_properties(conductor.inventory)
         else:
             _update_electrical_resistivity_nodal(strand)
@@ -118,7 +118,7 @@ def update_em_operating_conditions(conductor: object) -> None:
     for jacket in conductor.inventory.jackets.collection:
         jacket.get_current(conductor)
         jacket.get_magnetic_field(conductor)
-        if conductor.cond_el_num_step <= 1:
+        if conductor.electric.cond_el_num_step <= 1:
             jacket.eval_sol_comp_properties(conductor.inventory)
         else:
             jacket.node_fields.total_electrical_resistivity = (
@@ -143,7 +143,7 @@ def evaluate_em_gauss_points(conductor: object) -> None:
 
     for jacket in conductor.inventory.jackets.collection:
         jacket.get_magnetic_field(conductor, nodal=False)
-        if conductor.cond_el_num_step <= 1:
+        if conductor.electric.cond_el_num_step <= 1:
             jacket.eval_sol_comp_properties(conductor.inventory, nodal=False)
         else:
             jacket.gauss_fields.total_electrical_resistivity = (
@@ -156,7 +156,7 @@ def evaluate_em_gauss_points(conductor: object) -> None:
 
         if not isinstance(strand, StrandStabilizerComponent):
             if strand.inputs.superconducting_material == "nb3sn":
-                if conductor.cond_el_num_step <= 1:
+                if conductor.electric.cond_el_num_step <= 1:
                     strand.get_eps(conductor, nodal=False)
             strand.get_superconductor_critical_prop(conductor, nodal=False)
             if (
@@ -165,10 +165,10 @@ def evaluate_em_gauss_points(conductor: object) -> None:
             ):
                 strand.get_tcs(nodal=False)
             elif strand.operations.tcs_evaluation == True:
-                if conductor.cond_el_num_step <= 1:
+                if conductor.electric.cond_el_num_step <= 1:
                     strand.get_tcs(nodal=False)
 
-        if conductor.cond_el_num_step <= 1:
+        if conductor.electric.cond_el_num_step <= 1:
             strand.eval_sol_comp_properties(conductor.inventory, nodal=False)
         else:
             _update_electrical_resistivity_gauss(strand)
@@ -220,7 +220,7 @@ def evaluate_total_operating_current(conductor: object) -> None:
         )
 
     elif mode == CurrentMode.CURRENT_IS_FUNCTION:
-        I = user_defined_current(conductor.electric_time_step)
+        I = user_defined_current(conductor.electric.electric_time_step)
         conductor.node_fields.op_current[0] = I
         conductor.node_fields.op_current[-1] = -I
 

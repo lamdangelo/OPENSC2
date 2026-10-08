@@ -34,7 +34,7 @@ from electromagnetics.electromagnetic_flags import ElectricConductanceMode
 def evaluate_transversal_distance(conductor: object) -> np.ndarray:
     """Compute the transverse distance between each pair of contacting nodes.
 
-    For every row in ``conductor.contact_nodes_current_carriers`` the
+    For every row in ``conductor.electric.contact_nodes_current_carriers`` the
     Euclidean distance between the two strand nodes (in the x-y plane and
     including z, i.e. the full 3-D distance) is evaluated from the nodal
     coordinates.
@@ -47,7 +47,7 @@ def evaluate_transversal_distance(conductor: object) -> np.ndarray:
         Array of distances, one per contact pair row, shape
         ``(n_contact_pairs,)``.
     """
-    contact_nodes = conductor.contact_nodes_current_carriers
+    contact_nodes = conductor.electric.contact_nodes_current_carriers
     strand_coords = conductor.nodal_coordinates.loc["StrandComponent"]
 
     distance = (
@@ -76,7 +76,7 @@ def evaluate_electric_conductance(
 
     Iterates over the contact pairs on the first cross-section and dispatches
     to the per-unit-length or actual-conductance formula based on the mode
-    stored in ``conductor.electric_conductance_mode``.
+    stored in ``conductor.electric.electric_conductance_mode``.
 
     Args:
         conductor: Conductor object with ``electric_conductance``,
@@ -87,25 +87,25 @@ def evaluate_electric_conductance(
 
     Returns:
         Array of conductance values, one per row in
-        ``conductor.contact_nodes_current_carriers``.
+        ``conductor.electric.contact_nodes_current_carriers``.
     """
-    n_contacts_first = conductor._contact_nodes_first.shape[0]
+    n_contacts_first = conductor.electric._contact_nodes_first.shape[0]
     electric_conductance = np.zeros(
-        conductor.contact_nodes_current_carriers.shape[0]
+        conductor.electric.contact_nodes_current_carriers.shape[0]
     )
 
     n_fluid = conductor.inventory.fluids.number
     n_all = conductor.inventory.all_components.number
 
-    for ii, indexes in enumerate(conductor._contact_nodes_first):
+    for ii, indexes in enumerate(conductor.electric._contact_nodes_first):
         # Matrix indices into the coupling data arrays (offset for fluids + env)
         mat_ind = indexes + n_fluid + 1
         # Array indices into gauss_node_distance (offset for fluids only)
         arr_ind = indexes + n_fluid
 
-        mode = conductor.electric_conductance_mode[indexes[0], indexes[1]]
+        mode = conductor.electric.electric_conductance_mode[indexes[0], indexes[1]]
 
-        sigma = conductor.electric_conductance[indexes[0], indexes[1]]
+        sigma = conductor.electric.electric_conductance[indexes[0], indexes[1]]
         gnd_i = conductor.gauss_node_distance[arr_ind[0]::n_all]
         gnd_j = conductor.gauss_node_distance[arr_ind[1]::n_all]
         dist_slice = distance[ii::n_contacts_first]
@@ -136,9 +136,9 @@ def build_conductance_matrix(conductor: object) -> None:
     where ``B`` is the contact incidence matrix.
 
     Results stored in:
-    * ``conductor.electric_conductance_diag_matrix``: diagonal matrix of
+    * ``conductor.electric.electric_conductance_diag_matrix``: diagonal matrix of
       per-contact conductances.
-    * ``conductor.electric_conductance_matrix``: the assembled node-level
+    * ``conductor.electric.electric_conductance_matrix``: the assembled node-level
       conductance matrix.
 
     Args:
@@ -148,8 +148,8 @@ def build_conductance_matrix(conductor: object) -> None:
     distance = evaluate_transversal_distance(conductor)
     electric_conductance = evaluate_electric_conductance(conductor, distance)
 
-    n_contacts = conductor.contact_nodes_current_carriers.shape[0]
-    conductor.electric_conductance_diag_matrix = diags(
+    n_contacts = conductor.electric.contact_nodes_current_carriers.shape[0]
+    conductor.electric.electric_conductance_diag_matrix = diags(
         electric_conductance,
         offsets=0,
         shape=(n_contacts, n_contacts),
@@ -157,8 +157,8 @@ def build_conductance_matrix(conductor: object) -> None:
         dtype=float,
     )
 
-    conductor.electric_conductance_matrix = (
-        conductor.contact_incidence_matrix.T
-        @ conductor.electric_conductance_diag_matrix
-        @ conductor.contact_incidence_matrix
+    conductor.electric.electric_conductance_matrix = (
+        conductor.electric.contact_incidence_matrix.T
+        @ conductor.electric.electric_conductance_diag_matrix
+        @ conductor.electric.contact_incidence_matrix
     )

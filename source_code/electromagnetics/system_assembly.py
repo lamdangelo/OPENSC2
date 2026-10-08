@@ -44,7 +44,7 @@ def build_stiffness_matrix(conductor: object) -> None:
     * ``A^T`` = transposed incidence matrix (shape ``n_nd x n_el``);
     * ``G``   = nodal conductance matrix    (shape ``n_nd x n_nd``).
 
-    The assembled matrix is stored in ``conductor.electric_stiffness_matrix``
+    The assembled matrix is stored in ``conductor.electric.electric_stiffness_matrix``
     as a CSR sparse matrix.
 
     Note: The matrix is re-created at every call because the resistance
@@ -55,12 +55,12 @@ def build_stiffness_matrix(conductor: object) -> None:
         conductor: Conductor object with resistance, incidence, and
             conductance matrices already built.
     """
-    conductor.electric_stiffness_matrix = bmat(
+    conductor.electric.electric_stiffness_matrix = bmat(
         [
-            [conductor.electric_resistance_matrix, conductor.incidence_matrix],
+            [conductor.electric.electric_resistance_matrix, conductor.electric.incidence_matrix],
             [
-                -conductor.incidence_matrix_transposed,
-                conductor.electric_conductance_matrix,
+                -conductor.electric.incidence_matrix_transposed,
+                conductor.electric.electric_conductance_matrix,
             ],
         ],
         format="csr",
@@ -78,7 +78,7 @@ def build_mass_matrix(conductor: object) -> None:
         M = [ L  0 ]
             [ 0  0 ]
 
-    The assembled matrix is stored in ``conductor.electric_mass_matrix`` as a
+    The assembled matrix is stored in ``conductor.electric.electric_mass_matrix`` as a
     CSR sparse matrix.
 
     Args:
@@ -91,16 +91,16 @@ def build_mass_matrix(conductor: object) -> None:
     """
     build_inductance_matrix(conductor)
 
-    n_el = conductor.total_elements_current_carriers
-    conductor.electric_mass_matrix[:n_el, :n_el] = conductor.inductance_matrix
-    conductor.electric_mass_matrix = conductor.electric_mass_matrix.tocsr(copy=True)
+    n_el = conductor.electric.total_elements_current_carriers
+    conductor.electric.electric_mass_matrix[:n_el, :n_el] = conductor.electric.inductance_matrix
+    conductor.electric.electric_mass_matrix = conductor.electric.electric_mass_matrix.tocsr(copy=True)
 
 
 def build_known_term_vector(conductor: object) -> None:
     """Fill the electric known-term (right-hand side) vector with current sources.
 
     Copies the operating current vector into the nodal partition of
-    ``conductor.electric_known_term_vector``. The current vector
+    ``conductor.electric.electric_known_term_vector``. The current vector
     ``conductor.node_fields.op_current`` must already be evaluated by
     :func:`~electromagnetics.operating_conditions.evaluate_total_operating_current`.
 
@@ -108,8 +108,8 @@ def build_known_term_vector(conductor: object) -> None:
         conductor: Conductor object with ``node_fields.op_current`` and
             ``electric_known_term_vector`` initialised.
     """
-    n_el = conductor.total_elements_current_carriers
-    conductor.electric_known_term_vector[n_el:] = conductor.node_fields.op_current
+    n_el = conductor.electric.total_elements_current_carriers
+    conductor.electric.electric_known_term_vector[n_el:] = conductor.node_fields.op_current
 
 
 def build_right_hand_side(
@@ -131,7 +131,7 @@ def build_right_hand_side(
     Equipotential surface contributions are summed before the index reduction
     is applied.
 
-    Result stored in ``conductor.electric_right_hand_side``.
+    Result stored in ``conductor.electric.electric_right_hand_side``.
 
     Args:
         conductor: Conductor object with ``electric_theta``,
@@ -143,16 +143,16 @@ def build_right_hand_side(
         idx: Index array mapping reduced system positions back to full-size
             positions.
     """
-    conductor.electric_right_hand_side = (
-        conductor.electric_theta * conductor.electric_known_term_vector
-        + (1.0 - conductor.electric_theta) * conductor.electric_known_term_vector_old
-        + foo @ conductor.electric_solution
+    conductor.electric.electric_right_hand_side = (
+        conductor.electric.electric_theta * conductor.electric.electric_known_term_vector
+        + (1.0 - conductor.electric.electric_theta) * conductor.electric.electric_known_term_vector_old
+        + foo @ conductor.electric.electric_solution
     )
 
     if conductor.operations.do_equipotential_surfaces_exist:
-        for _, row in enumerate(conductor.equipotential_node_index):
-            conductor.electric_right_hand_side[row[0]] = np.sum(
-                conductor.electric_right_hand_side[row]
+        for _, row in enumerate(conductor.electric.equipotential_node_index):
+            conductor.electric.electric_right_hand_side[row[0]] = np.sum(
+                conductor.electric.electric_right_hand_side[row]
             )
 
-    conductor.electric_right_hand_side = conductor.electric_right_hand_side[idx] - bar
+    conductor.electric.electric_right_hand_side = conductor.electric.electric_right_hand_side[idx] - bar

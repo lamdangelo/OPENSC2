@@ -26,14 +26,14 @@ def build_resistance_matrix(conductor: object) -> None:
     Iterates over all strand objects in the inventory, calling each strand's
     ``get_electric_resistance`` method to obtain element resistances.  The
     results are assembled into a sparse CSR diagonal matrix and stored in
-    ``conductor.electric_resistance_matrix``.
+    ``conductor.electric.electric_resistance_matrix``.
 
     Args:
         conductor: Conductor object with ``inventory.strands`` and
             ``total_elements_current_carriers`` set up, and with operating
             conditions already evaluated (so that resistivity is available).
     """
-    n_elements = conductor.total_elements_current_carriers
+    n_elements = conductor.electric.total_elements_current_carriers
     n_strands = conductor.inventory.strands.number
 
     resistance = np.zeros(n_elements)
@@ -42,7 +42,7 @@ def build_resistance_matrix(conductor: object) -> None:
             conductor, strand, strand.get_electric_resistance(conductor)
         )
 
-    conductor.electric_resistance_matrix = diags(
+    conductor.electric.electric_resistance_matrix = diags(
         resistance,
         offsets=0,
         shape=(n_elements, n_elements),
@@ -60,13 +60,13 @@ def build_differential_resistance_matrix(conductor: object) -> None:
     respect to the element current, evaluated at the operating point of the
     LAST ``build_resistance_matrix`` call (it consumes the regime data each
     strand stored there). Result in
-    ``conductor.electric_differential_resistance_matrix``.
+    ``conductor.electric.electric_differential_resistance_matrix``.
 
     Args:
         conductor: Conductor object on which ``build_resistance_matrix``
             (via ``electric_preprocessing``) has just run.
     """
-    n_elements = conductor.total_elements_current_carriers
+    n_elements = conductor.electric.total_elements_current_carriers
     n_strands = conductor.inventory.strands.number
 
     differential = np.zeros(n_elements)
@@ -79,7 +79,7 @@ def build_differential_resistance_matrix(conductor: object) -> None:
             )
         )
 
-    conductor.electric_differential_resistance_matrix = diags(
+    conductor.electric.electric_differential_resistance_matrix = diags(
         differential,
         offsets=0,
         shape=(n_elements, n_elements),
@@ -154,7 +154,7 @@ def combine_parallel_jacket_resistance(
 
     The per-element fraction of the total Joule power that belongs to the
     jacket (equal to its current fraction, R_parallel/R_jacket) is recorded
-    in ``conductor.parallel_jacket_pairs`` for
+    in ``conductor.electric.parallel_jacket_pairs`` for
     :func:`distribute_joule_power_to_parallel_jackets`.
 
     Args:
@@ -192,7 +192,7 @@ def combine_parallel_jacket_resistance(
         )
         effective_resistance = parallel_resistance
 
-    conductor.parallel_jacket_pairs = pairs
+    conductor.electric.parallel_jacket_pairs = pairs
     # get_joule_power_along reads the resistance from this attribute; keep it
     # consistent with the resistance matrix so the computed power is the
     # total power of the parallel pair.

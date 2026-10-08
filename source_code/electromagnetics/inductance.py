@@ -31,7 +31,7 @@ from electromagnetics.electromagnetic_flags import InductanceMode, SelfInductanc
 
 
 def build_inductance_matrix(conductor: object) -> None:
-    """Compute and store the full inductance matrix in ``conductor.inductance_matrix``.
+    """Compute and store the full inductance matrix in ``conductor.electric.inductance_matrix``.
 
     Dispatches to the analytical or approximate calculation based on
     ``conductor.operations.inductance_mode``.
@@ -72,7 +72,7 @@ def _analytical_inductance(
     * Internal inductances (``L / 2`` per element).
 
     The result is scaled by ``mu_0 / (4 pi)`` and stored in
-    ``conductor.inductance_matrix``.
+    ``conductor.electric.inductance_matrix``.
 
     Args:
         conductor: Conductor object.
@@ -107,10 +107,10 @@ def _analytical_inductance(
         .apply(np.sqrt)
     )
 
-    mutual_inductance = np.zeros(conductor.inductance_matrix.shape)
+    mutual_inductance = np.zeros(conductor.electric.inductance_matrix.shape)
 
     if conductor.inventory.strands.number > 1:
-        for ii in range(conductor.total_elements_current_carriers - 1):
+        for ii in range(conductor.electric.total_elements_current_carriers - 1):
             mutual_inductance = _mutual_inductance_analytical(
                 conductor, lmod, ii, mutual_inductance, ABSTOL
             )
@@ -123,7 +123,7 @@ def _analytical_inductance(
 
     internal_inductance = lmod / 2.0
 
-    conductor.inductance_matrix = (
+    conductor.electric.inductance_matrix = (
         constants.mu_0
         / (4.0 * constants.pi)
         * (
@@ -158,10 +158,10 @@ def _mutual_inductance_analytical(
         Updated ``matrix`` with entries ``matrix[ii, jj]`` filled for all
         ``jj > ii``.
     """
-    jj = np.r_[ii + 1 : conductor.total_elements_current_carriers]
+    jj = np.r_[ii + 1 : conductor.electric.total_elements_current_carriers]
     ll = lmod[jj]
     mm = lmod[ii]
-    len_jj = conductor.total_elements_current_carriers - (ii + 1)
+    len_jj = conductor.electric.total_elements_current_carriers - (ii + 1)
 
     rr = {
         key: _vertex_to_vertex_distance(conductor, key, ii, jj)
@@ -337,7 +337,7 @@ def _approximate_inductance(conductor: object) -> None:
     analytical formula is not applicable.
 
     The result is scaled by ``mu_0 / (4 pi)`` and stored in
-    ``conductor.inductance_matrix``.
+    ``conductor.electric.inductance_matrix``.
 
     Args:
         conductor: Conductor object.
@@ -352,7 +352,7 @@ def _approximate_inductance(conductor: object) -> None:
     )
     lmod = (ll ** 2).sum(axis=1).apply(np.sqrt)
 
-    mutual_inductance = np.zeros(conductor.inductance_matrix.shape)
+    mutual_inductance = np.zeros(conductor.electric.inductance_matrix.shape)
     if conductor.inventory.strands.number > 1:
         mutual_inductance = _mutual_inductance_approximate(
             conductor, ll, mutual_inductance
@@ -361,7 +361,7 @@ def _approximate_inductance(conductor: object) -> None:
     self_inductance = _self_inductance_approximate(conductor, lmod)
     internal_inductance = lmod.to_numpy() / 2.0
 
-    conductor.inductance_matrix = (
+    conductor.electric.inductance_matrix = (
         constants.mu_0
         / (4.0 * constants.pi)
         * (
@@ -402,10 +402,10 @@ def _mutual_inductance_approximate(
 
     cm_start = conductor.connectivity_matrix.loc["StrandComponent", "start"]
 
-    for ii in range(conductor.total_elements_current_carriers):
+    for ii in range(conductor.electric.total_elements_current_carriers):
         qi = conductor.nodal_coordinates.iloc[cm_start, :].iloc[ii, :].to_numpy()
         vi = ll.iloc[ii, :].to_numpy()
-        for jj in range(ii + 1, conductor.total_elements_current_carriers):
+        for jj in range(ii + 1, conductor.electric.total_elements_current_carriers):
             qj = conductor.nodal_coordinates.iloc[cm_start, :].iloc[jj, :].to_numpy()
             vj = ll.iloc[jj, :].to_numpy()
             matrix[ii, jj] = np.sum(vi * vj) * integrate.dblquad(

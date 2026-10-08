@@ -409,7 +409,7 @@ class SolidComponent(Component):
                 self.node_fields.op_current = do_interpolation(
                     self.current_interpolator,
                     conductor.mesh.node_coordinates,
-                    conductor.electric_time,
+                    conductor.electric.electric_time,
                     self.current_interp_flag,
                 )
 
@@ -533,7 +533,7 @@ class SolidComponent(Component):
             )
 
             return (
-                user_defined_current(conductor.electric_time)
+                user_defined_current(conductor.electric.electric_time)
                 / conductor.inputs.initial_current
             )
 
@@ -574,7 +574,7 @@ class SolidComponent(Component):
                 self.node_fields.B_field = do_interpolation(
                     self.bfield_interpolator,
                     conductor.mesh.node_coordinates,
-                    conductor.electric_time,
+                    conductor.electric.electric_time,
                     self.bfield_interp_flag,
                 )
                 if self.operations.magnetic_field_units == "T/A":
