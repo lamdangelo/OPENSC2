@@ -7,6 +7,7 @@ from typing import Tuple, Union
 from components.solid.strand_component import StrandComponent
 from components.solid.strand_mixed_component_inputs import StrandMixedComponentInputs
 from components.solid.solid_component_inputs import StrandComponentOperations
+from components.component_build import ComponentBuildSettings
 
 # Aluminium properties
 from properties_of_materials.aluminium import (
@@ -133,22 +134,20 @@ class StrandMixedComponent(StrandComponent):
 
     def __init__(
         self,
-        simulation: object,
         identifier: str,
         name: str,
         inputs: StrandMixedComponentInputs,
         operations: StrandComponentOperations,
-        conductor: object,
+        build: ComponentBuildSettings,
     ):
         """Method that makes instance of class StrandMixedComponent.
 
         Args:
-            simulation (object): simulation object.
             identifier (str): component identifier.
             name (str): component kind string (e.g. "STR_MIX").
             inputs (StrandMixedComponentInputs): pre-parsed input parameters.
             operations (StrandComponentOperations): pre-parsed operations parameters.
-            conductor (object): instance of class Conductor.
+            build (ComponentBuildSettings): conductor identifier/length and time-stepping settings.
         """
 
         super().__init__(inputs, operations)
@@ -163,7 +162,7 @@ class StrandMixedComponent(StrandComponent):
 
         self.__compute_cross_section()
         self.__get_current_density_cross_section()
-        self.initialize_heat_flux_schedule(simulation)
+        self.initialize_heat_flux_schedule(build.time_stepping)
         if self.operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
             self.operations.magnetic_field_units = None
 
@@ -173,9 +172,9 @@ class StrandMixedComponent(StrandComponent):
 
         self.__strand_density_flag = False
         self.__reorganize_input()
-        self.__check_consistency(conductor)
+        self.__check_consistency(build.conductor_identifier)
 
-        self.deal_with_fixed_potential(conductor.inputs.zlength)
+        self.deal_with_fixed_potential(build.conductor_length)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(Type: {self.name}, identifier: {self.identifier})"
@@ -318,11 +317,11 @@ class StrandMixedComponent(StrandComponent):
             [THERMAL_CONDUCTIVITY_FUNC[key] for key in self.strand_material]
         )
 
-    def __check_consistency(self, conductor):
+    def __check_consistency(self, conductor_identifier: str):
         """Private method that checks consistency of strand mixed user definition.
 
         Args:
-            conductor (Conductor): instance of class Conductor.
+            conductor_identifier (str): identifier of the conductor (messages).
 
         Raises:
             ValueError: if number of strand midex materials given in input is not consistent with user declared materials.
@@ -333,7 +332,7 @@ class StrandMixedComponent(StrandComponent):
         if self.strand_material.size != self.inputs.num_material_types:
             # Message to be completed!
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nThe number of material constituting the strand mixed ({self.inputs.num_material_types = }) is inconsistent with the number of defined materials ({self.strand_material.size = }).\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nThe number of material constituting the strand mixed ({self.inputs.num_material_types = }) is inconsistent with the number of defined materials ({self.strand_material.size = }).\nPlease check..."
             )
 
     def strand_density(self, property: dict) -> np.ndarray:

@@ -1,5 +1,6 @@
 # Import libraries
 import numpy as np
+from components.component_build import ComponentBuildSettings
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType
 from physical_fields.physical_field import FieldContainer, GridLocation
 from scipy import optimize
@@ -136,22 +137,20 @@ class StackComponent(StrandComponent):
 
     def __init__(
         self,
-        simulation: object,
         identifier: str,
         name: str,
         inputs: StackComponentInputs,
         operations: StrandComponentOperations,
-        conductor: object,
+        build: ComponentBuildSettings,
     ):
         """Method that makes instance of class StackComponent.
 
         Args:
-            simulation (object): simulation object.
             identifier (str): component identifier.
             name (str): component kind string (e.g. "STACK", "STR_SC").
             inputs (StackComponentInputs): pre-parsed input parameters.
             operations (StrandComponentOperations): pre-parsed operations parameters.
-            conductor (object): instance of class Conductor.
+            build (ComponentBuildSettings): conductor identifier/length and time-stepping settings.
         """
 
         super().__init__(inputs, operations)
@@ -164,18 +163,18 @@ class StackComponent(StrandComponent):
         self.coordinate = dict()
         self.dict_scaling_input = dict()
 
-        self.initialize_heat_flux_schedule(simulation)
+        self.initialize_heat_flux_schedule(build.time_stepping)
         if self.operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
             self.operations.magnetic_field_units = None
 
         self.deal_with_flag_IOP_MODE()
 
         self.__reorganize_input()
-        self.__check_consistency(conductor)
+        self.__check_consistency(build.conductor_identifier)
 
         self.__stack_density_flag = False
 
-        self.deal_with_fixed_potential(conductor.inputs.zlength)
+        self.deal_with_fixed_potential(build.conductor_length)
 
         hts_layer = next(layer for layer in self.inputs.tape_layers if layer.is_hts)
         self.sc = (
@@ -313,11 +312,11 @@ class StackComponent(StrandComponent):
             [THERMAL_CONDUCTIVITY_FUNC[key] for key in self.tape_material]
         )
 
-    def __check_consistency(self, conductor):
+    def __check_consistency(self, conductor_identifier: str):
         """Private method that checks consistency of stack and or tape user definition.
 
         Args:
-            conductor (Conductor): instance of class Conductor.
+            conductor_identifier (str): identifier of the conductor (messages).
 
         Raises:
             ValueError: if number of tape materials given in input is not consistent with user declared materials.
@@ -331,7 +330,7 @@ class StackComponent(StrandComponent):
         if self.tape_material.size != self.inputs.num_material_layers:
             # Message to be completed!
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nThe number of material constituting the tape ({self.inputs.num_material_layers = }) is inconsistent with the number of defined materials ({self.tape_material.size = }).\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nThe number of material constituting the tape ({self.inputs.num_material_layers = }) is inconsistent with the number of defined materials ({self.tape_material.size = }).\nPlease check..."
             )
 
         # Check that number of tape materials given in input is consistent with
@@ -339,7 +338,7 @@ class StackComponent(StrandComponent):
         if self.material_thickness.size != self.inputs.num_material_layers:
             # Message to be completed!
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nThe number of material constituting the tape ({self.inputs.num_material_layers = }) is inconsistent with the number of defined thicknesses ({self.material_thickness.size = }).\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nThe number of material constituting the tape ({self.inputs.num_material_layers = }) is inconsistent with the number of defined thicknesses ({self.material_thickness.size = }).\nPlease check..."
             )
 
         # Check that the indexes of "none" material are equal to the indexes of
@@ -347,7 +346,7 @@ class StackComponent(StrandComponent):
         if any(self.__index_material_none != self.__index_thickness_0):
             # Message to be completed!
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nDefined materials and defined thicknesses must be consistent.\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nDefined materials and defined thicknesses must be consistent.\nPlease check..."
             )
 
         # Following quantities are useful to cross check the number of tapes
@@ -365,7 +364,7 @@ class StackComponent(StrandComponent):
         if self.__tape_number != self.inputs.num_tapes:
             # Message to be completed!
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nInconsistent number of tape: user defines {self.inputs.num_tapes = } while computed one is {self.__tape_number = }.\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nInconsistent number of tape: user defines {self.inputs.num_tapes = } while computed one is {self.__tape_number = }.\nPlease check..."
             )
 
         # Check that stack cross section given in input is consistent with the
@@ -378,7 +377,7 @@ class StackComponent(StrandComponent):
         ):
             # Message to be completed!
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nInconsistent cross section values: user defines {self.inputs.cross_section = } while computed one is {self.__cross_section = }.\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nInconsistent cross section values: user defines {self.inputs.cross_section = } while computed one is {self.__cross_section = }.\nPlease check..."
             )
 
         # Delete no longer useful attributes.

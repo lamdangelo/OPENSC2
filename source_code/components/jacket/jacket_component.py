@@ -1,4 +1,5 @@
 from components.solid.solid_component import SolidComponent
+from components.component_build import ComponentBuildSettings
 import numpy as np
 from physical_fields.physical_field import FieldContainer, GridLocation
 
@@ -83,12 +84,11 @@ class JacketComponent(SolidComponent):
 
     def __init__(
         self,
-        simulation,
         identifier: str,
         name: str,
         inputs: JacketComponentInputs,
         operations: SolidComponentOperations,
-        conductor,
+        build: ComponentBuildSettings,
     ):
         super().__init__(inputs, operations)
         self.name = name
@@ -107,11 +107,11 @@ class JacketComponent(SolidComponent):
         self.deal_with_flag_IOP_MODE()
 
         self.__reorganize_input()
-        self.__check_consistency(conductor)
+        self.__check_consistency(build.conductor_identifier)
 
         self.__jacket_density_flag = False
 
-        self.initialize_heat_flux_schedule(simulation)
+        self.initialize_heat_flux_schedule(build.time_stepping)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(Type: {self.name}, identifier: {self.identifier})"
@@ -283,11 +283,11 @@ class JacketComponent(SolidComponent):
             [THERMAL_CONDUCTIVITY_FUNC[key] for key in self.materials]
         )
 
-    def __check_consistency(self, conductor):
+    def __check_consistency(self, conductor_identifier: str):
         """Private method that checks consistency of jacket user definition.
 
         Args:
-            conductor (Conductor): instance of class Conductor.
+            conductor_identifier (str): identifier of the conductor (messages).
 
         Raises:
             ValueError: if number of jacket materials given in input is not consistent with user declared materials.
@@ -299,17 +299,17 @@ class JacketComponent(SolidComponent):
         # with user declared materials.
         if self.materials.size != self.inputs.num_material_types:
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nThe number of material constituting the jacket ({self.inputs.num_material_types = }) is inconsistent with the number of defined materials ({self.materials.size = }).\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nThe number of material constituting the jacket ({self.inputs.num_material_types = }) is inconsistent with the number of defined materials ({self.materials.size = }).\nPlease check..."
             )
 
         if self.cross_sections.size != self.inputs.num_material_types:
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nThe number of material constituting the jacket ({self.inputs.num_material_types = }) is inconsistent with the number of defined cross sections ({self.cross_sections.size = }).\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nThe number of material constituting the jacket ({self.inputs.num_material_types = }) is inconsistent with the number of defined cross sections ({self.cross_sections.size = }).\nPlease check..."
             )
 
         if any(self.__index_material_none != self.__index_cross_section_0):
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nDefined materials and defined cross sections must be consistent.\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nDefined materials and defined cross sections must be consistent.\nPlease check..."
             )
 
         tol = 1e-3
@@ -319,7 +319,7 @@ class JacketComponent(SolidComponent):
             > tol
         ):
             raise ValueError(
-                f"{conductor.identifier = } -> {self.identifier = }\nInconsistent cross section value: user defines {self.inputs.cross_section = } while computed one is {self.__cross_section = }.\nPlease check..."
+                f"{conductor_identifier = } -> {self.identifier = }\nInconsistent cross section value: user defines {self.inputs.cross_section = } while computed one is {self.__cross_section = }.\nPlease check..."
             )
 
         # Delete no longer useful attributes.

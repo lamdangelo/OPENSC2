@@ -26,6 +26,15 @@ import conductor.external_inputs as external_inputs
 import adapters.input.yaml_input_registry as yaml_input_registry
 from adapters.input import open_input_source
 from ports.input_source import InputSource
+from components.component_flags import ComponentType, get_component_type
+from conductor.conductor_definition import ComponentDefinition, ConductorDefinition
+from adapters.input.component_loaders import (
+    FluidComponentInputLoader,
+    JacketComponentInputLoader,
+    StackComponentInputLoader,
+    StrandMixedInputLoader,
+    StrandStabilizerInputLoader,
+)
 
 EnumType = TypeVar("EnumType", bound=Enum)
 
@@ -322,3 +331,79 @@ class ConductorInputLoader:
             )
         else:
             return candidates[0]
+
+
+# ---------------------------------------------------------------------------
+# Definition builder (Stage 4b): the Conductor is constructed from this.
+# ---------------------------------------------------------------------------
+
+_COMPONENT_LOADERS = {
+    ComponentType.FLUID: lambda source, counter, sheet, identifier: FluidComponentInputLoader(
+        source, counter, sheet, identifier
+    ),
+    ComponentType.STACK: lambda source, counter, sheet, identifier: StackComponentInputLoader(
+        source, counter, identifier, sheet
+    ),
+    ComponentType.STRAND_MIXED: lambda source, counter, sheet, identifier: StrandMixedInputLoader(
+        source, counter, identifier, sheet
+    ),
+    ComponentType.STRAND_STABILIZER: lambda source, counter, sheet, identifier: StrandStabilizerInputLoader(
+        source, counter, identifier, sheet
+    ),
+    ComponentType.JACKET: lambda source, counter, sheet, identifier: JacketComponentInputLoader(
+        source, counter, identifier, sheet
+    ),
+}
+
+
+def load_component_definitions(source: InputSource, counter: int) -> List[ComponentDefinition]:
+    definitions = []
+    for kind, sheet_name, identifiers in source.component_groups(counter):
+        component_type = get_component_type(kind)
+        for identifier in identifiers:
+            loader = _COMPONENT_LOADERS[component_type](source, counter, sheet_name, identifier)
+            definitions.append(
+                ComponentDefinition(
+                    component_type=component_type,
+                    kind=kind,
+                    sheet_name=sheet_name,
+                    identifier=identifier,
+                    inputs=loader.load_input_file(),
+                    operations=loader.load_operations_file(),
+                )
+            )
+    return definitions
+
+
+def load_conductor_definition(
+    base_path, counter: int, source: InputSource = None, magnet_file_name: str = None
+) -> ConductorDefinition:
+    """Read everything one conductor needs from the deck directory."""
+    base_path = Path(base_path)
+    if source is None:
+        source = open_input_source(base_path)
+    loader = ConductorInputLoader(base_path, counter, source)
+    inputs = loader.load_conductor_inputs()
+    operations = loader.load_conductor_operations()
+    coupling = loader.load_coupling_data()
+    validator.check_equipotential_surface_coordinate(operations, inputs.zlength)
+    validator.check_for_unphysical_coupling_data(coupling)
+    definition_file = (
+        base_path / magnet_file_name if magnet_file_name is not None
+        else loader.definition_path
+    )
+    return ConductorDefinition(
+        counter=counter,
+        name=loader.conductor_name,
+        identifier=loader.conductor_identifier,
+        inputs=inputs,
+        operations=operations,
+        file_paths=loader.load_input_files(),
+        mesh=loader.load_grid_input(inputs.zlength),
+        coupling=coupling,
+        spatial_save_times=np.array(source.diagnostic_spatial_times(counter), dtype=float),
+        time_save_positions=np.array(source.diagnostic_time_positions(counter), dtype=float),
+        components=load_component_definitions(source, counter),
+        definition_file=definition_file,
+        sheet_names=list(loader.conductor_sheet_names),
+    )

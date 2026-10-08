@@ -2,7 +2,8 @@
 This module contains the dataclasses storing fluid component user inputs.
 """
 
-from dataclasses import dataclass 
+import math
+from dataclasses import dataclass
 
 
 import components.component_flags as cf
@@ -70,8 +71,9 @@ class FluidComponentOperations:
 
     def initial_temperature_profile_bounds(self) -> tuple:
         """Inlet and outlet values of the initial temperature profile."""
-        if self.initial_temperature_outlet is not None and not pd.isna(
-            self.initial_temperature_outlet
+        if self.initial_temperature_outlet is not None and not (
+            isinstance(self.initial_temperature_outlet, float)
+            and math.isnan(self.initial_temperature_outlet)
         ):
             return self.initial_temperature, self.initial_temperature_outlet
         return self.inlet_temperature, self.outlet_temperature

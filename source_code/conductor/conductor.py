@@ -10,8 +10,6 @@ import thermal.radiation as thermal_radiation
 import thermal.htc_evaluation as htc_evaluation
 import thermal.energy_balance as energy_balance
 import conductor.conductor_topology as conductor_topology
-from adapters.input import open_input_source
-from ports.input_source import InputSource
 
 import numpy as np
 from scipy import constants, integrate
@@ -35,7 +33,10 @@ from conductor.solver_structures import (
 )
 import conductor.conductor_mesh as conductor_mesh
 from components.fluid.fluid_component import FluidComponent
-from components.component_factory import ComponentFactory, ComponentBuildContext
+from components.component_factory import build_component
+from components.component_build import ComponentBuildSettings
+from conductor.conductor_definition import ConductorDefinition
+from runtime.time_stepping import TimeSteppingSettings
 from components.jacket.jacket_component import JacketComponent
 from components.solid.stack_component import StackComponent
 from components.solid.strand_mixed_component import StrandMixedComponent
@@ -90,8 +91,6 @@ from adapters.plotting.plots import update_real_time_plots, create_legend_rtp
 from thermal.temperature_field import (
     solid_components_temperature_initialization,
 )
-from adapters.input.conductor_loader import ConductorInputLoader
-import conductor.input_validator as validator
 
 # Get the logger specified in the file
 conductorlogger = logging.getLogger("opensc2Logger.conductor")
@@ -110,45 +109,22 @@ class Conductor:
     # Lambda velocity parameter (--> 0 if porous wall, --> 1 if helicoidal wall).
     lambda_v = 1.0  # ~
 
-    def __init__(self: Self, base_path: str, ICOND: int, magnet_file_name: str,
-                 input_source: InputSource = None):
-        """Makes an instance of class conductor.
-
-        Args:
-            self (Self): conductor object.
-            base_path (str): base path to input files.
-            sheetConductorsList (list): list of sheets available in input file conductor_definition.
-            ICOND (int): conductor counter.
-            magnet_file_name (str): name of the magnet definition file relative to base_path.
-        """
-
-        self.base_path = Path(base_path)
-        self.counter = ICOND
-        # Where the inputs come from (ports.input_source); resolved from the
-        # deck directory when not injected (Stage 4b moves construction to
-        # the application layer).
-        self.input_source = (
-            input_source if input_source is not None
-            else open_input_source(self.base_path)
-        )
-
-        loader = ConductorInputLoader(self.base_path, self.counter, self.input_source)
-        self.file_paths = loader.load_input_files()
-        self.inputs = loader.load_conductor_inputs()
-        self.operations = loader.load_conductor_operations()
-        self.mesh = loader.load_grid_input(self.inputs.zlength)
-        self.coupling = loader.load_coupling_data()
-
-        validator.check_equipotential_surface_coordinate(self.operations, 
-                                                         self.inputs.zlength)
-        validator.check_for_unphysical_coupling_data(self.coupling) 
-
-        self.name = loader.conductor_name
-        self.identifier = loader.conductor_identifier
+    def __init__(self: Self, definition: ConductorDefinition):
+        """Makes an instance of class conductor from its typed definition
+        (see adapters.input.conductor_loader.load_conductor_definition)."""
+        self.definition = definition
+        self.base_path = Path(definition.file_paths.base_path)
+        self.counter = definition.counter
+        self.file_paths = definition.file_paths
+        self.inputs = definition.inputs
+        self.operations = definition.operations
+        self.mesh = definition.mesh
+        self.coupling = definition.coupling
+        self.name = definition.name
+        self.identifier = definition.identifier
         self.number = int(self.identifier.split("_")[1])
-
-        self.workbook_name = self.base_path / magnet_file_name
-        self.workbook_sheet_name = loader.conductor_sheet_names
+        self.workbook_name = definition.definition_file
+        self.workbook_sheet_name = definition.sheet_names
 
         # TODO: loading and checking external files if any
 
@@ -205,16 +181,16 @@ class Conductor:
     
 
     def conductor_components_instance(self, simulation):
-        """Makes instances of conductor components defined in the input Excel workbooks."""
-        context = ComponentBuildContext(
-            simulation=simulation, conductor=self, input_source=self.input_source
+        """Build the component objects from their typed definitions."""
+        build = ComponentBuildSettings(
+            conductor_identifier=self.identifier,
+            conductor_length=self.inputs.zlength,
+            time_stepping=TimeSteppingSettings.from_transient_settings(
+                simulation.transient_input
+            ),
         )
-        factory = ComponentFactory(context)
-        for kind, sheet_name, identifiers in self.input_source.component_groups(
-            self.counter
-        ):
-            for comp in factory.create_components(kind, sheet_name, identifiers):
-                self.inventory.add(comp)
+        for component_definition in self.definition.components:
+            self.inventory.add(build_component(component_definition, build))
 
 
     def __get_total_cross_section(self):
@@ -378,9 +354,7 @@ class Conductor:
         # evaluate attribute time_accuracy_eigenvalue exploiting function
         # evaluate_time_accuracy_eigenvalue (cdp, 08/2020)
         evaluate_time_accuracy_eigenvalue(self)
-        self.Space_save = np.array(
-            self.input_source.diagnostic_spatial_times(self.counter), dtype=float
-        )
+        self.Space_save = np.array(self.definition.spatial_save_times, dtype=float)
         # Adjust the user defined diagnostic.
         self.Space_save = set_diagnostic(
             self.Space_save, lb=0.0, ub=simulation.transient_input["TEND"]
@@ -395,9 +369,7 @@ class Conductor:
         self.i_save = 0
         # list of number of time steps at wich save the spatial discretization
         self.num_step_save = np.zeros(self.Space_save.shape, dtype=int)
-        self.Time_save = np.array(
-            self.input_source.diagnostic_time_positions(self.counter), dtype=float
-        )
+        self.Time_save = np.array(self.definition.time_save_positions, dtype=float)
 
         # Adjust the user defined diagnostic.
         self.Time_save = set_diagnostic(

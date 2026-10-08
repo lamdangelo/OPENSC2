@@ -1,6 +1,7 @@
 from decimal import Decimal
 import adapters.input.yaml_input_registry as yaml_input_registry
 from adapters.input import open_input_source
+from adapters.input.conductor_loader import load_conductor_definition
 import numpy as np
 import pandas as pd
 import os
@@ -164,10 +165,9 @@ class Simulation:
         for ii in range(1, 1 + self.numObj):
 
             conductor = Conductor(
-                self.basePath,
-                ii,
-                self.transient_input["MAGNET"],
-                input_source=self.input_source,
+                load_conductor_definition(
+                    self.basePath, ii, self.input_source, self.transient_input["MAGNET"]
+                )
             )
             conductor.initialize_with_simulation(self)
             self.list_of_Conductors.append(conductor)

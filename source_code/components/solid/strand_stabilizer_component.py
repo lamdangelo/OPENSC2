@@ -5,6 +5,7 @@ from components.solid.strand_component import StrandComponent
 
 from components.solid.strand_stabilizer_component_inputs import StrandStabilizerComponentInputs
 from components.solid.solid_component_inputs import StrandComponentOperations
+from components.component_build import ComponentBuildSettings
 
 # Aluminium properties
 from properties_of_materials.aluminium import (
@@ -77,22 +78,20 @@ class StrandStabilizerComponent(StrandComponent):
 
     def __init__(
         self,
-        simulation: object,
         identifier: str,
         name: str,
         inputs: StrandStabilizerComponentInputs,
         operations: StrandComponentOperations,
-        conductor: object,
+        build: ComponentBuildSettings,
     ):
         """Method that makes instance of class StrandStabilizerComponent.
 
         Args:
-            simulation (object): simulation object.
             identifier (str): component identifier.
             name (str): component kind string (e.g. "STR_STAB").
             inputs (StrandStabilizerComponentInputs): pre-parsed input parameters.
             operations (StrandComponentOperations): pre-parsed operations parameters.
-            conductor (object): instance of class Conductor.
+            build (ComponentBuildSettings): conductor identifier/length and time-stepping settings.
         """
 
         super().__init__(inputs, operations)
@@ -105,7 +104,7 @@ class StrandStabilizerComponent(StrandComponent):
         self.coordinate = dict()
         self.dict_scaling_input = dict()
 
-        self.initialize_heat_flux_schedule(simulation)
+        self.initialize_heat_flux_schedule(build.time_stepping)
         if self.operations.magnetic_field_bc_mode is not BFieldDefinitionType.FROM_FILE:
             self.operations.magnetic_field_units = None
 
@@ -113,7 +112,7 @@ class StrandStabilizerComponent(StrandComponent):
 
         self.radius = np.sqrt(self.inputs.cross_section / np.pi)
 
-        self.deal_with_fixed_potential(conductor.inputs.zlength)
+        self.deal_with_fixed_potential(build.conductor_length)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(Type: {self.name}, identifier: {self.identifier})"

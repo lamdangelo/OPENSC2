@@ -12,13 +12,15 @@ from components.solid.solid_component_inputs import (
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode
 from thermal.thermal_flags import HeatExcitation
 from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
+from components.component import Component
+from runtime.time_stepping import TimeSteppingSettings
 
 _STRAND_MIXED_NAME = ComponentType.STRAND_MIXED.value          # "STR_MIX"
 _STRAND_STABILIZER_NAME = ComponentType.STRAND_STABILIZER.value  # "STR_STAB"
 _STACK_NAME = ComponentType.STACK.value                          # "STACK"
 _JACKET_NAME = ComponentType.JACKET.value                        # "Z_JACKET"
 
-class SolidComponent:
+class SolidComponent(Component):
     def __init__(self, inputs: SolidComponentInputs,
                  operations: SolidComponentOperations):
         """
@@ -187,7 +189,7 @@ class SolidComponent:
             )
         return patches
 
-    def initialize_heat_flux_schedule(self, simulation):
+    def initialize_heat_flux_schedule(self, time_stepping: TimeSteppingSettings):
         """Initialize the imposed-heat-flux on/off time-step schedule from the
         component's operations, if a square-wave heat excitation is defined.
         """
@@ -199,16 +201,16 @@ class SolidComponent:
             # (cdp, 11/2020)
             # The heating will be on at some times (cdp, 01/2021)
             self.flag_heating = "On"
-            if simulation.transient_input["IADAPTIME"] == 0:
+            if time_stepping.adaptive_mode == 0:
                 # Time adaptivity off and (cdp, 11/2020)
                 self.dict_num_step["IQFUN"] = dict(
                     ON=int(
                         self.operations.heat_flux_time_start
-                        / simulation.transient_input["STPMIN"]
+                        / time_stepping.minimum_time_step
                     ),
                     OFF=int(
                         self.operations.heat_flux_time_end
-                        / simulation.transient_input["STPMIN"]
+                        / time_stepping.minimum_time_step
                     ),
                 )
             else:
