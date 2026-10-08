@@ -10,7 +10,7 @@ from conductor.conductor import Conductor
 from conductor.input_loader import ConductorInputLoader
 from conductor.input_validator import ConductorInputValidator
 from electromagnetics.electromagnetic_flags import CurrentMode
-from environment.environment import Environment
+from adapters.input.environment_loader import load_environment
 from hydraulics.network.coupling import build_coupled_network
 from numerics.coupled_step import solve_coupled_conductors_step
 from adapters.input.auxiliary_files import with_read_csv, with_read_excel
@@ -30,6 +30,8 @@ from adapters.output.solution_writer import (
 )
 from adapters.output.checkpoint import restore_from_checkpoint, write_checkpoint
 from adapters.output.diagnostics_npz import NpzDiagnosticsSink
+from adapters.fluid_properties import coolprop_provider
+from ports.fluid_properties import COOLANT_PROPERTY_ALIASES, register_provider_factory
 from adapters.output.simulation_log import SimulationSummary
 from adapters.plotting.plots import (
     plot_properties,
@@ -48,6 +50,9 @@ class Simulation:
         # time-dependent boundary schedules, event detection and source
         # switching). A truthy return value stops the transient.
         self.step_callback = step_callback
+        # Composition root: the domain resolves fluid properties through the
+        # port; the CoolProp adapter provides them.
+        register_provider_factory(coolprop_provider.provider_for)
         # Where the solvers drop state dumps when a step turns non-finite
         # (ports.diagnostics): npz files in the working directory, as before.
         self.diagnostics = NpzDiagnosticsSink()
@@ -102,7 +107,7 @@ class Simulation:
         self.__count_sigfigs(self.transient_input["STPMIN"])
         self.list_of_Conductors = list()
         # Define the environment object as an attribute of the simulation
-        self.environment = Environment(
+        self.environment = load_environment(
             os.path.join(self.basePath, self.transient_input["ENVIRONMENT"])
         )
         # Define dictionary with default values for functions with_read_csv and with_read_excel.
@@ -115,18 +120,9 @@ class Simulation:
             xlsx=with_read_excel,
         )
 
-        self.fluid_prop_aliases = dict(
-            isobaric_expansion_coefficient="isobaric_expansion_coefficient",
-            isothermal_compressibility="isothermal_compressibility",  # 1/Pa
-            Prandtl="Prandtl",
-            total_density="Dmass",
-            total_dynamic_viscosity="viscosity",
-            total_enthalpy="Hmass",
-            total_isobaric_specific_heat="Cpmass",
-            total_isochoric_specific_heat="Cvmass",
-            total_speed_of_sound="speed_of_sound",
-            total_thermal_conductivity="conductivity",
-        )
+        # Property aliases of the coolant (kept as attribute for callers;
+        # the domain reads ports.fluid_properties.COOLANT_PROPERTY_ALIASES).
+        self.fluid_prop_aliases = COOLANT_PROPERTY_ALIASES
 
     
     def run(self):

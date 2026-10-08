@@ -18,6 +18,8 @@ import os
 
 import numpy as np
 
+from ports.fluid_properties import COOLANT_PROPERTY_ALIASES
+
 from conductor.conductor_flags import HTC_Choice
 from properties_of_materials.stainless_steel import thermal_conductivity_ss
 import thermal.radiation as thermal_radiation
@@ -33,7 +35,7 @@ def evaluate_channel_transport_properties(conductor: object, simulation: object,
 
         # Evaluate coolant properties in nodal points.
         fluid_comp.coolant._eval_properties_nodal_gauss(
-            conductor, simulation.fluid_prop_aliases, flag_nodal
+            conductor, COOLANT_PROPERTY_ALIASES, flag_nodal
         )
 
         # Define dictionary to select nodal or gauss properties according to the value of flag_nodal.0

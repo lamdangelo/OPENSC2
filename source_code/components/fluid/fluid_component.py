@@ -32,16 +32,17 @@ from hydraulics.hydraulic_flags import (
 from hydraulics.channel import Channel
 from hydraulics.coolant import Coolant
 
-import adapters.fluid_properties.coolprop_provider as cpi
+from ports.fluid_properties import FluidPropertyProvider
 
 
 class FluidComponent(Component):
 
     def __init__(self, identifier: str, inputs: FluidComponentInputs, 
-                 operations: FluidComponentOperations):
+                 operations: FluidComponentOperations,
+                 fluid_properties: FluidPropertyProvider = None):
         self.identifier = identifier
         self.channel = Channel(identifier, inputs, operations)
-        self.coolant = Coolant(identifier, inputs, operations)
+        self.coolant = Coolant(identifier, inputs, operations, fluid_properties)
         self.coordinate = dict()
 
         # This is a switch to apply BC for the thermal hydraulic problem 
@@ -84,9 +85,9 @@ class FluidComponent(Component):
         )
         self.coolant.temperature.initialize(initial_temperature)
 
-        initial_density = cpi.compute_mass_density(self.coolant.fluid_type,
-                                                   initial_temperature,
-                                                   initial_pressure)
+        initial_density = self.coolant.fluid_properties.mass_density(
+            initial_temperature, initial_pressure
+        )
         self.coolant.density.initialize(initial_density)
 
         if self.coolant.operations.hydraulic_bc_type is HydraulicBC.IMPOSE_INLET_PRESSURE_OUTLET_VELOCITY:

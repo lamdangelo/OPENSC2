@@ -36,9 +36,9 @@ def eval_weighted_radiative_htc(conductor: object, simulation: object, s_comp: o
             * s_comp.inputs.emissivity
             * (
                 temperature_jk ** 2
-                + simulation.environment.inputs["Temperature"] ** 2
+                + simulation.environment.temperature ** 2
             )
-            * (temperature_jk + simulation.environment.inputs["Temperature"])
+            * (temperature_jk + simulation.environment.temperature)
             * conductor.inputs.phi_radiative
         )  # W/m^2/K
     # End if s_comp_r.inputs.emissivity <= 0.
@@ -124,7 +124,7 @@ def compute_heat_exchange_jk_env(conductor: object, environment: object) -> None
                     + conductor.gauss_fields.HTC["env_sol"][key]["rad"]
                 )
                 * (
-                    environment.inputs["Temperature"]
+                    environment.temperature
                     - jk.gauss_fields.temperature
                 )
             )  # W

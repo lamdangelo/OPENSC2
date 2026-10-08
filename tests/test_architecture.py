@@ -121,11 +121,6 @@ BASELINE_LAYER_VIOLATIONS: frozenset[str] = frozenset({
     "conductor.input_validator -> openpyxl",
     "conductor.input_validator -> pandas",
     "electromagnetics.circuit_topology -> pandas",
-    "environment.environment -> CoolProp",
-    "environment.environment -> adapters",
-    "environment.environment -> pandas",
-    "hydraulics.coolant -> adapters",
-    "hydraulics.network.hydraulic_network -> adapters",
     "properties_of_materials.niobium_titanium -> pandas",
 })
 

@@ -48,3 +48,16 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.slow)
         if name in REGRESSION_TEST_FILES:
             item.add_marker(pytest.mark.regression)
+
+
+# ---------------------------------------------------------------------------
+# Composition root for tests that build domain objects (Coolant,
+# FluidComponent, HydraulicNetwork) directly, without the Simulation facade:
+# register the CoolProp adapter as fluid property provider
+# (ports.fluid_properties).
+# ---------------------------------------------------------------------------
+
+from adapters.fluid_properties import coolprop_provider as _coolprop_provider  # noqa: E402
+from ports.fluid_properties import register_provider_factory as _register  # noqa: E402
+
+_register(_coolprop_provider.provider_for)

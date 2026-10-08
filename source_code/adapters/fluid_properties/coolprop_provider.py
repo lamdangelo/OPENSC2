@@ -702,3 +702,63 @@ def compute_properties(fluid_type: FluidType,
         results[result_name] = values[:, column]
 
     return results
+
+
+# --- Provider objects (implementations of ports.fluid_properties) -----------
+#
+# The domain objects (Coolant, FluidComponent, HydraulicNetwork, Environment)
+# hold a FluidPropertyProvider and never call the module functions above
+# directly. The composition root registers ``provider_for`` with
+# ports.fluid_properties.register_provider_factory.
+
+
+class CoolPropFluidProperties:
+    """CoolProp-backed provider for one FluidType (tabulated fast path,
+    near-critical shift and failure dumps as in the module functions)."""
+
+    def __init__(self, fluid_type: FluidType):
+        self.fluid_type = fluid_type
+
+    def mass_density(self, temperature, pressure):
+        return compute_mass_density(self.fluid_type, temperature, pressure)
+
+    def viscosity(self, temperature, pressure):
+        return compute_viscosity(self.fluid_type, temperature, pressure)
+
+    def properties(self, aliases, temperature, pressure):
+        return compute_properties(self.fluid_type, aliases, temperature, pressure)
+
+
+class ConstantFluidPropertyProvider(CoolPropFluidProperties):
+    """Provider for FluidType.CONSTANT: serves the registered
+    ConstantFluidProperties (see set_constant_fluid_properties), looked up at
+    call time so a registration made after construction is honoured, as with
+    the module functions."""
+
+
+class CoolPropNamedFluidProperties:
+    """Provider for a fluid given by its CoolProp name (e.g. the environment
+    medium "air"): plain PropsSI calls, one per property alias."""
+
+    def __init__(self, fluid_name: str):
+        self.fluid_type = None
+        self.fluid_name = fluid_name
+
+    def mass_density(self, temperature, pressure):
+        return PropsSI("Dmass", "T", temperature, "P", pressure, self.fluid_name)
+
+    def viscosity(self, temperature, pressure):
+        return PropsSI("viscosity", "T", temperature, "P", pressure, self.fluid_name)
+
+    def properties(self, aliases, temperature, pressure):
+        return {
+            name: PropsSI(alias, "T", temperature, "P", pressure, self.fluid_name)
+            for name, alias in aliases.items()
+        }
+
+
+def provider_for(fluid_type: FluidType):
+    """Factory registered by the composition root."""
+    if fluid_type is FluidType.CONSTANT:
+        return ConstantFluidPropertyProvider(fluid_type)
+    return CoolPropFluidProperties(fluid_type)

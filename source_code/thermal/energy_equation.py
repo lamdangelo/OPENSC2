@@ -636,7 +636,7 @@ def build_svec_env_jacket_interface(
         )
 
         # Linear heat flux from environment W/m
-        env_heat = coef * env.inputs["Temperature"]
+        env_heat = coef * env.temperature
 
         if conductor.cond_num_step == 1:
             # Present time step.

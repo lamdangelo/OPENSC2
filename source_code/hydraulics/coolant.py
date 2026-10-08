@@ -16,7 +16,7 @@ from hydraulics.hydraulic_flags import (
     HydraulicFormulation,
     MASS_FLOW_FORMULATIONS,
 )
-import adapters.fluid_properties.coolprop_provider as cpi
+from ports.fluid_properties import FluidPropertyProvider, provider_for
 
 
 class Coolant():
@@ -43,10 +43,17 @@ class Coolant():
 
     def __init__(self, identifier: str,
                  fluid_inputs: FluidComponentInputs,
-                 fluid_operations: FluidComponentOperations):
+                 fluid_operations: FluidComponentOperations,
+                 fluid_properties: FluidPropertyProvider = None):
 
         self.identifier = identifier
         self.fluid_type = fluid_inputs.fluid_type
+        # Thermophysical properties of the coolant (ports.fluid_properties):
+        # injected, or resolved from the registered provider factory.
+        self.fluid_properties = (
+            fluid_properties if fluid_properties is not None
+            else provider_for(self.fluid_type)
+        )
         self.inputs = fluid_inputs
         self.operations = fluid_operations
 
@@ -91,8 +98,8 @@ class Coolant():
         between versions (1-D array vs. 2-D matrix), which breaks the
         callers' element assignments.
         """
-        density = cpi.compute_mass_density(self.fluid_type, temperature, pressure)
-        viscosity = cpi.compute_viscosity(self.fluid_type, temperature, pressure)
+        density = self.fluid_properties.mass_density(temperature, pressure)
+        viscosity = self.fluid_properties.viscosity(temperature, pressure)
         return float(np.ravel(density)[0]), float(np.ravel(viscosity)[0])
 
 
@@ -177,8 +184,7 @@ class Coolant():
             self.operations.initial_temperature_profile_bounds(),
         )
         # Compute density (needed to compute the velocity from mass flow rate).
-        self.node_fields.total_density = cpi.compute_mass_density(
-            self.fluid_type,
+        self.node_fields.total_density = self.fluid_properties.mass_density(
             self.node_fields.temperature,
             self.node_fields.pressure,
         )
@@ -230,9 +236,9 @@ class Coolant():
         temperature stored in fields, exploiting the CoolProp library.
 
         All properties are evaluated with a single equation-of-state flash
-        per point (see coolprop_interface.compute_properties)."""
-        properties = cpi.compute_properties(
-            self.fluid_type, aliases, fields.temperature, fields.pressure
+        per point (see adapters.fluid_properties.coolprop_provider)."""
+        properties = self.fluid_properties.properties(
+            aliases, fields.temperature, fields.pressure
         )
         for prop_name, values in properties.items():
             setattr(fields, prop_name, values)
@@ -242,8 +248,8 @@ class Coolant():
 
     def _compute_density_and_mass_flow_rates(self, fields: FieldContainer) -> FieldContainer:
         """Evaluate mass density and mass flow rate spatial distributions."""
-        fields.total_density = cpi.compute_mass_density(
-            self.fluid_type, fields.temperature, fields.pressure
+        fields.total_density = self.fluid_properties.mass_density(
+            fields.temperature, fields.pressure
         )
         fields.mass_flow_rate = hydraulics.compute_mass_flow_rate(
             self.inputs.cross_section, fields.velocity, fields.total_density
@@ -258,8 +264,8 @@ class Coolant():
         density comes from the newly solved (p, T), and the definitive
         velocity follows as v = mdot / (rho A)."""
         fields = self.node_fields
-        fields.total_density = cpi.compute_mass_density(
-            self.fluid_type, fields.temperature, fields.pressure
+        fields.total_density = self.fluid_properties.mass_density(
+            fields.temperature, fields.pressure
         )
         fields.velocity = fields.mass_flow_rate / (
             self.inputs.cross_section * fields.total_density

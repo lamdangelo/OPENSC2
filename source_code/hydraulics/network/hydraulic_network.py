@@ -51,7 +51,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-import adapters.fluid_properties.coolprop_provider as cpi
+from ports.fluid_properties import FluidPropertyProvider, provider_for
 from conductor.conductor_flags import MethodFlag
 from hydraulics.friction_factor_factory import FrictionFactorFactory
 from hydraulics.friction_factor_models import FrictionFactorModelType
@@ -131,9 +131,14 @@ class HydraulicNetwork:
         self,
         inputs: HydraulicNetworkInput,
         method: MethodFlag = MethodFlag.BACKWARD_EULER,
+        fluid_properties: FluidPropertyProvider = None,
     ):
         self.inputs = inputs
         self.fluid_type = inputs.fluid_type
+        self.fluid_properties = (
+            fluid_properties if fluid_properties is not None
+            else provider_for(self.fluid_type)
+        )
         self.method = method
         if (
             method is not MethodFlag.BACKWARD_DIFFERENCE_2
@@ -404,8 +409,7 @@ class HydraulicNetwork:
         temperature of the upstream node (by the current flow sign; the
         from-node on a tie). Same CoolProp interface and cached property
         table as the channel coolant."""
-        node_properties = cpi.compute_properties(
-            self.fluid_type,
+        node_properties = self.fluid_properties.properties(
             _NODE_PROPERTY_ALIASES,
             self.node_temperature,
             self.node_pressure,
@@ -425,8 +429,7 @@ class HydraulicNetwork:
         upstream = np.where(
             self.branch_mass_flow >= 0.0, self._branch_from, self._branch_to
         )
-        branch_properties = cpi.compute_properties(
-            self.fluid_type,
+        branch_properties = self.fluid_properties.properties(
             _BRANCH_PROPERTY_ALIASES,
             self.node_temperature[upstream],
             0.5

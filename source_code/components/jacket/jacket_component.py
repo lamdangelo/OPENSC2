@@ -145,7 +145,7 @@ class JacketComponent(SolidComponent):
                     conductor.dict_interf_peri["env_sol"]["nodal"][key]
                     * conductor.node_fields.HTC["env_sol"][key]["rad"]
                     * (
-                        environment.inputs["Temperature"]
+                        environment.temperature
                         - self.node_fields.temperature
                     )
                 )
@@ -164,7 +164,7 @@ class JacketComponent(SolidComponent):
                     conductor.dict_interf_peri["env_sol"]["nodal"][key]
                     * conductor.node_fields.HTC["env_sol"][key]["rad"]
                     * (
-                        environment.inputs["Temperature"]
+                        environment.temperature
                         - self.node_fields.temperature
                     )
                 )

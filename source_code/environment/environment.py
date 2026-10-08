@@ -1,42 +1,52 @@
 # Import library packages.
 import warnings
-import numpy as np
-import pandas as pd
-from scipy import constants
-from CoolProp.CoolProp import PropsSI
+from dataclasses import dataclass
 
-import adapters.input.yaml_input_registry as yaml_input_registry
+import numpy as np
+from scipy import constants
+
+from ports.fluid_properties import FluidPropertyProvider
+
+
+@dataclass(frozen=True)
+class EnvironmentSettings:
+    """Typed environment inputs (ENVIRONMENT sheet / ``environment:`` YAML
+    section). Built by adapters.input.environment_loader."""
+
+    medium: str  # Medium — CoolProp fluid name of the surrounding medium
+    temperature: float  # Temperature — K
+    pressure: float  # Pressure — Pa
+
+    def as_legacy_dict(self) -> dict:
+        """Legacy variable-name view (read-only; kept for callers that still
+        index ``environment.inputs[...]``)."""
+        return {
+            "Medium": self.medium,
+            "Temperature": self.temperature,
+            "Pressure": self.pressure,
+        }
 
 
 class Environment:
-    """docstring for Environment."""
+    """The medium surrounding the conductor: its state and the external free
+    convection heat transfer models. Domain object: it is built from typed
+    settings and a fluid property provider (ports.fluid_properties); the
+    input file is read by adapters.input.environment_loader."""
 
     KIND = "Environment"
 
-    def __init__(self, f_path):
-        """[summary]
+    def __init__(self, settings: EnvironmentSettings,
+                 fluid_properties: FluidPropertyProvider):
+        self.settings = settings
+        self.fluid_properties = fluid_properties
+        self.temperature = settings.temperature
+        self.pressure = settings.pressure
+        self.type = settings.medium.lower()
 
-        Args:
-            f_path ([type]): [description]
-        """
-        # Dictionary declaration (cdp, 11/2020)
-        self.inputs = dict()
-        # self.node_fields = FieldContainer(GridLocation.NODE)
-        # self.gauss_fields = FieldContainer(GridLocation.GAUSS)
-        # Dictionary initialization: inputs (from the YAML registry when
-        # the input directory is YAML-driven).
-        registry = yaml_input_registry.get_registry(f_path)
-        if registry is not None:
-            self.inputs = registry.environment_settings()
-        else:
-            self.inputs = pd.read_excel(
-                f_path,
-                sheet_name="ENVIRONMENT",
-                header=0,
-                index_col=0,
-                usecols=["Variable name", "Value"],
-            )["Value"].to_dict()
-        self.type = self.inputs["Medium"].lower()
+    @property
+    def inputs(self) -> dict:
+        """Legacy variable-name view of the settings (read-only)."""
+        return self.settings.as_legacy_dict()
         # Declare the dictionary with methods used to evaluate nusselt number.
         self.dict_nusselt_correlations = dict(
             vertical_plate=self._vertical_plate,
@@ -92,7 +102,7 @@ class Environment:
         )
 
         # Define the film temperature.
-        film_temperature = (self.inputs["Temperature"] + T_s) / 2.0  # K
+        film_temperature = (self.temperature + T_s) / 2.0  # K
         # Evaluate air propreties.
         dict_air_properties = self.eval_prop(film_temperature)
         # Evaluate Nusselt dimensionless number.
@@ -177,17 +187,9 @@ class Environment:
         Returns:
             dict: dictionaty of environment properties.
         """
-        return {
-            prop_name: PropsSI(
-                alias,
-                "T",
-                film_temperature,
-                "P",
-                self.inputs["Pressure"],
-                self.type,
-            )
-            for prop_name, alias in self.fluid_prop_aliases.items()
-        }
+        return self.fluid_properties.properties(
+            self.fluid_prop_aliases, film_temperature, self.pressure
+        )
 
     # End method eval_air_prop.
 
@@ -208,7 +210,7 @@ class Environment:
             constants.g
             * dict_air_prop["density"] ** 2
             * dict_air_prop["volumetric_thermal_expansion_coefficient"]
-            * (T_s - self.inputs["Temperature"])
+            * (T_s - self.temperature)
             * characteristic_length ** 3
             * np.reciprocal(dict_air_prop["dynamic_viscosity"] ** 2)
         )
@@ -500,14 +502,14 @@ class Environment:
         Returns:
             [type]: [description]
         """
-        # Declare dictionary to decide if evaluate dry or humid properties according to flag self.inputs["Use_humidity"].
+        # Declare dictionary to decide if evaluate dry or humid properties according to flag Use_humidity.
         dict_eval_air_properties = {
             True: self._eval_humid_air_properties,
             False: self._eval_dry_air_properties,
         }
 
         # Evaluate air volumetric thermal expansion coefficient, kinematic viscosity and Prandtl number at film temperature.
-        return dict_eval_air_properties[self.inputs["Use_humidity"]](film_temperature)
+        return dict_eval_air_properties[getattr(self.settings, "use_humidity", False)](film_temperature)
 
     # End method eval_air_properties
 
@@ -523,7 +525,7 @@ class Environment:
         # Evaluate dry air thermal conductivity, volumetric thermal expansion coefficient, kinematic viscosity and Prandtl number.
         return eval_air_properties(
             temperature,
-            self.inputs["Pressure"],
+            self.pressure,
             thermal_conductivity=True,
             volumetric_thermal_expansion_coefficient=True,
             kinematic_viscosity=True,
@@ -544,8 +546,8 @@ class Environment:
         # Evaluate humid air thermal conductivity, volumetric thermal expansion coefficient kinematic viscosity and Prandtl number.
         return eval_air_properties(
             temperature,
-            self.inputs["Pressure"],
-            self.ict_input["Relative_humidity"],
+            self.pressure,
+            getattr(self.settings, "relative_humidity", None),
             thermal_conductivity=True,
             volumetric_thermal_expansion_coefficient=True,
             kinematic_viscosity=True,

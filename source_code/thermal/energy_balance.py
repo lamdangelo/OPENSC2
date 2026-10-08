@@ -113,7 +113,7 @@ def evaluate_mass_energy_balance(conductor: object, simulation: object) -> None:
                     )
                     * conductor.mesh.element_lengths
                     * (
-                        simulation.environment.inputs["Temperature"]
+                        simulation.environment.temperature
                         - jacket.gauss_fields.temperature
                     )
                 )
@@ -125,7 +125,7 @@ def evaluate_mass_energy_balance(conductor: object, simulation: object) -> None:
                 )
                 * conductor.mesh.element_lengths
                 * (
-                    simulation.environment.inputs["Temperature"]
+                    simulation.environment.temperature
                     - jacket.gauss_fields.temperature
                 )
             )
