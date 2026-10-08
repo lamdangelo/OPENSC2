@@ -13,7 +13,7 @@ from pathlib import Path  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-import interfaces.coolprop_interface as cpi  # noqa: E402
+import adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
 
 import analytical  # noqa: E402
 import test_v3_water_hammer as v3  # noqa: E402

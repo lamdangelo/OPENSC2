@@ -1,7 +1,6 @@
 import logging
 import numpy as np
 import os
-import pandas as pd
 import warnings
 from typing import Union
 
@@ -29,7 +28,7 @@ def user_defined_grid(conductor: object):
     discretization is available.
     """
     file_path = conductor.file_paths.external_grid
-    coord_dfs = pd.read_excel(file_path, sheet_name=None)
+    coord_dfs = conductor.external_inputs.user_defined_grid_tables()
 
     reference_component = conductor.inventory.fluids.collection[0]
     (
@@ -60,7 +59,7 @@ def assign_user_defined_spatial_discretization(
         StrandStabilizerComponent,
         StackComponent,
     ],
-    df: pd.DataFrame,
+    df,
 ):
     """Assign the user-defined coordinates from a DataFrame to a conductor component.
 

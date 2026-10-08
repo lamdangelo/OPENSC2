@@ -13,6 +13,7 @@ from physical_fields.physical_field import (
 
 import hydraulics.hydraulics as hydraulics
 from hydraulics.hydraulic_flags import (
+    HydraulicBC,
     HydraulicFormulation,
     MASS_FLOW_FORMULATIONS,
 )
@@ -155,8 +156,6 @@ class Coolant():
     def _eval_nodal_pressure_temperature_velocity_initialization(self, conductor):
         """Initialize pressure, temperature, velocity and density spatial
         distributions in the mesh nodes from the boundary condition values."""
-        from hydraulics.hydraulic_flags import HydraulicBC
-
         if self.operations.hydraulic_bc_type is HydraulicBC.IMPOSE_INLET_PRESSURE_OUTLET_VELOCITY:
             mfr = self.operations.outlet_mass_rate
         else:

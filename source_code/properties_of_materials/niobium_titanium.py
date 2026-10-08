@@ -1,6 +1,5 @@
 # Importing python libraries and other funcions
 import numpy as np
-import pandas as pd
 from scipy import optimize
 import warnings
 
@@ -235,7 +234,7 @@ def reduced_temperature_nbti(temperature, T_c0):
 
 def _convert_to_nparray(value):
 
-    if isinstance(value, (np.ndarray, pd.DataFrame, pd.Series)):
+    if isinstance(value, np.ndarray) or hasattr(value, "to_numpy"):
         return value
     else:
         # Necessary to deal with scalar: conversion to numpy array

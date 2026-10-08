@@ -2,9 +2,8 @@ import logging
 import logging.config
 from pathlib import Path
 
-from opensc2_gui import OPENSC2_GUI
+from drivers.gui.opensc2_gui import OPENSC2_GUI
 
-# from opensc2_gui_simpl import OPENSC2_GUI
 
 config_path = Path(__file__).with_name("logging_opensc2.conf")
 logging.config.fileConfig(fname=config_path, disable_existing_loggers=True)

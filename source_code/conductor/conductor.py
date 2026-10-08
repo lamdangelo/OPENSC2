@@ -18,7 +18,7 @@ from typing_extensions import Self
 
 # import classes
 from components.component_collection import ComponentInventory
-from electromagnetics.electromagnetic_flags import CurrentMode
+from electromagnetics.electromagnetic_flags import CurrentMode, ElectricSolver
 from hydraulics.hydraulic_flags import (
     HydraulicFormulation,
     MASS_FLOW_FORMULATIONS,
@@ -80,6 +80,7 @@ from electromagnetics.electric_solver import (
     ELECTRIC_TIME_STEP_NUMBER,
 )
 from electromagnetics.operating_conditions import (
+    evaluate_em_gauss_points,
     update_em_operating_conditions,
     evaluate_total_operating_current as _evaluate_total_operating_current,
     user_defined_current,
@@ -468,8 +469,6 @@ class Conductor:
         # electric solver; for STEADY_STATE conductors it is never
         # filled or read, and allocating it would be prohibitive for
         # many-strand conductors ((strands x elements)^2 doubles).
-        from electromagnetics.electromagnetic_flags import ElectricSolver
-
         if self.operations.electric_solver == ElectricSolver.TRANSIENT:
             self.electric.inductance_matrix = np.zeros(
                 (
@@ -949,8 +948,6 @@ class Conductor:
         # steady-state solve is purely resistive, and the inductance
         # construction is prohibitively expensive for multi-strand
         # conductors (element-pair-wise integrals), so skip it there.
-        from electromagnetics.electromagnetic_flags import ElectricSolver
-
         if self.operations.electric_solver == ElectricSolver.TRANSIENT:
             self.__build_electric_mass_matrix()
 
@@ -1034,8 +1031,6 @@ class Conductor:
         the only feasible one for many-strand conductors (the transient
         inductance matrix scales with the square of strand elements).
         """
-        from electromagnetics.electromagnetic_flags import ElectricSolver
-
         if (
             self.time_state.cond_num_step == 0
             or self.operations.electric_solver == ElectricSolver.STEADY_STATE
@@ -1096,7 +1091,6 @@ class Conductor:
         self.get_transport_coefficients(simulation, flag_nodal=False)
 
     def __eval_gauss_point_em(self):
-        from electromagnetics.operating_conditions import evaluate_em_gauss_points
         evaluate_em_gauss_points(self)
 
     def post_processing(self, simulation):

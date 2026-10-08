@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from conductor.conductor_flags import MethodFlag
 from hydraulics.network import HydraulicNetwork, HydraulicNetworkInput
 from simulation import Simulation

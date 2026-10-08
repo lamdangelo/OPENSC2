@@ -1,5 +1,6 @@
 from components.solid.solid_component import SolidComponent
 from properties_of_materials.material import material_for
+from properties_of_materials.electrical_conductivity import electrical_conductivity_of
 from components.component_build import ComponentBuildSettings
 import numpy as np
 from physical_fields.physical_field import FieldContainer, GridLocation
@@ -400,10 +401,6 @@ class JacketComponent(SolidComponent):
         (e.g. Al6063). Only reached when the eddy geometry constant is set,
         so a non-metallic jacket (insulation) with the source disabled is
         never queried here."""
-        from properties_of_materials.electrical_conductivity import (
-            electrical_conductivity_of,
-        )
-
         temperature = self.node_fields.temperature.ravel()
         return electrical_conductivity_of(
             self.inputs.jacket_material, temperature

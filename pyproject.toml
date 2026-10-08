@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The GUI (opensc2_gui.py) uses tkinter, which ships with the Python
+# The GUI (drivers/gui/opensc2_gui.py) uses tkinter, which ships with the Python
 # standard library (may require an OS-level Tk package, e.g. python3-tk).
 dev = [
 # Testing
@@ -84,8 +84,6 @@ select = ["E", "F", "I", "B", "T20"]
 "source_code/adapters/**" = ["T20"]
 "source_code/drivers/**" = ["T20"]
 "source_code/simulation.py" = ["T20"]
-"source_code/opensc2_gui.py" = ["T20"]
-"source_code/utility_functions/**" = ["T20"]
 "tests/**" = ["T20"]
 "scripts/**" = ["T20"]
 "models/**" = ["T20"]

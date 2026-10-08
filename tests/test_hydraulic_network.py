@@ -18,7 +18,7 @@ The solver tests compare against closed-form references:
 import numpy as np
 import pytest
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from conductor.conductor_flags import MethodFlag
 from hydraulics.hydraulic_flags import FluidType
 from hydraulics.network import (

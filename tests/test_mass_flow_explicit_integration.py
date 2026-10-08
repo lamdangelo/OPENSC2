@@ -27,7 +27,7 @@ import pandas as pd
 import pytest
 import yaml
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from hydraulics.hydraulic_flags import HydraulicFormulation
 from simulation import Simulation
 

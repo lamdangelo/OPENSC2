@@ -4,7 +4,7 @@ conftest module."""
 
 import pytest
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from case_builders import ACOUSTIC_FLUID, VERIFICATION_FLUID
 
 

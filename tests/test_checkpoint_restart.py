@@ -21,8 +21,8 @@ import pytest
 import yaml
 
 from simulation import Simulation
-from interfaces import yaml_input_registry
-from interfaces.yaml_input_registry import (
+from adapters.input import yaml_input_registry
+from adapters.input.yaml_input_registry import (
     _parse_autosave_interval,
     _parse_restart_flag,
 )
@@ -42,7 +42,7 @@ from case_builders import (  # noqa: E402
     channel_operations,
     write_channel_run_directory,
 )
-import interfaces.coolprop_interface as cpi  # noqa: E402
+import adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
 
 
 @pytest.fixture
@@ -349,7 +349,7 @@ def test_manifest_method_mismatch_errors_at_unit_level(tmp_path):
     import numpy as np
 
     from conductor.conductor_flags import MethodFlag
-    from utility_functions.checkpoint import _restore_conductor_state
+    from adapters.output.checkpoint import _restore_conductor_state
 
     archive_buffer = io.BytesIO()
     np.savez(

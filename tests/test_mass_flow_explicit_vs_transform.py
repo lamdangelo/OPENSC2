@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 import yaml
 
-import interfaces.coolprop_interface as cpi
-import utility_functions.transient_solution_functions as tsf
+import adapters.fluid_properties.coolprop_provider as cpi
+import numerics.transient_solution_functions as tsf
 from hydraulics.hydraulic_flags import HydraulicFormulation
 
 from test_mass_flow_explicit_integration import FORMULATION_EDITS

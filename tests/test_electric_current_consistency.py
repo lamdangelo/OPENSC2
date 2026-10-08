@@ -16,8 +16,8 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "source_code"))
 import numpy as np  # noqa: E402
 
 from conductor.conductor_inputs import ConductorOperations  # noqa: E402
-from conductor.input_loader import ConductorInputLoader  # noqa: E402
-import interfaces.yaml_schema_v2 as schema_v2  # noqa: E402
+from adapters.input.conductor_loader import ConductorInputLoader  # noqa: E402
+import adapters.input.yaml_schema_v2 as schema_v2  # noqa: E402
 
 
 RAW_OPERATIONS = {

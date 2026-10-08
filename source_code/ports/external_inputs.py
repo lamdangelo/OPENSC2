@@ -39,3 +39,8 @@ class ExternalInputReader(Protocol):
     def user_defined_quantity(self, quantity: str, sheet_name: str):
         """Raw table of an external file (e.g. "EXTERNAL_GRID")."""
         ...
+
+    def user_defined_grid_tables(self) -> dict:
+        """{component identifier: table with columns "x [m]", "y [m]", "z [m]"}
+        of the user-defined spatial discretization file."""
+        ...

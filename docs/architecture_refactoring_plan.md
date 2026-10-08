@@ -1,6 +1,6 @@
 # OPENSC2 Clean-Architecture Refactoring Plan
 
-*Status: proposal, 2026-10-08. Scope: structure only — no numerical change in any stage.*
+*Status: stages 0–9 implemented on branch `clean-architecture` (2026-10-08); see [architecture.md](architecture.md) for the resulting structure and the remaining debt. Scope: structure only — no numerical change in any stage.*
 
 This document analyses the current dependency structure of `source_code/` and lays out a
 staged plan to reach a layered ("clean") architecture in the sense of Robert C. Martin:

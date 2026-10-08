@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pandas as pd
+
 from adapters.input.auxiliary_files import (
     get_from_xlsx,
     load_auxiliary_files,
@@ -60,3 +62,6 @@ class FileExternalInputReader:
         file_name = getattr(self.file_paths, quantity.lower())
         extension = str(file_name).split(".")[1]
         return _READERS[extension](file_name, sheet_name, _DEFAULT_DELIMITERS[extension])
+
+    def user_defined_grid_tables(self) -> dict:
+        return pd.read_excel(self.file_paths.external_grid, sheet_name=None)

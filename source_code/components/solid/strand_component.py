@@ -3,6 +3,10 @@ from components.solid.solid_component import SolidComponent
 from electromagnetics.electromagnetic_flags import CurrentMode
 import numpy as np
 from numerics.interpolation import do_interpolation
+from properties_of_materials.electrical_conductivity import (
+    electrical_conductivity_of,
+    electrical_resistivity_of,
+)
 
 # from utility_functions.InitializationFunctions import Read_input_file
 # NbTi properties
@@ -92,10 +96,6 @@ class StrandComponent(SolidComponent):
         NIST resistivity at the component RRR). Returns 1.0 when off."""
         if not getattr(self.operations, "coupling_loss_copper_scaling", False):
             return 1.0
-        from properties_of_materials.electrical_conductivity import (
-            electrical_resistivity_of,
-        )
-
         temperature = self.node_fields.temperature.ravel()
         field = np.asarray(self.node_fields.B_field).ravel()
         rrr = self.inputs.residual_resistivity_ratio
@@ -186,10 +186,6 @@ class StrandComponent(SolidComponent):
         interfilament/interstrand coupling loss (get_coupling_loss). Only
         reached when the copper eddy geometry constant is set.
         """
-        from properties_of_materials.electrical_conductivity import (
-            electrical_conductivity_of,
-        )
-
         temperature = self.node_fields.temperature.ravel()
         field = np.asarray(self.node_fields.B_field).ravel()
         return electrical_conductivity_of(

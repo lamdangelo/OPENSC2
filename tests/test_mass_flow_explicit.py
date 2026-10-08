@@ -26,7 +26,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from hydraulics.hydraulic_flags import FluidType
 from hydraulics.hydraulics import compute_gruneisen
 from hydraulics.mass_flow_equations import (
@@ -43,7 +43,7 @@ from thermal.energy_equation import (
     build_smat_fluid_interface_energy,
     build_smat_fluid_solid_interface,
 )
-from utility_functions.step_matrix_construction import build_amat
+from numerics.step_matrix_construction import build_amat
 
 NUMBER_OF_STATES = 20
 SEED = 20260908

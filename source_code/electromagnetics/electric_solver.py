@@ -633,8 +633,6 @@ def evaluate_joule_power_conductance(conductor: object) -> None:
         conductor: Conductor object with nodal potential, contact incidence
             matrix, and conductance diagonal matrix set up.
     """
-    from electromagnetics.electromagnetic_flags import ElectricSolver
-
     for strand in conductor.inventory.strands.collection:
         strand.node_fields.total_power_el_cond = 0.0
 

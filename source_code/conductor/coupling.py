@@ -3,8 +3,7 @@ This module contains the CouplingMatrix class to store the coupling data between
 """
 
 import numpy as np
-import pandas as pd
-from typing import Generic, TypeVar, Union
+from typing import Any, Generic, TypeVar, Union
 
 T = TypeVar("T")
 
@@ -22,7 +21,7 @@ class CouplingMatrix(Generic[T]):
     "Environment").
     """
 
-    def __init__(self, data_frame: pd.DataFrame, dtype: type[T], decoder=None):
+    def __init__(self, data_frame: Any, dtype: type[T], decoder=None):
         """``decoder`` (optional) maps every raw sheet value to a domain
         value, e.g. a file code to its Enum member, once at load time."""
         values = data_frame.to_numpy(dtype=object if decoder else dtype)

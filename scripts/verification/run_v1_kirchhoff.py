@@ -8,7 +8,7 @@ import _bootstrap  # noqa: F401  (backend + sys.path side effects)
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-import interfaces.coolprop_interface as cpi  # noqa: E402
+import adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
 
 import analytical  # noqa: E402
 import test_v1_kirchhoff as v1  # noqa: E402

@@ -65,7 +65,7 @@ def property_library_version() -> dict:
         "CoolProp": getattr(CoolProp, "__version__", "unknown"),
         "CoolProp_git": getattr(CoolProp, "__gitrevision__", "unknown"),
         "tabulated_properties": bool(
-            __import__("interfaces.coolprop_interface", fromlist=["x"]).USE_TABULAR_PROPERTIES
+            __import__("adapters.fluid_properties.coolprop_provider", fromlist=["x"]).USE_TABULAR_PROPERTIES
         ),
     }
 

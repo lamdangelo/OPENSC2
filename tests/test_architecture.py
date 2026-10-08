@@ -63,12 +63,8 @@ LAYER_OF: dict[str, int] = {
     "ports": DOMAIN,
     # application
     "application": APPLICATION,
-    # adapters (utility_functions and interfaces are transitional: they hold
-    # both numerics and I/O; counted as adapters so that domain -> them is a
-    # violation that the refactoring stages remove)
+    # adapters
     "adapters": ADAPTERS,
-    "utility_functions": ADAPTERS,
-    "interfaces": ADAPTERS,
     # drivers
     "simulation": DRIVERS,
     "simulation_starter": DRIVERS,
@@ -97,24 +93,14 @@ FORBIDDEN_EXTERNAL: dict[int, frozenset[str]] = {
 
 BASELINE_LAYER_VIOLATIONS: frozenset[str] = frozenset({
     "conductor.conductor_mesh -> pandas",
-    "conductor.coupling -> pandas",
-    "conductor.initialization_functions -> pandas",
-    "conductor.input_loader -> adapters",
     "electromagnetics.circuit_topology -> pandas",
-    "properties_of_materials.niobium_titanium -> pandas",
 })
 
 BASELINE_EXTERNAL_CONDUCTOR_ATTRIBUTES: frozenset[str] = frozenset({
 })
 
 BASELINE_DEFERRED_IMPORTS: frozenset[str] = frozenset({
-    "components.jacket.jacket_component -> properties_of_materials.electrical_conductivity",
     "components.solid.solid_component -> electromagnetics.operating_conditions",
-    "components.solid.strand_component -> properties_of_materials.electrical_conductivity",
-    "conductor.conductor -> electromagnetics.electromagnetic_flags",
-    "conductor.conductor -> electromagnetics.operating_conditions",
-    "electromagnetics.electric_solver -> electromagnetics.electromagnetic_flags",
-    "hydraulics.coolant -> hydraulics.hydraulic_flags",
 })
 
 CONDUCTOR_NAMES = frozenset({"conductor", "cond", "cond_r", "cond_c", "conductor_instance"})

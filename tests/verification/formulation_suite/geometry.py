@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-import interfaces.coolprop_interface as cpi
+import adapters.fluid_properties.coolprop_provider as cpi
 from components.fluid.fluid_component_inputs import FluidComponentInputs
 from hydraulics.friction_factor_factory import FrictionFactorFactory
 from hydraulics.friction_factor_models import FrictionFactorModelType
