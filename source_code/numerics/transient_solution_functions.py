@@ -103,16 +103,16 @@ def get_time_step(conductor, transient_input, num_step, report=print):
     if num_step == 1:
         # at the first step time_step is equal to STPMIN for all the conductors \
         # (cdo, 08/2020)
-        conductor.time_step = transient_input["STPMIN"]
+        conductor.time_state.time_step = transient_input["STPMIN"]
     else:
         # STORE THE PREVIOUS VALUE OF THE OPTIMAL TIME STEP
         #      PRVSTP=OPTSTP
-        PRVSTP = conductor.time_step
+        PRVSTP = conductor.time_state.time_step
         if transient_input["IADAPTIME"] == 0:
-            conductor.time_step = transient_input["STPMIN"]
+            conductor.time_state.time_step = transient_input["STPMIN"]
             # C * LIMIT THE TIME STEP IF PRINT-OUT OR STORAGE IS REQUIRED
-            conductor.time_step = min(
-                conductor.time_step, transient_input["TEND"] - conductor.cond_time[-1]
+            conductor.time_state.time_step = min(
+                conductor.time_state.time_step, transient_input["TEND"] - conductor.time_state.cond_time[-1]
             )  # crb (March 9, 2011)
             return
 
@@ -125,7 +125,7 @@ def get_time_step(conductor, transient_input, num_step, report=print):
             # dt_new = dt * safety * (tol / err)^(1/2), the exponent matching
             # the dt^2 scaling of the curvature-based estimate.
             tolerance = float(transient_input.get("TOLTIME", 1.0e-3))
-            error_ratio = conductor.local_truncation_error_ratio
+            error_ratio = conductor.time_state.local_truncation_error_ratio
             if error_ratio is not None and error_ratio > 0.0:
                 growth_factor = ADAPTIVE_SAFETY_FACTOR * np.sqrt(
                     tolerance / error_ratio
@@ -133,19 +133,19 @@ def get_time_step(conductor, transient_input, num_step, report=print):
                 growth_factor = min(
                     max(growth_factor, ADAPTIVE_MAX_SHRINK), ADAPTIVE_MAX_GROWTH
                 )
-                conductor.time_step = PRVSTP * growth_factor
+                conductor.time_state.time_step = PRVSTP * growth_factor
             # Limit the time step in the window allowed by the user.
-            conductor.time_step = max(conductor.time_step, transient_input["STPMIN"])
-            conductor.time_step = min(conductor.time_step, transient_input["STPMAX"])
+            conductor.time_state.time_step = max(conductor.time_state.time_step, transient_input["STPMIN"])
+            conductor.time_state.time_step = min(conductor.time_state.time_step, transient_input["STPMAX"])
             # Land exactly on discrete event times so that neither the
             # spatial-distribution save times (the save condition in
             # conductor_solution requires |t - t_save| < dt/2) nor the edges
             # of square-wave heating windows (the deposited energy depends on
             # resolving them) are stepped across.
-            current_time = conductor.cond_time[-1]
+            current_time = conductor.time_state.cond_time[-1]
             event_times = []
-            if conductor.i_save < len(conductor.Space_save) - 1:
-                event_times.append(conductor.Space_save[conductor.i_save])
+            if conductor.save_schedule.i_save < len(conductor.save_schedule.Space_save) - 1:
+                event_times.append(conductor.save_schedule.Space_save[conductor.save_schedule.i_save])
             for s_comp in conductor.inventory.solids.collection:
                 if (
                     s_comp.operations.heat_flux_mode
@@ -156,16 +156,16 @@ def get_time_step(conductor, transient_input, num_step, report=print):
             for event_time in event_times:
                 remaining_time = event_time - current_time
                 if remaining_time > 1.0e-12:
-                    conductor.time_step = min(conductor.time_step, remaining_time)
+                    conductor.time_state.time_step = min(conductor.time_state.time_step, remaining_time)
             # Limit the time step if the end of the transient is reached.
-            conductor.time_step = min(
-                conductor.time_step, transient_input["TEND"] - current_time
+            conductor.time_state.time_step = min(
+                conductor.time_state.time_step, transient_input["TEND"] - current_time
             )
             error_ratio_msg = (
                 f"{error_ratio:.3e}" if error_ratio is not None else "n/a"
             )
             report(
-                f"Selected conductor time step is: {conductor.time_step:.6e} "
+                f"Selected conductor time step is: {conductor.time_state.time_step:.6e} "
                 f"(local truncation error ratio {error_ratio_msg}, "
                 f"tolerance {tolerance:.1e})\n"
             )
@@ -177,37 +177,37 @@ def get_time_step(conductor, transient_input, num_step, report=print):
             # Array of times.
             times = np.array([0.0, transient_input["TIME_SHIFT"], transient_input["TIME_SHIFT"]+10.0-1.0, transient_input["TIME_SHIFT"] + 69.0, transient_input["TIME_SHIFT"] + 69.8, transient_input["TIME_SHIFT"] + 69.9, transient_input["TIME_SHIFT"]+ 70.0, transient_input["TIME_SHIFT"] + 70.1, transient_input["TIME_SHIFT"] + 70.15, transient_input["TIME_SHIFT"] + 70.5, transient_input["TIME_SHIFT"] + 71.0,transient_input["TIME_SHIFT"] + 73.0])
             # Adapt the time step according to the simulation time.
-            if conductor.cond_time[-1] >= times[0] and conductor.cond_time[-1] <= times[1]:
+            if conductor.time_state.cond_time[-1] >= times[0] and conductor.time_state.cond_time[-1] <= times[1]:
                 # Phase in which there is only radiative heat that stabilizes 
                 # at time_shift; for the next 9 s there is no magnetic fiel or 
                 # current or ac loss.
-                conductor.time_step = 1.0 # s
-            elif conductor.cond_time[-1] >= times[1] and conductor.cond_time[-1] < times[2]:
+                conductor.time_state.time_step = 1.0 # s
+            elif conductor.time_state.cond_time[-1] >= times[1] and conductor.time_state.cond_time[-1] < times[2]:
                 # Some AC loss appears
-                conductor.time_step = 1e-1 # s
-            elif conductor.cond_time[-1] >= times[2] and conductor.cond_time[-1] < times[3]:
+                conductor.time_state.time_step = 1e-1 # s
+            elif conductor.time_state.cond_time[-1] >= times[2] and conductor.time_state.cond_time[-1] < times[3]:
                 # Some AC loss appears
-                conductor.time_step = 1e-2 # s
-            elif conductor.cond_time[-1] >= times[3] and conductor.cond_time[-1] < times[4]:
-                conductor.time_step = 1e-3 # s
-            elif conductor.cond_time[-1] >= times[4] and conductor.cond_time[-1] < times[5]:
-                conductor.time_step = 1e-4 # s
-            elif conductor.cond_time[-1] >= times[5] and conductor.cond_time[-1] < times[6]:
+                conductor.time_state.time_step = 1e-2 # s
+            elif conductor.time_state.cond_time[-1] >= times[3] and conductor.time_state.cond_time[-1] < times[4]:
+                conductor.time_state.time_step = 1e-3 # s
+            elif conductor.time_state.cond_time[-1] >= times[4] and conductor.time_state.cond_time[-1] < times[5]:
+                conductor.time_state.time_step = 1e-4 # s
+            elif conductor.time_state.cond_time[-1] >= times[5] and conductor.time_state.cond_time[-1] < times[6]:
                 # High and localized AC loss peack
-                conductor.time_step = 1e-5 # s
-            elif conductor.cond_time[-1] >= times[6] and conductor.cond_time[-1] < times[7]:
-                conductor.time_step = 1e-4 # s
-            elif conductor.cond_time[-1] >= times[7] and conductor.cond_time[-1] < times[8]:
-                conductor.time_step = 1e-3 # s
-            elif conductor.cond_time[-1] >= times[8] and conductor.cond_time[-1] < times[9]:
-                conductor.time_step = 5e-3 # s
-            elif conductor.cond_time[-1] >= times[9] and conductor.cond_time[-1] < times[10]:
-                conductor.time_step = 1e-2 # s
+                conductor.time_state.time_step = 1e-5 # s
+            elif conductor.time_state.cond_time[-1] >= times[6] and conductor.time_state.cond_time[-1] < times[7]:
+                conductor.time_state.time_step = 1e-4 # s
+            elif conductor.time_state.cond_time[-1] >= times[7] and conductor.time_state.cond_time[-1] < times[8]:
+                conductor.time_state.time_step = 1e-3 # s
+            elif conductor.time_state.cond_time[-1] >= times[8] and conductor.time_state.cond_time[-1] < times[9]:
+                conductor.time_state.time_step = 5e-3 # s
+            elif conductor.time_state.cond_time[-1] >= times[9] and conductor.time_state.cond_time[-1] < times[10]:
+                conductor.time_state.time_step = 1e-2 # s
             else:
-                conductor.time_step = 5e-2 # s
+                conductor.time_state.time_step = 5e-2 # s
                 # C * LIMIT THE TIME STEP IF PRINT-OUT OR STORAGE IS REQUIRED
-                conductor.time_step = min(
-                    conductor.time_step, transient_input["TEND"] - conductor.cond_time[-1])
+                conductor.time_state.time_step = min(
+                    conductor.time_state.time_step, transient_input["TEND"] - conductor.time_state.cond_time[-1])
             return
         
         # crb Differentiate the indexes depending on ischannel (December 16, 2015)
@@ -217,11 +217,11 @@ def get_time_step(conductor, transient_input, num_step, report=print):
             # C * THE FOLLOWING STATEMENTS WOULD CONTROL THE ACCURACY OF MOMENTUM...
             if abs(transient_input["IADAPTIME"]) == 1:  # crb (Jan 20, 2011)
                 # (cdp, 08/2020)
-                t_step_comp[ii] = conductor.time_accuracy_eigenvalue / (conductor.equation_eigenvalues[ii] + TINY)
+                t_step_comp[ii] = conductor.time_state.time_accuracy_eigenvalue / (conductor.time_state.equation_eigenvalues[ii] + TINY)
                 t_step_comp[
                     ii + conductor.inventory.fluids.number
-                ] = conductor.time_accuracy_eigenvalue / (
-                    conductor.equation_eigenvalues[
+                ] = conductor.time_state.time_accuracy_eigenvalue / (
+                    conductor.time_state.equation_eigenvalues[
                         ii + conductor.inventory.fluids.number
                     ]
                     + TINY
@@ -235,8 +235,8 @@ def get_time_step(conductor, transient_input, num_step, report=print):
             # endif (iadaptime)
             t_step_comp[
                 ii + 2 * conductor.inventory.fluids.number
-            ] = conductor.time_accuracy_eigenvalue / (
-                conductor.equation_eigenvalues[
+            ] = conductor.time_state.time_accuracy_eigenvalue / (
+                conductor.time_state.equation_eigenvalues[
                     ii + 2 * conductor.inventory.fluids.number
                 ]
                 + TINY
@@ -249,8 +249,8 @@ def get_time_step(conductor, transient_input, num_step, report=print):
             # SolidComponent objects (cdp, 08/2020)
             t_step_comp[
                 ii + conductor.equation_counts.fluid_equations
-            ] = conductor.time_accuracy_eigenvalue / (
-                conductor.equation_eigenvalues[ii + conductor.equation_counts.fluid_equations]
+            ] = conductor.time_state.time_accuracy_eigenvalue / (
+                conductor.time_state.equation_eigenvalues[ii + conductor.equation_counts.fluid_equations]
                 + TINY
             )
 
@@ -262,7 +262,7 @@ def get_time_step(conductor, transient_input, num_step, report=print):
         # cl* August 17, 2000 - start *************************************
         # è associata almodulo elettrico,ignorare per ora
         ##if FFLAG_IOP > 0:
-        ##	TSTEP_VOLT = EFIELD_INCR(ICOND)/conductor.time_step
+        ##	TSTEP_VOLT = EFIELD_INCR(ICOND)/conductor.time_state.time_step
         ##	TSTEP_VOLT = DBLE(time_accuracy_eigenvalue(ICOND)/TSTEP_VOLT)
         ##	OPTSTP=min(TSTPVB,TSTPVH1,TSTPVH2,TSTPPH1,TSTPPH2,TSTPPB,&# cod (July 23, 2015)
         ##	 &             TSTPTH1,TSTPTH2,TSTPTB,TSTPCO,TSTPJK,TSTEP_VOLT)
@@ -270,23 +270,23 @@ def get_time_step(conductor, transient_input, num_step, report=print):
         # cl* August 17, 2000 - end ***************************************
 
         # C * CHANGE THE STEP SMOOTHLY
-        if conductor.time_step < 0.5 * OPTSTP:
-            conductor.time_step = conductor.time_step * FACTUP
-        elif conductor.time_step > 1.0 * OPTSTP:
-            conductor.time_step = conductor.time_step * FACTLO
+        if conductor.time_state.time_step < 0.5 * OPTSTP:
+            conductor.time_state.time_step = conductor.time_state.time_step * FACTUP
+        elif conductor.time_state.time_step > 1.0 * OPTSTP:
+            conductor.time_state.time_step = conductor.time_state.time_step * FACTLO
         # endif
 
         # C * LIMIT THE TIME STEP IN THE WINDOW ALLOWED BY THE USER
-        conductor.time_step = max(conductor.time_step, transient_input["STPMIN"])
-        conductor.time_step = min(conductor.time_step, transient_input["STPMAX"])
+        conductor.time_state.time_step = max(conductor.time_state.time_step, transient_input["STPMIN"])
+        conductor.time_state.time_step = min(conductor.time_state.time_step, transient_input["STPMAX"])
         # caf June 26, 2015 moved these 2 lines to the end of the subroutine
         # C * LIMIT THE TIME STEP IF PRINT-OUT OR STORAGE IS REQUIRED
-        conductor.time_step = min(
-            conductor.time_step, transient_input["TEND"] - conductor.cond_time[-1]
+        conductor.time_state.time_step = min(
+            conductor.time_state.time_step, transient_input["TEND"] - conductor.time_state.cond_time[-1]
         )
         # C --------------
         report(
-            f"Selected conductor time step is: {conductor.time_step} "
+            f"Selected conductor time step is: {conductor.time_state.time_step} "
             f"(accuracy optimum {OPTSTP:.3e})\n"
         )
         # C --------------
@@ -295,7 +295,7 @@ def get_time_step(conductor, transient_input, num_step, report=print):
 def evaluate_time_accuracy_eigenvalue(conductor):
     """Compute by bisection the product lambda * delta t that achieves the
     desired relative accuracy of the time-integration scheme (theta method),
-    updating ``conductor.time_accuracy_eigenvalue``.
+    updating ``conductor.time_state.time_accuracy_eigenvalue``.
     """
 
     TIMACC = 1e-3
@@ -303,16 +303,16 @@ def evaluate_time_accuracy_eigenvalue(conductor):
     X2 = 0.0
     RES = 1.0
     while abs(RES) > 1.0e-2 * TIMACC:
-        conductor.time_accuracy_eigenvalue = 0.5 * (X1 + X2)
-        Y1 = (1.0 - (1.0 - conductor.theta_method) * conductor.time_accuracy_eigenvalue) / (
-            1.0 + conductor.theta_method * conductor.time_accuracy_eigenvalue
+        conductor.time_state.time_accuracy_eigenvalue = 0.5 * (X1 + X2)
+        Y1 = (1.0 - (1.0 - conductor.theta_method) * conductor.time_state.time_accuracy_eigenvalue) / (
+            1.0 + conductor.theta_method * conductor.time_state.time_accuracy_eigenvalue
         )
-        Y2 = np.exp(-conductor.time_accuracy_eigenvalue)
+        Y2 = np.exp(-conductor.time_state.time_accuracy_eigenvalue)
         RES = abs((Y1 / Y2) - 1.0) - TIMACC
         if RES >= 0.0:
-            X1 = conductor.time_accuracy_eigenvalue
+            X1 = conductor.time_state.time_accuracy_eigenvalue
         elif RES < 0.0:
-            X2 = conductor.time_accuracy_eigenvalue
+            X2 = conductor.time_state.time_accuracy_eigenvalue
 
 def assemble_thermal_hydraulic_system(conductor, qsource):
 
@@ -370,7 +370,7 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
         # Theta family (backward Euler, Crank-Nicolson, Galerkin) or BDF2
         # (whose fully implicit known term leaves the previous column unread).
-        if conductor.cond_num_step > 1:
+        if conductor.time_state.cond_num_step > 1:
             # Copy the load vector at the previous time step in the second column to \
             # correctly apply the theta method (cdp, 10/2020)
             conductor.time_integration.load_vector[:, 1] = conductor.time_integration.load_vector[
@@ -427,7 +427,7 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     )
     # Basic source term vector initialization to zeros at every Gauss point.
     source_vector = array_initialization(
-        (number_of_elements, ndf, 2), conductor.cond_num_step
+        (number_of_elements, ndf, 2), conductor.time_state.cond_num_step
     )
     # Element matrices initialization to zeros for every element;
     # shape (number_of_elements, ndf2, ndf2).
@@ -436,7 +436,7 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     )
     # Element source term vector initialization to zeros for every element.
     element_load_vector = array_initialization(
-        (number_of_elements, ndf2), conductor.cond_num_step
+        (number_of_elements, ndf2), conductor.time_state.cond_num_step
     )
 
     # ** FORM THE M, A, K, S MATRICES AND S VECTOR AT EVERY GAUSS POINT,
@@ -579,7 +579,7 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
             source_vector,
             s_comp,
             conductor.equation_index[s_comp.identifier],
-            num_step=conductor.cond_num_step,
+            num_step=conductor.time_state.cond_num_step,
             qsource=qsource,
             comp_idx=s_comp_idx,
         )
@@ -792,7 +792,7 @@ def finalize_step(conductor, solution, known_term_vector,
     # Estimate the local truncation error of this step from the deviation of
     # the solution from its linear extrapolation in time; must run before the
     # solution history is shifted below.
-    conductor.local_truncation_error_ratio = (
+    conductor.time_state.local_truncation_error_ratio = (
         evaluate_local_truncation_error_ratio(conductor, solution)
     )
 
@@ -805,7 +805,7 @@ def finalize_step(conductor, solution, known_term_vector,
             conductor.time_integration.solution[:, 0]
         )
     conductor.time_integration.solution[:, 0] = solution
-    conductor.previous_time_step = conductor.time_step
+    conductor.time_state.previous_time_step = conductor.time_state.time_step
 
     # Fail fast with a state dump if the solve produced non-finite values;
     # otherwise the NaNs propagate silently into the property evaluations of
@@ -814,9 +814,9 @@ def finalize_step(conductor, solution, known_term_vector,
         bad_equations = np.nonzero(~np.isfinite(solution))[0]
         ndf = conductor.equation_counts.degrees_of_freedom_per_node
         dump_path = diagnostics.dump(
-            f"nonfinite_solution_step_{conductor.cond_num_step}",
-            time=conductor.cond_time[-1],
-            time_step=conductor.time_step,
+            f"nonfinite_solution_step_{conductor.time_state.cond_num_step}",
+            time=conductor.time_state.cond_time[-1],
+            time_step=conductor.time_state.time_step,
             solution=solution,
             known_term_vector=known_term_vector,
             row_scaling_factors=row_scaling_factors,
@@ -824,7 +824,7 @@ def finalize_step(conductor, solution, known_term_vector,
         )
         raise RuntimeError(
             f"Non-finite thermal-hydraulic solution at t = "
-            f"{conductor.cond_time[-1]:.6f} s (step {conductor.cond_num_step}): "
+            f"{conductor.time_state.cond_time[-1]:.6f} s (step {conductor.time_state.cond_num_step}): "
             f"{bad_equations.size} equations affected, first at node "
             f"{bad_equations[0] // ndf} (dof {bad_equations[0] % ndf})."
             + dumped_to(dump_path)
@@ -846,11 +846,11 @@ def finalize_step(conductor, solution, known_term_vector,
     # Solution change
     CHG = known_term_vector - conductor.time_integration.solution[:, 0]
     # Eigenvalues (sort of??)
-    EIG = abs(CHG / conductor.time_step) / (abs(known_term_vector) + TINY)
+    EIG = abs(CHG / conductor.time_state.time_step) / (abs(known_term_vector) + TINY)
     # Evaluate the norm of the solution change.
     conductor.solution_norms.change = eval_sub_array_norm(CHG,conductor)
     # Evaluate the eigenvalues of the solution.
-    conductor.equation_eigenvalues = eval_eigenvalues(EIG,conductor)
+    conductor.time_state.equation_eigenvalues = eval_eigenvalues(EIG,conductor)
     # Reorganize thermal hydraulic solution
     reorganize_th_solution(
         conductor,
@@ -872,8 +872,8 @@ def finalize_step(conductor, solution, known_term_vector,
                 bad_nodes = np.nonzero(invalid)[0]
                 dump_path = diagnostics.dump(
                     f"nonfinite_{f_comp.identifier}_{field_name}_step_"
-                    f"{conductor.cond_num_step}",
-                    time=conductor.cond_time[-1],
+                    f"{conductor.time_state.cond_num_step}",
+                    time=conductor.time_state.cond_time[-1],
                     velocity=fields.velocity,
                     pressure=fields.pressure,
                     temperature=fields.temperature,
@@ -881,8 +881,8 @@ def finalize_step(conductor, solution, known_term_vector,
                 )
                 raise RuntimeError(
                     f"Invalid {f_comp.identifier} {field_name} after "
-                    f"solution reorganization at t = {conductor.cond_time[-1]:.6f} s "
-                    f"(step {conductor.cond_num_step}): first at node "
+                    f"solution reorganization at t = {conductor.time_state.cond_time[-1]:.6f} s "
+                    f"(step {conductor.time_state.cond_num_step}): first at node "
                     f"{bad_nodes[0]} (value {field[bad_nodes[0]]})."
                     + dumped_to(dump_path)
                 )
@@ -961,12 +961,12 @@ def evaluate_local_truncation_error_ratio(
     history = conductor.time_integration.solution
     if (
         history.shape[-1] < 2
-        or conductor.cond_num_step < 2
-        or not conductor.previous_time_step
+        or conductor.time_state.cond_num_step < 2
+        or not conductor.time_state.previous_time_step
     ):
         return None
 
-    step_ratio = conductor.time_step / conductor.previous_time_step
+    step_ratio = conductor.time_state.time_step / conductor.time_state.previous_time_step
     predicted_solution = history[:, 0] + step_ratio * (
         history[:, 0] - history[:, 1]
     )

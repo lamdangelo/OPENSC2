@@ -105,36 +105,6 @@ BASELINE_LAYER_VIOLATIONS: frozenset[str] = frozenset({
 })
 
 BASELINE_EXTERNAL_CONDUCTOR_ATTRIBUTES: frozenset[str] = frozenset({
-    "adapters.output.checkpoint: cond_num_step",
-    "adapters.output.checkpoint: cond_time",
-    "adapters.output.checkpoint: enthalpy_balance",
-    "adapters.output.checkpoint: enthalpy_inl",
-    "adapters.output.checkpoint: enthalpy_out",
-    "adapters.output.checkpoint: i_save",
-    "adapters.output.checkpoint: local_truncation_error_ratio",
-    "adapters.output.checkpoint: previous_time_step",
-    "adapters.output.checkpoint: restart_after_finalization",
-    "adapters.output.checkpoint: time_step",
-    "adapters.output.solution_writer: i_save",
-    "application.build_simulation: hydraulic_formulation",
-    "application.transient_loop: cond_num_step",
-    "application.transient_loop: enthalpy_balance",
-    "application.transient_loop: enthalpy_inl",
-    "application.transient_loop: enthalpy_out",
-    "application.transient_loop: time_step",
-    "numerics.initial_flow: MDTINL",
-    "numerics.transient_solution_functions: equation_eigenvalues",
-    "numerics.transient_solution_functions: local_truncation_error_ratio",
-    "numerics.transient_solution_functions: previous_time_step",
-    "numerics.transient_solution_functions: time_accuracy_eigenvalue",
-    "numerics.transient_solution_functions: time_step",
-    "thermal.energy_balance: E_jk_fin",
-    "thermal.energy_balance: E_sol_fin",
-    "thermal.energy_balance: E_str_fin",
-    "thermal.energy_balance: energy_balance",
-    "thermal.energy_balance: inner_pow",
-    "thermal.energy_balance: mass_balance",
-    "thermal.energy_balance: outer_pow",
 })
 
 BASELINE_DEFERRED_IMPORTS: frozenset[str] = frozenset({

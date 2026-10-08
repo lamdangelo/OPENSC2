@@ -116,8 +116,8 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     # simulation names (cdp, 08/2020)
 
     # get the time at which the saving is made
-    time = round(conductor.Space_save[conductor.i_save], n_digit_time)
-    conductor.num_step_save[conductor.i_save] = conductor.cond_num_step
+    time = round(conductor.save_schedule.Space_save[conductor.save_schedule.i_save], n_digit_time)
+    conductor.save_schedule.num_step_save[conductor.save_schedule.i_save] = conductor.time_state.cond_num_step
     # end if len(tt[0]) (cdp, 12/2020)
     prop_chan = (
         "zcoord",
@@ -131,7 +131,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     header_chan = "zcoord (m)\tvelocity (m/s)\tpressure (Pa)\ttemperature (K)\ttotal_density (kg/m^3)\tfriction_factor (~)\tmass_flow_rate (kg/s)"
     for fluid_comp in conductor.inventory.fluids.collection:
         file_path = os.path.join(
-            f_path, f"{fluid_comp.identifier}_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"{fluid_comp.identifier}_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         A_chan = np.zeros((conductor.mesh.number_of_nodes, len(prop_chan)))
         for prop_idx, prop_name in enumerate(prop_chan):
@@ -170,7 +170,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     )
     for strand in conductor.inventory.strands.collection:
         file_path = os.path.join(
-            f_path, f"{strand.identifier}_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"{strand.identifier}_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         if strand.KIND != "StrandStabilizerComponent":
             # Check if current sharing temperature is evaluated at each
@@ -205,7 +205,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     # Loop to save jacket properties spatial distribution.
     for jk in conductor.inventory.jackets.collection:
         file_path = os.path.join(
-            f_path, f"{jk.identifier}_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"{jk.identifier}_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         A_jk = np.zeros((conductor.mesh.number_of_nodes, len(prop_jk)))
         for prop_idx, prop_name in enumerate(prop_jk):
@@ -231,7 +231,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     )
     for s_comp in conductor.inventory.solids.collection:
         file_path = os.path.join(
-            f_path, f"{s_comp.identifier}_({conductor.cond_num_step})_gauss_sd.tsv"
+            f_path, f"{s_comp.identifier}_({conductor.time_state.cond_num_step})_gauss_sd.tsv"
         )
         A_s_comp = np.zeros((conductor.mesh.number_of_elements, len(prop_s_comp)))
         for prop_idx, prop_name in enumerate(prop_s_comp):
@@ -253,7 +253,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if bool(conductor.heat_rad_jk):
         # Build path to save temporary file with the spatial distribution of the heat exchanged by radiation between jackets at each required time step.
         f_path_heat_rad = os.path.join(
-            f_path, f"Heat_rad_inner_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"Heat_rad_inner_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(conductor.heat_rad_jk, dtype=float).to_csv(
@@ -263,7 +263,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if bool(conductor.heat_exchange_jk_env):
         # Build path to save temporary file with the spatial distribution of the heat exchanged by convection and/or radiation between outer surface of the conductor and the environment at each required time step.
         f_path_ex_jk_env = os.path.join(
-            f_path, f"Heat_exch_env_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"Heat_exch_env_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(conductor.heat_exchange_jk_env, dtype=float).to_csv(
@@ -273,7 +273,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if bool(conductor.node_fields.HTC["ch_ch"]["Open"]):
         # Path to save temporary file with the open heat transfer coefficients between fluid components.
         f_path_htc_ch_ch_o = os.path.join(
-            f_path, f"HTC_ch_ch_o_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"HTC_ch_ch_o_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
@@ -284,7 +284,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if conductor.node_fields.HTC["ch_ch"]["Close"]:
         # Path to save temporary file with the close heat transfer coefficients between fluid components.
         f_path_htc_ch_ch_c = os.path.join(
-            f_path, f"HTC_ch_ch_c_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"HTC_ch_ch_c_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
@@ -295,7 +295,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if conductor.node_fields.HTC["ch_sol"]:
         # Path to save temporary file with the heat transfer coefficients between fluid and solid components.
         f_path_htc_ch_sol = os.path.join(
-            f_path, f"HTC_ch_sol_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"HTC_ch_sol_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
@@ -306,7 +306,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if conductor.node_fields.HTC["sol_sol"]["cond"]:
         # Path to save temporary file with the conductive heat transfer coefficients between solid components.
         f_path_htc_sol_sol_cond = os.path.join(
-            f_path, f"HTC_sol_sol_cond_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"HTC_sol_sol_cond_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
@@ -316,7 +316,7 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     if conductor.node_fields.HTC["sol_sol"]["rad"]:
         # Path to save temporary file with the radiative heat transfer coefficients between solid components.
         f_path_htc_sol_sol_rad = os.path.join(
-            f_path, f"HTC_sol_sol_rad_({conductor.cond_num_step})_sd.tsv"
+            f_path, f"HTC_sol_sol_rad_({conductor.time_state.cond_num_step})_sd.tsv"
         )
         # Build the dataframe from dictionary and save it as tsv file.
         pd.DataFrame.from_dict(
@@ -328,11 +328,11 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     # saved (cdp, 01/2021)
     file_name = "Time_sd_actual.tsv"
     path_save = os.path.join(f_path, file_name)
-    if conductor.i_save == 0:
+    if conductor.save_schedule.i_save == 0:
         with open(path_save, "w") as writer:
             np.savetxt(
                 writer,
-                np.array([conductor.cond_time[-1]]),
+                np.array([conductor.time_state.cond_time[-1]]),
                 header="time (s)",
                 comments="",
                 delimiter="\t",
@@ -340,11 +340,11 @@ def save_simulation_space(conductor, f_path, n_digit_time):
     else:
         with open(path_save, "a") as writer:
             np.savetxt(
-                writer, np.array([conductor.cond_time[-1]]), comments="", delimiter="\t"
+                writer, np.array([conductor.time_state.cond_time[-1]]), comments="", delimiter="\t"
             )
-    # end if conductor.i_save (cdp, 01/2021)
-    # update conductor.i_save (cdp, 01/2021)
-    conductor.i_save = conductor.i_save + 1
+    # end if conductor.save_schedule.i_save (cdp, 01/2021)
+    # update conductor.save_schedule.i_save (cdp, 01/2021)
+    conductor.save_schedule.i_save = conductor.save_schedule.i_save + 1
 
 
 # end function Save_simulation_space (cdp, 10/2020)
@@ -364,7 +364,7 @@ def _performed_saves(cond, f_path, n_digit_time):
     of bounds (early detection: every scheduled save already performed
     plus the final save).
     """
-    scheduled_steps = np.asarray(cond.num_step_save, dtype=int)
+    scheduled_steps = np.asarray(cond.save_schedule.num_step_save, dtype=int)
     performed_scheduled = min(
         int(getattr(cond, "i_save", scheduled_steps.size)),
         scheduled_steps.size,
@@ -376,11 +376,11 @@ def _performed_saves(cond, f_path, n_digit_time):
         times = np.around(actual_times, n_digit_time)
     else:
         count = performed_scheduled
-        times = np.around(cond.Space_save, n_digit_time)
+        times = np.around(cond.save_schedule.Space_save, n_digit_time)
     steps = list(scheduled_steps[:min(performed_scheduled, count)])
     while len(steps) < count:
         # The stop-time final save (at most one) carries the final step.
-        steps.append(int(cond.cond_num_step))
+        steps.append(int(cond.time_state.cond_num_step))
     return times, count, steps
 
 
@@ -388,7 +388,7 @@ def _write_consolidated(cond, path_save, frame):
     """Write a consolidated spatial file (one column per saved time).
 
     After a restart of an already finalized run (checkpoint restore sets
-    ``cond.restart_after_finalization``) the file already holds the columns
+    ``cond.time_state.restart_after_finalization``) the file already holds the columns
     of the saves before the checkpoint; the new columns are appended to
     them instead of replacing the file.
     """
@@ -746,24 +746,24 @@ def save_simulation_time(simulation, conductor, flush_only=False):
     # modify the spatial coordinates wrt which saving the variables (cdp, 08/2020)
 
     ind_zcoord = {
-        f"zcoord = {conductor.Time_save[ii]} (m)": np.max(
+        f"zcoord = {conductor.save_schedule.Time_save[ii]} (m)": np.max(
             np.nonzero(
                 conductor.mesh.node_coordinates
-                <= round(conductor.Time_save[ii], conductor.mesh.position_precision)
+                <= round(conductor.save_schedule.Time_save[ii], conductor.mesh.position_precision)
             )
         )
-        for ii in range(conductor.Time_save.size)
+        for ii in range(conductor.save_schedule.Time_save.size)
     }
-    ind_zcoord_gauss = {f"zcoord_g = {conductor.Time_save[0]} (m)": 0}
+    ind_zcoord_gauss = {f"zcoord_g = {conductor.save_schedule.Time_save[0]} (m)": 0}
     ind_zcoord_gauss.update(
         {
-            f"zcoord_g = {conductor.Time_save[ii]} (m)": np.max(
+            f"zcoord_g = {conductor.save_schedule.Time_save[ii]} (m)": np.max(
                 np.nonzero(
                     conductor.mesh.gauss_point_coordinates
-                    <= round(conductor.Time_save[ii], conductor.mesh.position_precision)
+                    <= round(conductor.save_schedule.Time_save[ii], conductor.mesh.position_precision)
                 )
             )
-            for ii in range(1, conductor.Time_save.size)
+            for ii in range(1, conductor.save_schedule.Time_save.size)
         }
     )
     # A restarted run re-executes this initialization call with
@@ -897,8 +897,8 @@ def save_simulation_time(simulation, conductor, flush_only=False):
         # End for s_comp.
     # End if simulation.num_step (cdp, 10/2020)
 
-    # convert conductor.cond_time list to np.array (cdp, 10/2020)
-    time = np.array(conductor.cond_time[-1])
+    # convert conductor.time_state.cond_time list to np.array (cdp, 10/2020)
+    time = np.array(conductor.time_state.cond_time[-1])
 
     # FluidComponent objects (cdp, 08/2020)
     for fluid_comp in conductor.inventory.fluids.collection:
@@ -1016,7 +1016,7 @@ def save_simulation_time(simulation, conductor, flush_only=False):
             )
         elif (
             len(fluid_comp.coolant.time_evol_io["time (s)"]) > 0
-            and abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
+            and abs(conductor.time_state.cond_time[-1] - simulation.transient_input["TEND"])
             / simulation.transient_input["TEND"]
             <= 1e-6
         ):
@@ -1092,12 +1092,12 @@ def save_simulation_time(simulation, conductor, flush_only=False):
     # End for s_comp.
 
     if (
-        abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
+        abs(conductor.time_state.cond_time[-1] - simulation.transient_input["TEND"])
         / simulation.transient_input["TEND"]
         <= 1e-6
     ):
         # TEND is reached: save the conductor time in file Time.tsv exploiting pandas series
-        pd.Series(conductor.cond_time, name="time (s)", dtype=float).to_csv(
+        pd.Series(conductor.time_state.cond_time, name="time (s)", dtype=float).to_csv(
             os.path.join(
                 simulation.dict_path[
                     f"Output_Time_evolution_{conductor.identifier}_dir"
@@ -1152,10 +1152,10 @@ def save_network_simulation_time(simulation, conductor, flush_only=False):
             header=True,
         )
     if not flush_only:
-        network.record_time_evolution(conductor.cond_time[-1])
+        network.record_time_evolution(conductor.time_state.cond_time[-1])
     buffered_times = len(network.time_evolution_record["time (s)"])
     end_of_transient = (
-        abs(conductor.cond_time[-1] - simulation.transient_input["TEND"])
+        abs(conductor.time_state.cond_time[-1] - simulation.transient_input["TEND"])
         / simulation.transient_input["TEND"]
         <= 1e-6
     )
@@ -1205,7 +1205,7 @@ def save_time_evolution_on_file(conductor, time_evolution, file_name, tend,
         )
         time_evolution.initialize(ind_zcoord)
     elif len(time_evolution) > 0 and (
-        force or abs(conductor.cond_time[-1] - tend) / tend <= 1e-6
+        force or abs(conductor.time_state.cond_time[-1] - tend) / tend <= 1e-6
     ):
         columns = time_evolution.columns()
         pd.DataFrame(columns, columns=list(columns.keys()), dtype=float).to_csv(
@@ -1249,8 +1249,8 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
         AA = np.zeros((1, 4))
         AA[0, 0] = cond.mesh.number_of_elements
         AA[0, 1] = discr
-        AA[0, 2] = cond.mass_balance
-        AA[0, 3] = cond.energy_balance
+        AA[0, 2] = cond.balances.mass_balance
+        AA[0, 3] = cond.balances.energy_balance
         # discretization values for file CONDUCTOR_ID_delta_x.tsv
         val = np.zeros((1, 2))
         val[0, 0] = cond.mesh.number_of_elements
@@ -1258,7 +1258,7 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
     elif space_conv == False:
         # Save data for the Time convergence analysis (cdp, 12/2020)
         # compute time step, remember that n_digit_time is a tuple (cdp, 12/2020)
-        discr = round(cond.time_step, n_digit_time[0])
+        discr = round(cond.time_state.time_step, n_digit_time[0])
         folder_path = os.path.join(f_path, cond.identifier)
         # Create the path of the file {cond.identifier}_delta_t.tsv (cdp, 11/2020)
         file_path_name = os.path.join(folder_path, f"{cond.identifier}_delta_t.tsv")
@@ -1270,8 +1270,8 @@ def save_convergence_data(cond, f_path, *n_digit_time, space_conv=True):
         # convergence on mass and energy balance (cdp, 12/2020)
         AA = np.zeros((1, 3))
         AA[0, 0] = discr
-        AA[0, 1] = cond.mass_balance
-        AA[0, 2] = cond.energy_balance
+        AA[0, 1] = cond.balances.mass_balance
+        AA[0, 2] = cond.balances.energy_balance
         # discretization values for file CONDUCTOR_ID_delta_t.tsv
         val = np.array([discr])
     else:

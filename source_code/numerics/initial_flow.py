@@ -853,17 +853,17 @@ def get_inlet_conductor_mfr(cond):
     """
 
     # total conductor inlet mass flow rate initialization (cdp, 09/2020)
-    cond.MDTINL = 0.0
+    cond.balances.MDTINL = 0.0
     # Loop on FluidComponent to compute conductor inlet mass flow rate \
     # (cdp, 09/2020)
     for fluid_comp in cond.inventory.fluids.collection:
-        cond.MDTINL = cond.MDTINL + fluid_comp.coolant.operations.inlet_mass_rate
+        cond.balances.MDTINL = cond.balances.MDTINL + fluid_comp.coolant.operations.inlet_mass_rate
     # Loop on FluidComponent to compute channels flow fraction (cdp, 09/2020)
     for fluid_comp in cond.inventory.fluids.collection:
-        if cond.MDTINL != 0.0:
+        if cond.balances.MDTINL != 0.0:
             # Avoid division by 0 if INTIAL = 3 or INTIAL = 4
             fluid_comp.channel.flow_fraction = (
-                fluid_comp.coolant.operations.inlet_mass_rate / cond.MDTINL
+                fluid_comp.coolant.operations.inlet_mass_rate / cond.balances.MDTINL
             )
         else:
             fluid_comp.channel.flow_fraction = 0.0

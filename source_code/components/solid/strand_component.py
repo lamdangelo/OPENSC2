@@ -372,7 +372,7 @@ class StrandComponent(SolidComponent):
                 self.node_fields.alpha_B = do_interpolation(
                     self.alphab_interpolator,
                     conductor.mesh.node_coordinates,
-                    conductor.electric_time,
+                    conductor.electric.electric_time,
                     self.alphab_interp_flag,
                 )
 
@@ -640,7 +640,7 @@ class StrandComponent(SolidComponent):
                 self.node_fields.Epsilon = do_interpolation(
                     self.eps_interpolator,
                     conductor.mesh.node_coordinates,
-                    conductor.electric_time,
+                    conductor.electric.electric_time,
                     self.eps_interp_flag,
                 )
 

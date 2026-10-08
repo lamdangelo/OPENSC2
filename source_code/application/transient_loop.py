@@ -63,11 +63,11 @@ def run_transient(
         if lockstep_conductors:
             shared_time_step = min(c.time_step for c in lockstep_conductors)
             for conductor in lockstep_conductors:
-                conductor.time_step = shared_time_step
+                conductor.time_state.time_step = shared_time_step
         for ii, conductor in enumerate(conductors):
-            time_step[ii] = conductor.time_step
-            conductor.cond_time.append(conductor.cond_time[-1] + conductor.time_step)
-            conductor.cond_num_step = conductor.cond_num_step + 1
+            time_step[ii] = conductor.time_state.time_step
+            conductor.time_state.cond_time.append(conductor.time_state.cond_time[-1] + conductor.time_state.time_step)
+            conductor.time_state.cond_num_step = conductor.time_state.cond_num_step + 1
         ctx.simulation_time_step = np.max(time_step)
         ctx.simulation_time.append(ctx.simulation_time[-1] + ctx.simulation_time_step)
         observers.on_step_started(target)
@@ -109,17 +109,17 @@ def run_transient(
                     )
                 # Enthalpy balance: sum((mdot*w)_out - (mdot*w)_inl).
                 fields = fluid_comp.coolant.node_fields
-                conductor.enthalpy_balance = conductor.enthalpy_balance + conductor.time_step * (
+                conductor.balances.enthalpy_balance = conductor.balances.enthalpy_balance + conductor.time_state.time_step * (
                     fields.mass_flow_rate[-1] * fields.total_enthalpy[-1]
                     - fields.mass_flow_rate[0] * fields.total_enthalpy[0]
                 )
-                conductor.enthalpy_out = (
-                    conductor.enthalpy_out
-                    + conductor.time_step * fields.mass_flow_rate[-1] * fields.total_enthalpy[-1]
+                conductor.balances.enthalpy_out = (
+                    conductor.balances.enthalpy_out
+                    + conductor.time_state.time_step * fields.mass_flow_rate[-1] * fields.total_enthalpy[-1]
                 )
-                conductor.enthalpy_inl = (
-                    conductor.enthalpy_inl
-                    + conductor.time_step * fields.mass_flow_rate[0] * fields.total_enthalpy[0]
+                conductor.balances.enthalpy_inl = (
+                    conductor.balances.enthalpy_inl
+                    + conductor.time_state.time_step * fields.mass_flow_rate[0] * fields.total_enthalpy[0]
                 )
             conductor.compute_radiative_heat_exhange_jk()
             conductor.compute_heat_exchange_jk_env(ctx.environment)

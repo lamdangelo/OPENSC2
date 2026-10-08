@@ -59,13 +59,13 @@ def initialize_conductors(
         }
     for cond in ctx.conductors:
         coupling_enabled = cond.identifier in ported_conductor_identifiers
-        cond.hydraulic_formulation = resolve_hydraulic_formulation(
-            cond.inputs.hydraulic_formulation,
-            coupling_enabled,
-            cond.inputs.explicit_mass_flow_formulation,
+        cond.set_hydraulic_formulation(
+            resolve_hydraulic_formulation(
+                cond.inputs.hydraulic_formulation,
+                coupling_enabled,
+                cond.inputs.explicit_mass_flow_formulation,
+            )
         )
-        for fluid_comp in cond.inventory.fluids.collection:
-            fluid_comp.coolant.hydraulic_formulation = cond.hydraulic_formulation
         declared = cond.inputs.hydraulic_formulation
         reason = (
             f"auto: network coupling {'declared' if coupling_enabled else 'absent'}"

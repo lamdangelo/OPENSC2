@@ -79,21 +79,21 @@ def _collect_conductor_state(state: dict, conductor) -> None:
         f"{prefix}/adams_moulton_matrices",
         conductor.time_integration.adams_moulton_matrices,
     )
-    _put(state, f"{prefix}/time_step", conductor.time_step)
-    _put(state, f"{prefix}/previous_time_step", conductor.previous_time_step)
+    _put(state, f"{prefix}/time_step", conductor.time_state.time_step)
+    _put(state, f"{prefix}/previous_time_step", conductor.time_state.previous_time_step)
     _put(
         state,
         f"{prefix}/local_truncation_error_ratio",
-        conductor.local_truncation_error_ratio,
+        conductor.time_state.local_truncation_error_ratio,
     )
-    _put(state, f"{prefix}/cond_time", np.asarray(conductor.cond_time))
-    _put(state, f"{prefix}/cond_num_step", conductor.cond_num_step)
-    _put(state, f"{prefix}/equation_eigenvalues", conductor.equation_eigenvalues)
-    _put(state, f"{prefix}/enthalpy_balance", conductor.enthalpy_balance)
-    _put(state, f"{prefix}/enthalpy_out", conductor.enthalpy_out)
-    _put(state, f"{prefix}/enthalpy_inl", conductor.enthalpy_inl)
-    _put(state, f"{prefix}/i_save", conductor.i_save)
-    _put(state, f"{prefix}/num_step_save", conductor.num_step_save)
+    _put(state, f"{prefix}/cond_time", np.asarray(conductor.time_state.cond_time))
+    _put(state, f"{prefix}/cond_num_step", conductor.time_state.cond_num_step)
+    _put(state, f"{prefix}/equation_eigenvalues", conductor.time_state.equation_eigenvalues)
+    _put(state, f"{prefix}/enthalpy_balance", conductor.balances.enthalpy_balance)
+    _put(state, f"{prefix}/enthalpy_out", conductor.balances.enthalpy_out)
+    _put(state, f"{prefix}/enthalpy_inl", conductor.balances.enthalpy_inl)
+    _put(state, f"{prefix}/i_save", conductor.save_schedule.i_save)
+    _put(state, f"{prefix}/num_step_save", conductor.save_schedule.num_step_save)
     _put(state, f"{prefix}/electric_time", conductor.electric.electric_time)
     _put(state, f"{prefix}/cond_el_num_step", conductor.electric.cond_el_num_step)
     _put(
@@ -255,19 +255,19 @@ def _restore_conductor_state(archive, conductor) -> None:
         conductor.time_integration.adams_moulton_matrices[...] = archive[
             f"{prefix}/adams_moulton_matrices"
         ]
-    conductor.time_step = _get(archive, f"{prefix}/time_step")
-    conductor.previous_time_step = _get(archive, f"{prefix}/previous_time_step")
-    conductor.local_truncation_error_ratio = _get(
+    conductor.time_state.time_step = _get(archive, f"{prefix}/time_step")
+    conductor.time_state.previous_time_step = _get(archive, f"{prefix}/previous_time_step")
+    conductor.time_state.local_truncation_error_ratio = _get(
         archive, f"{prefix}/local_truncation_error_ratio"
     )
-    conductor.cond_time = list(archive[f"{prefix}/cond_time"])
-    conductor.cond_num_step = _get(archive, f"{prefix}/cond_num_step")
-    conductor.equation_eigenvalues[...] = archive[f"{prefix}/equation_eigenvalues"]
-    conductor.enthalpy_balance = _get(archive, f"{prefix}/enthalpy_balance")
-    conductor.enthalpy_out = _get(archive, f"{prefix}/enthalpy_out")
-    conductor.enthalpy_inl = _get(archive, f"{prefix}/enthalpy_inl")
-    conductor.i_save = _get(archive, f"{prefix}/i_save")
-    conductor.num_step_save[...] = archive[f"{prefix}/num_step_save"]
+    conductor.time_state.cond_time = list(archive[f"{prefix}/cond_time"])
+    conductor.time_state.cond_num_step = _get(archive, f"{prefix}/cond_num_step")
+    conductor.time_state.equation_eigenvalues[...] = archive[f"{prefix}/equation_eigenvalues"]
+    conductor.balances.enthalpy_balance = _get(archive, f"{prefix}/enthalpy_balance")
+    conductor.balances.enthalpy_out = _get(archive, f"{prefix}/enthalpy_out")
+    conductor.balances.enthalpy_inl = _get(archive, f"{prefix}/enthalpy_inl")
+    conductor.save_schedule.i_save = _get(archive, f"{prefix}/i_save")
+    conductor.save_schedule.num_step_save[...] = archive[f"{prefix}/num_step_save"]
     conductor.electric.electric_time = _get(archive, f"{prefix}/electric_time")
     conductor.electric.cond_el_num_step = _get(archive, f"{prefix}/cond_el_num_step")
     if f"{prefix}/electric_solution" in archive:
@@ -400,11 +400,11 @@ def _reject_finalized_run(simulation, conductor) -> None:
     still on disk, a continuation is possible: the consolidated columns up
     to the checkpoint time are kept (see ``_truncate_conductor_outputs``)
     and the post-processing of the continued run appends its own saves to
-    them (``conductor.restart_after_finalization`` tells the writer to
+    them (``conductor.time_state.restart_after_finalization`` tells the writer to
     merge). When neither the raw files nor the consolidated ones exist the
     saved history is lost and the restart is refused.
     """
-    conductor.restart_after_finalization = False
+    conductor.time_state.restart_after_finalization = False
     if conductor.inventory.fluids.collection:
         reference_component = conductor.inventory.fluids.collection[0]
     else:
@@ -414,8 +414,8 @@ def _reject_finalized_run(simulation, conductor) -> None:
             f"Output_Spatial_distribution_{conductor.identifier}_dir"
         ]
     )
-    for save_index in range(conductor.i_save):
-        step_number = conductor.num_step_save[save_index]
+    for save_index in range(conductor.save_schedule.i_save):
+        step_number = conductor.save_schedule.num_step_save[save_index]
         raw_file = spatial_dir / (
             f"{reference_component.identifier}_({step_number})_sd.tsv"
         )
@@ -425,7 +425,7 @@ def _reject_finalized_run(simulation, conductor) -> None:
             f"{reference_component.identifier}_temperature_sd.tsv"
         )
         if consolidated.is_file():
-            conductor.restart_after_finalization = True
+            conductor.time_state.restart_after_finalization = True
             print(
                 f"Restart: conductor {conductor.identifier!r} was already "
                 "finalized; its consolidated spatial files up to the "
@@ -462,7 +462,7 @@ def _truncate_conductor_outputs(simulation, conductor, checkpoint_time) -> None:
     )
     for path in sorted(spatial_dir.glob("*.tsv")):
         match = _SPATIAL_SAVE_STEP_PATTERN.search(path.name)
-        if match and int(match.group(1)) > conductor.cond_num_step:
+        if match and int(match.group(1)) > conductor.time_state.cond_num_step:
             path.unlink()
         elif not match and getattr(conductor, "restart_after_finalization", False):
             # Consolidated file of a finalized run: keep the columns up to

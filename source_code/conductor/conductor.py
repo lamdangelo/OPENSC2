@@ -37,6 +37,13 @@ from components.component_factory import build_component
 from components.component_build import ComponentBuildSettings
 from conductor.conductor_definition import ConductorDefinition
 from conductor.electric_state import ELECTRIC_ATTRIBUTES, ElectricState
+from conductor.run_state import (
+    RUN_STATE_ATTRIBUTES,
+    UNSET,
+    BalanceState,
+    SaveSchedule,
+    TimeState,
+)
 from runtime.time_stepping import TimeSteppingSettings
 from components.jacket.jacket_component import JacketComponent
 from components.solid.stack_component import StackComponent
@@ -110,6 +117,10 @@ class Conductor:
         # Electric network state (matrices, right-hand sides, solution, clock);
         # written by the electromagnetics package through conductor.electric.
         self.electric = ElectricState()
+        # Clock/step control, balances and save schedule (conductor/run_state.py).
+        self.time_state = TimeState()
+        self.balances = BalanceState()
+        self.save_schedule = SaveSchedule()
         self.base_path = Path(definition.file_paths.base_path)
         self.counter = definition.counter
         self.file_paths = definition.file_paths
@@ -175,17 +186,32 @@ class Conductor:
         self.__initialize_attributes(simulation)
 
 
-    # -- transitional: old spelling conductor.<electric attribute> -------
+    # -- transitional: old spelling conductor.<state attribute> ----------
+    # Forwarded to the state objects (electric, time_state, balances,
+    # save_schedule); removed once every call site uses the new spelling.
+    _FORWARDED = {**{name: "electric" for name in ELECTRIC_ATTRIBUTES}, **RUN_STATE_ATTRIBUTES}
+
     def __getattr__(self, name):
-        if name in ELECTRIC_ATTRIBUTES and name != "electric":
-            return getattr(self.electric, name)
+        holder_name = Conductor._FORWARDED.get(name)
+        if holder_name is not None and holder_name in self.__dict__:
+            value = getattr(self.__dict__[holder_name], name)
+            if value is not UNSET:
+                return value
         raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     def __setattr__(self, name, value):
-        if name in ELECTRIC_ATTRIBUTES and "electric" in self.__dict__:
-            setattr(self.electric, name, value)
+        holder_name = Conductor._FORWARDED.get(name)
+        if holder_name is not None and holder_name in self.__dict__:
+            setattr(self.__dict__[holder_name], name, value)
         else:
             object.__setattr__(self, name, value)
+
+    def set_hydraulic_formulation(self, formulation):
+        """Resolved formulation of the 1D channel unknowns (never AUTO); also
+        told to every coolant, whose property evaluation branches on it."""
+        self.hydraulic_formulation = formulation
+        for fluid_comp in self.inventory.fluids.collection:
+            fluid_comp.coolant.hydraulic_formulation = formulation
 
     def __repr__(self):
         return f"{self.__class__.__name__}(Type: {self.KIND}, identifier: {self.identifier})"
@@ -325,11 +351,11 @@ class Conductor:
         # variable-step BDF2 coefficients and by the local-truncation-error
         # estimator of the adaptive time stepping; set at the end of every
         # call to function step.
-        self.previous_time_step = None
+        self.time_state.previous_time_step = None
         # Relative local-truncation-error measure of the last completed step
         # (None until two genuine solution levels exist); written by function
         # step, read by the IADAPTIME == 4 controller in get_time_step.
-        self.local_truncation_error_ratio = None
+        self.time_state.local_truncation_error_ratio = None
         conductorlogger.debug(f"Defined electric_theta\n")
         ## Evaluate parameters useful in function \
         # Transient_solution_functions.py\STEP (cdp, 07/2020)
@@ -349,7 +375,7 @@ class Conductor:
             number_of_subdiagonals=2 * degrees_of_freedom_per_node - 1,
             full_bandwidth=4 * degrees_of_freedom_per_node - 1,
         )
-        self.equation_eigenvalues = np.zeros(degrees_of_freedom_per_node)
+        self.time_state.equation_eigenvalues = np.zeros(degrees_of_freedom_per_node)
         self.solution_norms = SolutionNorms(
             solution=np.zeros(degrees_of_freedom_per_node),
             change=np.zeros(degrees_of_freedom_per_node),
@@ -366,33 +392,33 @@ class Conductor:
         # evaluate attribute time_accuracy_eigenvalue exploiting function
         # evaluate_time_accuracy_eigenvalue (cdp, 08/2020)
         evaluate_time_accuracy_eigenvalue(self)
-        self.Space_save = np.array(self.definition.spatial_save_times, dtype=float)
+        self.save_schedule.Space_save = np.array(self.definition.spatial_save_times, dtype=float)
         # Adjust the user defined diagnostic.
-        self.Space_save = set_diagnostic(
-            self.Space_save, lb=0.0, ub=simulation.transient_settings["TEND"]
+        self.save_schedule.Space_save = set_diagnostic(
+            self.save_schedule.Space_save, lb=0.0, ub=simulation.transient_settings["TEND"]
         )
         # Check on spatial distribution diagnostic.
-        if self.Space_save.max() > simulation.transient_settings["TEND"]:
+        if self.save_schedule.Space_save.max() > simulation.transient_settings["TEND"]:
             raise ValueError(
-                f"File {self.file_paths.diagnostics_path}, sheet Space, conductor {self.identifier}: impossible to save spatial distributions at time {self.Space_save.max()} s since it is larger than the end time of the simulation {simulation.transient_settings['TEND']} s.\n"
+                f"File {self.file_paths.diagnostics_path}, sheet Space, conductor {self.identifier}: impossible to save spatial distributions at time {self.save_schedule.Space_save.max()} s since it is larger than the end time of the simulation {simulation.transient_settings['TEND']} s.\n"
             )
-        # End if self.Space_save.max() > simulation.transient_settings["TEND"]
+        # End if self.save_schedule.Space_save.max() > simulation.transient_settings["TEND"]
         # index pointer to save solution spatial distribution (cdp, 12/2020)
-        self.i_save = 0
+        self.save_schedule.i_save = 0
         # list of number of time steps at wich save the spatial discretization
-        self.num_step_save = np.zeros(self.Space_save.shape, dtype=int)
-        self.Time_save = np.array(self.definition.time_save_positions, dtype=float)
+        self.save_schedule.num_step_save = np.zeros(self.save_schedule.Space_save.shape, dtype=int)
+        self.save_schedule.Time_save = np.array(self.definition.time_save_positions, dtype=float)
 
         # Adjust the user defined diagnostic.
-        self.Time_save = set_diagnostic(
-            self.Time_save, lb=0.0, ub=self.inputs.zlength
+        self.save_schedule.Time_save = set_diagnostic(
+            self.save_schedule.Time_save, lb=0.0, ub=self.inputs.zlength
         )
         # Check on time evolution diagnostic.
-        if self.Time_save.max() > self.inputs.zlength:
+        if self.save_schedule.Time_save.max() > self.inputs.zlength:
             raise ValueError(
-                f"File {self.file_paths.diagnostics_path}, sheet Time, conductor {self.identifier}: impossible to save time evolutions at axial coordinate {self.Time_save.max()} s since it is ouside the computational domain of the simulation [0, {self.inputs.zlength}] m.\n"
+                f"File {self.file_paths.diagnostics_path}, sheet Time, conductor {self.identifier}: impossible to save time evolutions at axial coordinate {self.save_schedule.Time_save.max()} s since it is ouside the computational domain of the simulation [0, {self.inputs.zlength}] m.\n"
             )
-        # End if self.Time_save.max() > self.inputs.zlength
+        # End if self.save_schedule.Time_save.max() > self.inputs.zlength
 
         self.color = ["r*", "bo"]
 
@@ -520,9 +546,9 @@ class Conductor:
         )
         # initialize conductor time values, it can be different for different \
         # conductors since the conductor time step can be different (cdp, 10/202)
-        self.cond_time = [time_simulation]
+        self.time_state.cond_time = [time_simulation]
         # Initialize conductor time step counter
-        self.cond_num_step = 0
+        self.time_state.cond_num_step = 0
 
         """
     if (imsourcefun.eq.0) then
@@ -538,9 +564,9 @@ class Conductor:
         # C*SET THE INITIAL VALUE OF THE FLOW VARIABLES (LINEAR P AND T)
 
         temp_ave = np.zeros(self.mesh.number_of_nodes)
-        self.enthalpy_balance = 0.0
-        self.enthalpy_out = 0.0
-        self.enthalpy_inl = 0.0
+        self.balances.enthalpy_balance = 0.0
+        self.balances.enthalpy_out = 0.0
+        self.balances.enthalpy_inl = 0.0
         # For each channel evaluate following fluid properties (array):velocity, \
         # pressure, temperature, density, Reynolds, Prandtl (cdp, 06/2020)
         # N.B. questo loop si potrebbe fare usando map.
@@ -628,7 +654,7 @@ class Conductor:
             # check the imposition of SolidComponent temperature initial 
             # spatial distribution.
             # N.B. queste istruzioni posso inserirle in un metodo della classe.
-            self.enthalpy_balance = self.enthalpy_balance + simulation.transient_settings[
+            self.balances.enthalpy_balance = self.balances.enthalpy_balance + simulation.transient_settings[
                 "STPMIN"
             ] * (
                 fluid_comp.coolant.node_fields.mass_flow_rate[-1]
@@ -636,33 +662,33 @@ class Conductor:
                 - fluid_comp.coolant.node_fields.mass_flow_rate[0]
                 * fluid_comp.coolant.node_fields.total_enthalpy[0]
             )
-            self.enthalpy_out = (
-                self.enthalpy_out
+            self.balances.enthalpy_out = (
+                self.balances.enthalpy_out
                 + simulation.transient_settings["STPMIN"]
                 * fluid_comp.coolant.node_fields.mass_flow_rate[-1]
                 * fluid_comp.coolant.node_fields.total_enthalpy[-1]
             )
-            self.enthalpy_inl = (
-                self.enthalpy_inl
+            self.balances.enthalpy_inl = (
+                self.balances.enthalpy_inl
                 + simulation.transient_settings["STPMIN"]
                 * fluid_comp.coolant.node_fields.mass_flow_rate[0]
                 * fluid_comp.coolant.node_fields.total_enthalpy[0]
             )
 
         # Initialize the Energy of the SolidComponent (cdp, 12/2020)
-        self.E_sol_ini = 0.0
-        self.E_sol_fin = 0.0
-        self.E_str_ini = 0.0
-        self.E_str_fin = 0.0
-        self.E_jk_ini = 0.0
-        self.E_jk_fin = 0.0
+        self.balances.E_sol_ini = 0.0
+        self.balances.E_sol_fin = 0.0
+        self.balances.E_str_ini = 0.0
+        self.balances.E_str_fin = 0.0
+        self.balances.E_jk_ini = 0.0
+        self.balances.E_jk_fin = 0.0
         # Loop on SolidComponent to evaluate the total initial energy of \
         # SolidComponent, used to check the imposition of SolidComponent \
         # temperature initial spatial distribution (cdp, 12/2020)
         # N.B. questo loop si potrebbe fare usando map.
         for s_comp in self.inventory.solids.collection:
             # N.B. queste istruzioni posso inserirle in un metodo della classe.
-            self.E_sol_ini = self.E_sol_ini + s_comp.inputs.cross_section * np.sum(
+            self.balances.E_sol_ini = self.balances.E_sol_ini + s_comp.inputs.cross_section * np.sum(
                 (
                     self.mesh.node_coordinates[1 : self.mesh.number_of_nodes]
                     - self.mesh.node_coordinates[0:-1]
@@ -672,7 +698,7 @@ class Conductor:
                 * s_comp.gauss_fields.temperature
             )
             if s_comp.name != "Z_JACKET":
-                self.E_str_ini = self.E_str_ini + s_comp.inputs.cross_section * np.sum(
+                self.balances.E_str_ini = self.balances.E_str_ini + s_comp.inputs.cross_section * np.sum(
                     (
                         self.mesh.node_coordinates[1 : self.mesh.number_of_nodes]
                         - self.mesh.node_coordinates[0:-1]
@@ -682,7 +708,7 @@ class Conductor:
                     * s_comp.gauss_fields.temperature
                 )
             else:
-                self.E_jk_ini = self.E_jk_ini + s_comp.inputs.cross_section * np.sum(
+                self.balances.E_jk_ini = self.balances.E_jk_ini + s_comp.inputs.cross_section * np.sum(
                     (
                         self.mesh.node_coordinates[1 : self.mesh.number_of_nodes]
                         - self.mesh.node_coordinates[0:-1]
@@ -973,15 +999,15 @@ class Conductor:
         if electric_step is None or (
             isinstance(electric_step, float) and np.isnan(electric_step)
         ):
-            self.electric.electric_time_step = self.time_step / ELECTRIC_TIME_STEP_NUMBER
+            self.electric.electric_time_step = self.time_state.time_step / ELECTRIC_TIME_STEP_NUMBER
         else:
             if electric_step <= 0.0:
                 raise ValueError(
                     f"Electric time step must be > 0.0 s; current value is: {electric_step=} s\n"
                 )
-            self.electric.electric_time_step = min(electric_step, self.time_step)
+            self.electric.electric_time_step = min(electric_step, self.time_state.time_step)
 
-        self.electric.electric_time_end = self.time_step
+        self.electric.electric_time_end = self.time_state.time_step
 
     def build_right_hand_side(self, foo: np.ndarray, bar: np.ndarray, idx: np.ndarray):
         """Build the RHS vector for the transient electric time step."""
@@ -1011,14 +1037,14 @@ class Conductor:
         from electromagnetics.electromagnetic_flags import ElectricSolver
 
         if (
-            self.cond_num_step == 0
+            self.time_state.cond_num_step == 0
             or self.operations.electric_solver == ElectricSolver.STEADY_STATE
         ):
             # The quasi-static solve has no sub-stepping loop of its own, so
             # keep the electric clock on the thermal one; from-file operating
             # currents are interpolated at electric_time, which otherwise
             # stays at 0 and freezes them at their initial value.
-            self.electric.electric_time = self.cond_time[-1]
+            self.electric.electric_time = self.time_state.cond_time[-1]
             solve_steady_state(self)
         else:
             self.__get_electric_time_step()
