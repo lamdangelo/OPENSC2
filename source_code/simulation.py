@@ -19,24 +19,14 @@ from hydraulics.hydraulic_flags import (
 )
 from numerics.transient_solution_functions import get_time_step, step
 import adapters.output.simulation_paths as simulation_paths
-from adapters.output.solution_writer import (
-    save_simulation_space,
-    reorganize_spatial_distribution,
-    save_network_simulation_time,
-    save_simulation_time,
-    save_properties,
-)
-from adapters.output.checkpoint import restore_from_checkpoint, write_checkpoint
+from adapters.output.checkpoint import restore_from_checkpoint
+from adapters.output.observers import ConsoleProgressObserver, OutputObserver
+from adapters.plotting.observers import FigureObserver, RealTimePlotObserver
+from application.observers import CompositeObserver
 from adapters.output.diagnostics_npz import NpzDiagnosticsSink
 from adapters.fluid_properties import coolprop_provider
 from ports.fluid_properties import COOLANT_PROPERTY_ALIASES, register_provider_factory
 from adapters.output.simulation_log import SimulationSummary
-from adapters.plotting.plots import (
-    plot_properties,
-    make_plots,
-    create_real_time_plots,
-    update_real_time_plots,
-)
 
 
 class Simulation:
@@ -101,6 +91,14 @@ class Simulation:
     def run(self):
         """Run the simulation workflow."""
         self.simulation_summary = SimulationSummary()  # runtime timers start here
+        # Everything observable (files, plots, log, checkpoints, console)
+        # happens in observers (ports.observer); the model never writes.
+        self.observers = CompositeObserver([
+            OutputObserver(self.simulation_summary),
+            RealTimePlotObserver(),
+            FigureObserver(),
+            ConsoleProgressObserver(),
+        ])
         self.conductor_instance()  # read input files
         self.simulation_folders_manager(target_directory=self.basePath)  # create folders
         self.save_input_files()  # create metadata
@@ -117,7 +115,7 @@ class Simulation:
                 self.simulation_summary.update(self, cond, record_hotspot=False)
         self.conductor_solution()  # solve the numerical problem
         self.conductor_post_processing()  # do post-processing
-        self.simulation_summary.write(self)  # simulation.log + hot-spot flush
+        self.observers.on_finished(self)  # simulation.log + hot-spot flush
 
 
     def __count_sigfigs(self,num:Union[int,float]):
@@ -163,10 +161,8 @@ class Simulation:
         # end for ii (cdp, 12/2020)
         self.contactBetweenConductors = self.input_source.conductor_coupling_dataframe()
 
-        # Loop to create the attributes required to make the real time plots (shortly rtp).
         for conductor in self.list_of_Conductors:
-            create_real_time_plots(self, conductor)
-        # End for conductor.
+            self.observers.on_conductor_created(self, conductor)
 
     # end method Conductor_instance
 
@@ -211,6 +207,7 @@ class Simulation:
             self.simulation_time = [0.0]
             self.num_step = 0
             cond.initialization(self)
+            self.observers.on_conductor_initialized(self, cond)
             # Use electric method only if needed, i.e., user specifies a 
             # current.
             if cond.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
@@ -236,14 +233,7 @@ class Simulation:
                 # of class Conductor and should be done later.
                 cond.operating_conditions_em()
 
-            # plot conductor initialization spatial distribution (cdp, 12/2020)
-            plot_properties(self, cond)
-            save_simulation_time(self, cond)
-            if not self.transient_input["RESTART"]:
-                # Seed the summary extrema and hot-spot log with the t = 0
-                # state; on restart the seeding happens after the checkpoint
-                # restore instead.
-                self.simulation_summary.update(self, cond)
+            self.observers.on_initial_state(self, cond)
             # ** END INITIALIZATION **
         # end for cond (cdp, 12/202)
         # dictionary declaration (cdp,07/2020)
@@ -329,17 +319,12 @@ class Simulation:
             self.hydraulic_network = build_coupled_network(
                 self, network_mapping
             )
-            # Write the header of the network time-evolution file and
-            # record the initial state (num_step is still 0 here).
-            for conductor in self.list_of_Conductors:
-                save_network_simulation_time(self, conductor)
+            self.observers.on_network_built(self)
 
     # end method Conductor_initialization
 
     def conductor_solution(self):
         # ** TRANSIENT SOLUTION **
-        num_step_store = 100
-        count_store = 1
         stoptime = 0  # flag to stop simulation if some problems (like quench) \
         # arise (cdp, 07/2020)
         # Time step initialization (cdp, 08/2020)
@@ -356,17 +341,7 @@ class Simulation:
             # (cdp, 10/2020)
             # list_values = list(conductor.dict_Space_save.values())
             # Save of the solution spatial distribution at 0.0 s (cdp, 12/2020)
-            # On restart the t = 0 save already exists and i_save points at
-            # the next pending save time: saving here would stamp a bogus
-            # distribution and skip a scheduled save.
-            if not self.transient_input["RESTART"]:
-                save_simulation_space(
-                    conductor,
-                    self.dict_path[
-                        f"Output_Spatial_distribution_{conductor.identifier}_dir"
-                    ],
-                    abs(self.n_digit_time),
-                )
+            self.observers.on_transient_start(self, conductor)
         # end for ii (cdp, 10/2020)
         # Any transverse insulation coupling declared on any solid forces
         # all conductors into lockstep time stepping (see the time-step
@@ -435,9 +410,7 @@ class Simulation:
             self.simulation_time.append(
                 self.simulation_time[-1] + self.simulation_time_step
             )
-            print(
-                f"Simulation time: {self.simulation_time[-1]:.{self.n_digit_time}f} s; {self.simulation_time[-1]/self.transient_input['TEND']*100:5.2f} %"
-            )
+            self.observers.on_step_started(self)
             for conductor in self.list_of_Conductors:
                 
                 # Use electric method only if needed, i.e., user specifies a 
@@ -543,36 +516,7 @@ class Simulation:
                 # Compute radiative heat exchanged outer jacket and environment.
                 conductor.compute_heat_exchange_jk_env(self.environment)
 
-                update_real_time_plots(conductor)
-
-                if self.num_step == num_step_store * count_store:
-                    # Update counter to store the state of the simulation, still to come \
-                    # (cdp, 08/2020)
-                    count_store = count_store + 1
-                if (
-                    conductor.i_save < len(conductor.Space_save) - 1
-                    and abs(
-                        conductor.cond_time[-1] - conductor.Space_save[conductor.i_save]
-                    )
-                    < conductor.time_step / 2.0
-                ):
-                    # save simulation spatial distribution at user defined time steps \
-                    # (cdp, 08/2020)
-                    save_simulation_space(
-                        conductor,
-                        self.dict_path[
-                            f"Output_Spatial_distribution_{conductor.identifier}_dir"
-                        ],
-                        abs(self.n_digit_time),
-                    )
-                # end if isave
-                self.simulation_summary.update(self, conductor)
-                # Save variables time evolution at given spatial coordinates \
-                # (cdp, 08/2020)
-                save_simulation_time(self, conductor)
-                # Save the hydraulic network state time evolution (no-op
-                # for conductors without network ports).
-                save_network_simulation_time(self, conductor)
+                self.observers.after_conductor_step(self, conductor)
                 # call sensor to plot results at any time the user asks (cdp, 07/2020)
             # End for conductor (cdp, 07/2020)
 
@@ -581,58 +525,20 @@ class Simulation:
                 autosave_interval is not None
                 and self.num_step % autosave_interval == 0
             ):
-                # Flush the time-evolution buffers first, so the output
-                # files are complete up to the checkpoint time and the
-                # checkpoint itself never has to carry buffered rows.
-                for conductor in self.list_of_Conductors:
-                    save_simulation_time(self, conductor, flush_only=True)
-                    save_network_simulation_time(self, conductor, flush_only=True)
-                self.simulation_summary.flush_hotspots(self)
-                write_checkpoint(self)
+                self.observers.on_autosave(self)
         # end while (cdp, 07/2020)
-        # Final flush of the partially filled time-evolution buffers: a
-        # run stopped before TEND (e.g. by the step callback) never
-        # satisfies the TEND-based flush condition and would silently
-        # lose up to CHUNCK_SIZE recorded steps per file.
-        for conductor in self.list_of_Conductors:
-            save_simulation_time(self, conductor, flush_only=True)
-            save_network_simulation_time(self, conductor, flush_only=True)
-        print("End simulation called " + self.transient_input["SIMULATION"] + "\n")
+        self.observers.on_transient_end(self)
 
     # end method Conductor_solution (cdp, 09/2020)
 
     def conductor_post_processing(self):
-        # loop to save the norm of the solution at the end of the transient for 
-        # each conductor, usefull to make space convergence
-        # t_end = np.array([self.transient_input["TEND"]])
         for cond in self.list_of_Conductors:
+            # Final energies and the mass/energy balances (domain).
             cond.post_processing(self)
-
-            # save simulation spatial distribution at TEND.
-            save_simulation_space(
-                cond,
-                self.dict_path[f"Output_Spatial_distribution_{cond.identifier}_dir"],
-                abs(self.n_digit_time),
-            )
-            # Call function Save_properties to save the conductor final 
-            # solution.
-            save_properties(
-                cond, self.dict_path[f"Output_Solution_{cond.identifier}_dir"]
-            )
-            print("Saved final solution\n")
-
-            reorganize_spatial_distribution(
-                cond,
-                self.dict_path[f"Output_Spatial_distribution_{cond.identifier}_dir"],
-                self.n_digit_time,
-            )
-            # Plot conductor solution spatial distribution (cdp, 12/2020)
-            plot_properties(self, cond, what="solution")
-        # end for cond (cdp, 12/2020)
-        # Call function Make_plots to make plot of spatial distribution and time \
-        # evolution (cdp, 11/2020)
-        make_plots(self, kind="Space_distr")
-        make_plots(self, kind="Time_evol")
+            # Final solution, convergence data, spatial distribution files
+            # and figures (observers).
+            self.observers.on_conductor_post_processed(self, cond)
+        self.observers.on_post_processing_done(self)
 
     # end method Conductor_post_processing (cdp, 09/2020)
 

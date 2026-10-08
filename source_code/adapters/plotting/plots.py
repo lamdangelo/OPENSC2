@@ -1349,6 +1349,9 @@ def plot_time_animation(simulation, conductor):
     """
     Function that make an animated plot of the time evolution of the maximum temperature of the strands. (cdp, 10/2020)
     """
+    # Figure/axes containers (formerly attributes of the conductor).
+    figures = dict(T_max=dict(), mfr=dict())
+    axes = dict(T_max=dict(), mfr=dict())
 
     list_types = ["FluidComponent", "StrandComponent", "JacketComponent"]
     for l_type in list_types:
@@ -1357,8 +1360,8 @@ def plot_time_animation(simulation, conductor):
             # Construct Figure and axes object related to maximum temperature plots, \
             # storing them in dictionaries (cdp, 10/2020)
             (
-                conductor.dict_Figure_animation["T_max"][l_type],
-                conductor.dict_axes_animation["T_max"][l_type],
+                figures["T_max"][l_type],
+                axes["T_max"][l_type],
             ) = plt.subplots(
                 num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): maximum {l_type} temperature",
                 figsize=(5, 5),
@@ -1368,12 +1371,12 @@ def plot_time_animation(simulation, conductor):
                 # Create a number of Figure and axes objects equal to the number of \
                 # FluidComponent objects to plot the inlet and outlet mass flow rate \
                 # for each FluidComponent object in a dedicated plot. (cdp, 10/2020)
-                # conductor.dict_Figure_animation["mfr"][l_type] = dict()
-                # conductor.dict_axes_animation["mfr"][l_type] = dict()
+                # figures["mfr"][l_type] = dict()
+                # axes["mfr"][l_type] = dict()
                 for fluid_comp in conductor.inventory.fluids.collection:
                     (
-                        conductor.dict_Figure_animation["mfr"][fluid_comp.identifier],
-                        conductor.dict_axes_animation["mfr"][fluid_comp.identifier],
+                        figures["mfr"][fluid_comp.identifier],
+                        axes["mfr"][fluid_comp.identifier],
                     ) = plt.subplots(
                         num=f"{simulation.transient_input['SIMULATION']} ({conductor.number}): {fluid_comp.identifier} "
                         + f"mass flow rate",
@@ -1381,27 +1384,27 @@ def plot_time_animation(simulation, conductor):
                         clear=True,
                     )
                     # set axes features (cdp, 10/2020)
-                    conductor.dict_axes_animation["mfr"][fluid_comp.identifier].grid(
+                    axes["mfr"][fluid_comp.identifier].grid(
                         True
                     )
-                    conductor.dict_axes_animation["mfr"][fluid_comp.identifier].set(
+                    axes["mfr"][fluid_comp.identifier].set(
                         xlabel="$t\ (s)$",
                         ylabel="$mdot\ kg/s$",
                         title=f"{fluid_comp.identifier} inlet and outlet mfr time evol",
                     )
-                    conductor.dict_axes_animation["mfr"][
+                    axes["mfr"][
                         fluid_comp.identifier
                     ].set_xlim([0.0, simulation.transient_input["TEND"]])
                 # end for fluid_comp (cdp, 10/2020)
             # end if l_type (cdp, 10/2020)
             # set axes features (cdp, 10/2020)
-            conductor.dict_axes_animation["T_max"][l_type].grid(True)
-            conductor.dict_axes_animation["T_max"][l_type].set(
+            axes["T_max"][l_type].grid(True)
+            axes["T_max"][l_type].set(
                 xlabel="$t\ (s)$",
                 ylabel="$T_{max}\ K$",
                 title=f"{l_type} max temperature time evol",
             )
-            conductor.dict_axes_animation["T_max"][l_type].set_xlim(
+            axes["T_max"][l_type].set_xlim(
                 [0.0, simulation.transient_input["TEND"]]
             )
         # end if conductor.cond_time[-1] (cdp, 10/2020)
@@ -1409,22 +1412,22 @@ def plot_time_animation(simulation, conductor):
             # loop on FluidComponent (cdp, 10/2020)
             for fluid_comp in conductor.inventory.fluids.collection:
                 # make the plot of channels maximum temperature (cdp, 10/2020)
-                # conductor.dict_axes_animation["T_max"][l_type].plot(
+                # axes["T_max"][l_type].plot(
                 #     conductor.cond_time[-1], fluid_comp.coolant.node_fields.temperature.max(), conductor.color[ii], label = fluid_comp.identifier) # choose the color
-                conductor.dict_axes_animation["T_max"][l_type].plot(
+                axes["T_max"][l_type].plot(
                     conductor.cond_time[-1],
                     fluid_comp.coolant.node_fields.temperature.max(),
                     label=fluid_comp.identifier,
                 )
                 # make plot of inlet and outlet mass flow rate; each channel has its \
                 # own figures (cdp, 10/2020)
-                conductor.dict_axes_animation["mfr"][fluid_comp.identifier].plot(
+                axes["mfr"][fluid_comp.identifier].plot(
                     conductor.cond_time[-1],
                     fluid_comp.coolant.node_fields.mass_flow_rate[0],
                     conductor.color[0],
                     label="Inlet",
                 )
-                conductor.dict_axes_animation["mfr"][fluid_comp.identifier].plot(
+                axes["mfr"][fluid_comp.identifier].plot(
                     conductor.cond_time[-1],
                     fluid_comp.coolant.node_fields.mass_flow_rate[-1],
                     conductor.color[1],
@@ -1432,12 +1435,12 @@ def plot_time_animation(simulation, conductor):
                 )
                 if conductor.cond_time[-1] == 0:
                     # define legend only once (cdp, 10/2020)
-                    conductor.dict_axes_animation["T_max"][l_type].legend(
+                    axes["T_max"][l_type].legend(
                         loc="best", fontsize=8, framealpha=0.2
                     )
-                    # conductor.dict_axes_animation["T_max"][l_type].tick_params(\
+                    # axes["T_max"][l_type].tick_params(\
                     #   labelsize = 8, colors = "r", length = 4)
-                    conductor.dict_axes_animation["mfr"][fluid_comp.identifier].legend(
+                    axes["mfr"][fluid_comp.identifier].legend(
                         loc="best", fontsize=8, framealpha=0.2
                     )
                 # end if conductor.cond_time[-1] (cdp, 10/2020)
@@ -1446,9 +1449,9 @@ def plot_time_animation(simulation, conductor):
             # loop on StrandComponent (cdp, 10/2020)
             for strand in conductor.inventory.strands.collection:
                 # plot the maximum strand temperature (cdp, 10/2020)
-                # conductor.dict_axes_animation["T_max"][l_type].plot(
+                # axes["T_max"][l_type].plot(
                 #     conductor.cond_time[-1], strand.node_fields.temperature.max(), conductor.color[ii], label = strand.identifier) # choose the color.
-                conductor.dict_axes_animation["T_max"][l_type].plot(
+                axes["T_max"][l_type].plot(
                     conductor.cond_time[-1],
                     strand.node_fields.temperature.max(),
                     label=strand.identifier,
@@ -1456,7 +1459,7 @@ def plot_time_animation(simulation, conductor):
             # end for strand (cdp, 10/2020)
             if conductor.cond_time[-1] == 0:
                 # define legend only once (cdp, 10/2020)
-                conductor.dict_axes_animation["T_max"][l_type].legend(
+                axes["T_max"][l_type].legend(
                     loc="best", fontsize=8, framealpha=0.2
                 )
         elif l_type == "JacketComponent":
@@ -1469,7 +1472,7 @@ def plot_time_animation(simulation, conductor):
     if conductor.cond_time[-1] == 0:
         # plt.show(block = False)
         # close figure related to JacketComponent objects (cdp, 10/2020)
-        plt.close(conductor.dict_Figure_animation["T_max"]["JacketComponent"])
+        plt.close(figures["T_max"]["JacketComponent"])
         # gui.plots_window.deiconify()
     plt.pause(0.01)
 

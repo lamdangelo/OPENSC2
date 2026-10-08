@@ -81,12 +81,6 @@ from electromagnetics.operating_conditions import (
 from numerics.interpolation import set_diagnostic
 from numerics.initial_flow import gen_flow
 from numerics.transient_solution_functions import evaluate_time_accuracy_eigenvalue
-from adapters.output.solution_writer import (
-    save_properties,
-    save_convergence_data,
-    save_geometry_discretization,
-)
-from adapters.plotting.plots import update_real_time_plots, create_legend_rtp
 from thermal.temperature_field import (
     solid_components_temperature_initialization,
 )
@@ -384,11 +378,6 @@ class Conductor:
             )
         # End if self.Time_save.max() > self.inputs.zlength
 
-        # declare dictionaries to store Figure and axes objects to constructi real \
-        # time figures (cdp, 10/2020)
-        self.dict_Figure_animation = dict(T_max=dict(), mfr=dict())
-        self.dict_axes_animation = dict(T_max=dict(), mfr=dict())
-        self.dict_canvas = dict(T_max=dict(), mfr=dict())
         self.color = ["r*", "bo"]
 
         # Introduced for the electric module.
@@ -758,27 +747,8 @@ class Conductor:
             # end for cc (cdp, 10/2020)
         # end if self.time_integration.solution.shape[-1] (cdp, 10/2020)
 
-        conductorlogger.debug(
-            f"Before call function {save_geometry_discretization.__name__}.\n"
-        )
-        save_geometry_discretization(
-            self.inventory.all_components.collection,
-            simulation.dict_path[f"Output_Initialization_{self.identifier}_dir"],
-        )
-        conductorlogger.debug(
-            f"After call function {save_geometry_discretization.__name__}.\n"
-        )
-
-        conductorlogger.debug(f"Before call function {save_properties.__name__}.\n")
-        # Call function Save_properties to save conductor inizialization
-        save_properties(
-            self, simulation.dict_path[f"Output_Initialization_{self.identifier}_dir"]
-        )
-        conductorlogger.debug(f"After call function {save_properties.__name__}.\n")
-
-        # Call function update_real_time_plot
-        update_real_time_plots(self)
-        create_legend_rtp(self)
+        # Output of geometry/properties and real-time plots: observers
+        # (ports.observer.on_conductor_initialized), called by the facade.
 
     # end method initialization
 
@@ -1099,19 +1069,7 @@ class Conductor:
         # call function evaluate_mass_energy_balance to get data for the
         # space convergence (cdp, 09/2020)
         energy_balance.evaluate_mass_energy_balance(self, simulation)
-        # call function Save_convergence_data to save solution spatial \
-        # distribution at TEND, together with the mass and energy balance results, \
-        # to make the space convergence analisys (cdp, 12/2020)
-        save_convergence_data(self, simulation.dict_path["Space_conv_output_dir"])
-        # call function Save_convergence_data to save solution spatial \
-        # distribution at TEND, together with the mass and energy balance results \
-        # to make the time convergence analisys (cdp, 12/2020)
-        save_convergence_data(
-            self,
-            simulation.dict_path["Time_conv_output_dir"],
-            abs(simulation.n_digit_time),
-            space_conv=False,
-        )
+        # Convergence data files: observers (on_conductor_post_processed).
 
     # end Post_processing
 
