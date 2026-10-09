@@ -95,9 +95,9 @@ def backward_difference_2_coefficients(conductor:Conductor)->tuple:
     Returns:
         tuple: the three floats (a0, a1, a2).
     """
-    if conductor.cond_num_step <= 1 or not conductor.previous_time_step:
+    if conductor.time_state.cond_num_step <= 1 or not conductor.time_state.previous_time_step:
         return 1.0, 1.0, 0.0
-    step_ratio = conductor.time_step / conductor.previous_time_step
+    step_ratio = conductor.time_state.time_step / conductor.time_state.previous_time_step
     return (
         (1.0 + 2.0 * step_ratio) / (1.0 + step_ratio),
         1.0 + step_ratio,
@@ -412,7 +412,7 @@ def build_elslod(array:np.ndarray,
     # array smart
     # This is independent from the solution method thanks to the escamotage of
     # the dummy steady state corresponding to the initialization.
-    if conductor.cond_num_step == 1:
+    if conductor.time_state.cond_num_step == 1:
         # To correctly apply the theta method (to be rivisited in the whole
         # code!).
         # Current time step
@@ -543,7 +543,7 @@ def assemble_syslod(
 
     # Alias
     method = conductor.inputs.thermohydraulic_method
-    num_step = conductor.cond_num_step
+    num_step = conductor.time_state.cond_num_step
     half = conductor.band.half_bandwidth
     load_vector = conductor.time_integration.load_vector
 
@@ -611,7 +611,7 @@ def eval_system_matrix(
     if method in THETA_FAMILY_METHODS:
         # Theta family: backward Euler, Crank-Nicolson or Galerkin.
         matrix = (
-            mass_capacity / conductor.time_step
+            mass_capacity / conductor.time_state.time_step
             + conductor.theta_method * (flux_jacobian + diffusion + source_jacobian)
         )
 
@@ -619,7 +619,7 @@ def eval_system_matrix(
         # Variable-step BDF2, fully implicit in the spatial operator.
         a0, _, _ = backward_difference_2_coefficients(conductor)
         matrix = (
-            a0 * mass_capacity / conductor.time_step
+            a0 * mass_capacity / conductor.time_state.time_step
             + flux_jacobian + diffusion + source_jacobian
         )
 
@@ -627,7 +627,7 @@ def eval_system_matrix(
         # Adams-Moulton order 4
         # Alias
         am4_aa = conductor.time_integration.adams_moulton_matrices # shallow copy
-        if conductor.cond_num_step == 1:
+        if conductor.time_state.cond_num_step == 1:
             # This is due to the dummy initial steady state
             for cc in range(am4_aa.shape[2]):
                 am4_aa[cc,:,:] = flux_jacobian + diffusion + source_jacobian
@@ -637,6 +637,6 @@ def eval_system_matrix(
             am4_aa[1:4,:,:] = am4_aa[0:3,:,:]
             am4_aa[0,:,:] = flux_jacobian + diffusion + source_jacobian
         # compute SYSMAT
-        matrix = mass_capacity / conductor.time_step + 9. / 24. * am4_aa[0,:,:]
+        matrix = mass_capacity / conductor.time_state.time_step + 9. / 24. * am4_aa[0,:,:]
     
     return matrix

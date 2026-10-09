@@ -1,7 +1,7 @@
 """Gaussian heat pulse deposited on a strand through the solver's
 user-defined heat mode (``heat_flux_mode: -2``): the solver calls
 ``strand.user_heat_function(conductor)`` inside ``get_heat`` at every step
-with ``conductor.cond_time[-1]`` already advanced to t_{n+1}, and reads the
+with ``conductor.time_state.cond_time[-1]`` already advanced to t_{n+1}, and reads the
 linear power density from ``strand.node_fields.EXTFLX[:, 0]`` (W/m).
 
     q(x, t) = Q_peak exp(-(x - x0)^2 / (2 sigma_x^2)) exp(-(t - t0)^2 / (2 sigma_t^2))
@@ -58,7 +58,7 @@ class GaussianPulse:
             if not pulse.active:
                 fields.EXTFLX[:, 0] = 0.0
                 return
-            t_relative = conductor.cond_time[-1] - pulse.time_origin
+            t_relative = conductor.time_state.cond_time[-1] - pulse.time_origin
             fields.EXTFLX[:, 0] = pulse.linear_power(
                 conductor.mesh.node_coordinates, t_relative
             )

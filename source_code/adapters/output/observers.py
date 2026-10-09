@@ -64,9 +64,9 @@ class OutputObserver(NullObserver):
 
     def after_conductor_step(self, simulation, conductor):
         if (
-            conductor.i_save < len(conductor.Space_save) - 1
-            and abs(conductor.cond_time[-1] - conductor.Space_save[conductor.i_save])
-            < conductor.time_step / 2.0
+            conductor.save_schedule.i_save < len(conductor.save_schedule.Space_save) - 1
+            and abs(conductor.time_state.cond_time[-1] - conductor.save_schedule.Space_save[conductor.save_schedule.i_save])
+            < conductor.time_state.time_step / 2.0
         ):
             # Spatial distribution at the user-defined save times.
             save_simulation_space(

@@ -99,7 +99,7 @@ def _collect_conductor_state(state: dict, conductor) -> None:
     _put(
         state,
         f"{prefix}/electric_solution",
-        getattr(conductor, "electric_solution", None),
+        conductor.electric.electric_solution,
     )
     formulation = getattr(conductor, "hydraulic_formulation", None)
     if formulation is not None:
@@ -464,7 +464,7 @@ def _truncate_conductor_outputs(simulation, conductor, checkpoint_time) -> None:
         match = _SPATIAL_SAVE_STEP_PATTERN.search(path.name)
         if match and int(match.group(1)) > conductor.time_state.cond_num_step:
             path.unlink()
-        elif not match and getattr(conductor, "restart_after_finalization", False):
+        elif not match and conductor.time_state.restart_after_finalization:
             # Consolidated file of a finalized run: keep the columns up to
             # the checkpoint time (Time_sd_actual.tsv is a time-column
             # file and is handled below).

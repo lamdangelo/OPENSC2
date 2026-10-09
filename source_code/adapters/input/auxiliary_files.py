@@ -256,30 +256,30 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                 if comp.operations.heat_flux_mode == HeatExcitation.FROM_FILE:
                     # square wave in time and space (cdp, 11/2020)
                     if (
-                        conductor.cond_time[-1] >= tvec[0]
-                        and conductor.cond_time[-1] < tvec[-1]
-                        and conductor.cond_time[-1] >= 0
+                        conductor.time_state.cond_time[-1] >= tvec[0]
+                        and conductor.time_state.cond_time[-1] < tvec[-1]
+                        and conductor.time_state.cond_time[-1] >= 0
                     ):
                         # search in time (cdp, 11/2020)
                         # array smart (cdp, 11/2020)
-                        ii = np.max(np.nonzero(tvec <= conductor.cond_time[-1]))
+                        ii = np.max(np.nonzero(tvec <= conductor.time_state.cond_time[-1]))
                         # Square wave in time and space: at any times zcoord < lower_bound \
                         # and zcoord > upper_bound are equal to 0.0 (cdp, 10/2020)
-                        if conductor.cond_time[-1] <= tvec[-2]:
+                        if conductor.time_state.cond_time[-1] <= tvec[-2]:
                             yy[lower_bound : upper_bound + 1] = MM[0, ii]
                         else:
                             yy[lower_bound : upper_bound + 1] = MM[0, ii + 1]
                         # end if (cdp, 10/2020)
-                    # end if conductor.cond_time[-1] (cdp, 11/2020)
+                    # end if conductor.time_state.cond_time[-1] (cdp, 11/2020)
                 # end if comp.operations["IQFUN"]
             else:
                 if (
-                    conductor.cond_time[-1] >= tvec[0]
-                    and conductor.cond_time[-1] < tvec[-1]
-                    and conductor.cond_time[-1] >= 0
+                    conductor.time_state.cond_time[-1] >= tvec[0]
+                    and conductor.time_state.cond_time[-1] < tvec[-1]
+                    and conductor.time_state.cond_time[-1] >= 0
                 ):
                     yy[0:lower_bound] = MM[0, ii] + (
-                        conductor.cond_time[-1] - tvec[ii]
+                        conductor.time_state.cond_time[-1] - tvec[ii]
                     ) / (tvec[ii + 1] - tvec[ii]) * (MM[0, ii + 1] - MM[0, ii])
                     for kk in range(len(xvec) - 1):
                         lb = np.min(
@@ -297,12 +297,12 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                             ) / (xvec[kk + 1] - xvec[kk])
                             # interpolation in time (cdp)
                             yy_t_j = MM[kk, ii] + (
-                                conductor.cond_time[-1] - tvec[ii]
+                                conductor.time_state.cond_time[-1] - tvec[ii]
                             ) / (tvec[ii + 1] - tvec[ii]) * (
                                 MM[kk, ii + 1] - MM[kk, ii]
                             )
                             yy_t_jplus1 = MM[kk + 1, ii] + (
-                                conductor.cond_time[-1] - tvec[ii]
+                                conductor.time_state.cond_time[-1] - tvec[ii]
                             ) / (tvec[ii + 1] - tvec[ii]) * (
                                 MM[kk + 1, ii + 1] - MM[kk + 1, ii]
                             )
@@ -310,7 +310,7 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                             yy[lb : ub + 1] = yy_t_j + (yy_t_jplus1 - yy_t_j) * fx
                             if ub == upper_bound:
                                 yy[ub] = MM[kk + 1, ii] + (
-                                    conductor.cond_time[-1] - tvec[ii]
+                                    conductor.time_state.cond_time[-1] - tvec[ii]
                                 ) / (tvec[ii + 1] - tvec[ii]) * (
                                     MM[kk + 1, ii + 1] - MM[kk + 1, ii]
                                 )
@@ -325,11 +325,11 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                             if ub == upper_bound:
                                 yy[ub] = MM[kk + 1, ii]
                     yy[upper_bound + 1 : len(yy)] = MM[kk + 1, ii] + (
-                        conductor.cond_time[-1] - tvec[ii]
+                        conductor.time_state.cond_time[-1] - tvec[ii]
                     ) / (tvec[ii + 1] - tvec[ii]) * (
                         MM[kk + 1, ii + 1] - MM[kk + 1, ii]
                     )
-                elif conductor.cond_time[-1] < tvec[0] and conductor.cond_time[-1] >= 0:
+                elif conductor.time_state.cond_time[-1] < tvec[0] and conductor.time_state.cond_time[-1] >= 0:
                     # time > 0 always (cdp, 07/2020)
                     yy[0:lower_bound] = MM[0, 0]
                     for kk in range(len(xvec) - 1):
@@ -347,7 +347,7 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                         # spatial interpolation @ time = tvec[0] (cdp, 07/2020)
                         yy[lb : ub + 1] = MM[kk, 0] + (MM[kk + 1, 0] - MM[kk, 0]) * fx
                     yy[upper_bound + 1 : len(yy)] = MM[kk + 1, 0]
-                elif conductor.cond_time[-1] >= tvec[-1]:
+                elif conductor.time_state.cond_time[-1] >= tvec[-1]:
                     # time > 0 always (cdp, 07/2020)
                     yy[0:lower_bound] = MM[0, -1]
                     for kk in range(len(xvec) - 1):
@@ -370,7 +370,7 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
                 else:
                     raise ValueError(
                         f"ERROR in {interpolation.__name__}: time must \
-                        be positive scalar!\ntime = {conductor.cond_time[-1]}"
+                        be positive scalar!\ntime = {conductor.time_state.cond_time[-1]}"
                     )
         else:
             raise ValueError(
@@ -383,30 +383,30 @@ def interpolation(conductor, comp, MM, tvec, f_path, sheet, *xvec, **options):
         if tvec[0] >= 0 and all(np.diff(tvec) >= 0):
             yy = np.zeros(len(MM[:, 0]))  # one value for each row on MM
             if (
-                conductor.cond_time[-1] >= tvec[0]
-                and conductor.cond_time[-1] < tvec[-1]
-                and conductor.cond_time[-1] >= 0
+                conductor.time_state.cond_time[-1] >= tvec[0]
+                and conductor.time_state.cond_time[-1] < tvec[-1]
+                and conductor.time_state.cond_time[-1] >= 0
             ):
                 # search in time (cdp)
                 # array smart (cdp)
-                ii = np.max(np.nonzero(tvec <= conductor.cond_time[-1]))
+                ii = np.max(np.nonzero(tvec <= conductor.time_state.cond_time[-1]))
                 for kk in range(len(yy)):
-                    yy[kk] = MM[kk, ii] + (conductor.cond_time[-1] - tvec[ii]) / (
+                    yy[kk] = MM[kk, ii] + (conductor.time_state.cond_time[-1] - tvec[ii]) / (
                         tvec[ii + 1] - tvec[ii]
                     ) * (MM[kk, ii + 1] - MM[kk, ii])
             elif (
-                conductor.cond_time[-1] < tvec[0] and conductor.cond_time[-1] >= 0
+                conductor.time_state.cond_time[-1] < tvec[0] and conductor.time_state.cond_time[-1] >= 0
             ):  # time > 0 always (cdp, 07/2020)
                 for kk in range(len(yy)):
                     yy[kk] = MM[kk, 0]
-            elif conductor.cond_time[-1] >= tvec[-1]:
+            elif conductor.time_state.cond_time[-1] >= tvec[-1]:
                 # time > 0 always (cdp, 07/2020)
                 for kk in range(len(yy)):
                     yy[kk] = MM[kk, -1]
             else:
                 raise ValueError(
                     f"ERROR in {interpolation.__name__}: time must \
-                        be positive scalar!\ntime = {conductor.cond_time[-1]}"
+                        be positive scalar!\ntime = {conductor.time_state.cond_time[-1]}"
                 )
         else:
             raise ValueError(

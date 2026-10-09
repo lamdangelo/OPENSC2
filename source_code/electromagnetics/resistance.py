@@ -166,7 +166,7 @@ def combine_parallel_jacket_resistance(
         np.ndarray: per-element resistance of the strand-jacket parallel.
     """
     pairs = [
-        pair for pair in getattr(conductor, "parallel_jacket_pairs", [])
+        pair for pair in conductor.electric.parallel_jacket_pairs
         if pair[0] is not strand
     ]
     effective_resistance = strand_resistance
@@ -213,7 +213,7 @@ def distribute_joule_power_to_parallel_jackets(conductor: object) -> None:
     Must be called after every strand's and jacket's
     ``get_joule_power_along`` in the heat-source assembly.
     """
-    pairs = getattr(conductor, "parallel_jacket_pairs", [])
+    pairs = conductor.electric.parallel_jacket_pairs
     # The jackets' own get_joule_power_along never overwrites their power
     # array, so clear it before accumulating the shares of this step.
     for _, jacket, _ in pairs:

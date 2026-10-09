@@ -173,7 +173,7 @@ def write_channel_run_directory(
             "name": "verification",
             "end_time": end_time,
             "time_stepping": {
-                # FIXED adaptivity forces conductor.time_step = minimum_step
+                # FIXED adaptivity forces conductor.time_state.time_step = minimum_step
                 # every step (only the final step is truncated to land on
                 # end_time).
                 "adaptivity": "FIXED",

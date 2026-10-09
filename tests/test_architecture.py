@@ -20,7 +20,11 @@ baseline of today's violations:
   ``conductor``/``cond`` object outside the ``conductor`` package, as
   ``"module: attribute"``;
 * ``BASELINE_DEFERRED_IMPORTS``: function-local imports of internal modules
-  (the way import cycles are currently hidden), as ``"module -> target"``.
+  (the way import cycles are currently hidden), as ``"module -> target"``;
+* ``BASELINE_LEGACY_CONDUCTOR_READS``: reads of a conductor state attribute
+  by its former loose name (``conductor.cond_time`` instead of
+  ``conductor.time_state.cond_time``, ``getattr(conductor, "nodal_potential")``
+  instead of ``conductor.electric.nodal_potential``), as ``"module: attribute"``.
 
 Each test fails both when a *new* violation appears and when a baseline entry
 is no longer a violation (stale entries must be deleted, so the baseline can
@@ -97,6 +101,8 @@ BASELINE_EXTERNAL_CONDUCTOR_ATTRIBUTES: frozenset[str] = frozenset({
 })
 
 BASELINE_DEFERRED_IMPORTS: frozenset[str] = frozenset()
+
+BASELINE_LEGACY_CONDUCTOR_READS: frozenset[str] = frozenset()
 
 CONDUCTOR_NAMES = frozenset({"conductor", "cond", "cond_r", "cond_c", "conductor_instance"})
 
@@ -248,6 +254,40 @@ def external_conductor_attributes() -> set[str]:
     return found
 
 
+def legacy_conductor_reads() -> set[str]:
+    """``module: attribute`` for every access to a conductor state attribute by
+    its former loose name (see conductor.electric_state.ELECTRIC_ATTRIBUTES and
+    conductor.run_state.RUN_STATE_ATTRIBUTES), as an attribute of a conductor
+    variable or through getattr/hasattr/setattr with a literal name."""
+    from conductor.electric_state import ELECTRIC_ATTRIBUTES
+    from conductor.run_state import RUN_STATE_ATTRIBUTES
+
+    legacy = set(ELECTRIC_ATTRIBUTES) | set(RUN_STATE_ATTRIBUTES)
+    found = set()
+    for path in iter_source_files():
+        module = module_name(path)
+        for node in ast.walk(parse(path)):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr in legacy
+                and isinstance(node.value, ast.Name)
+                and node.value.id in CONDUCTOR_NAMES
+            ):
+                found.add(f"{module}: {node.attr}")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("getattr", "hasattr", "setattr")
+                and len(node.args) >= 2
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id in CONDUCTOR_NAMES
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in legacy
+            ):
+                found.add(f"{module}: {node.func.id}({node.args[1].value!r})")
+    return found
+
+
 # --------------------------------------------------------------------------
 # Tests
 # --------------------------------------------------------------------------
@@ -282,6 +322,14 @@ def test_no_new_deferred_imports():
     _assert_ratchet(deferred_imports(), BASELINE_DEFERRED_IMPORTS, "function-local imports")
 
 
+def test_no_legacy_conductor_state_reads():
+    _assert_ratchet(
+        legacy_conductor_reads(),
+        BASELINE_LEGACY_CONDUCTOR_READS,
+        "reads of conductor state by its former loose attribute name",
+    )
+
+
 def test_every_top_level_package_has_a_layer():
     unassigned = sorted(
         internal_packages() - set(LAYER_OF) - {"gui_icons", "input_files", "__init__"}
@@ -300,4 +348,5 @@ if __name__ == "__main__":
     _print_set("BASELINE_LAYER_VIOLATIONS", layer_violations())
     _print_set("BASELINE_EXTERNAL_CONDUCTOR_ATTRIBUTES", external_conductor_attributes())
     _print_set("BASELINE_DEFERRED_IMPORTS", deferred_imports())
+    _print_set("BASELINE_LEGACY_CONDUCTOR_READS", legacy_conductor_reads())
     sys.exit(0)

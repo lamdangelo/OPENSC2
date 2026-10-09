@@ -342,10 +342,10 @@ class ManufacturedSource:
                 array[:, slot, 1] += rows[key][1:]
 
     def __call__(self, conductor, source_vector):
-        t_new = float(conductor.cond_time[-1])
+        t_new = float(conductor.time_state.cond_time[-1])
         if hasattr(source_vector, "present"):
             self._fill(source_vector.present, conductor, t_new)
-            self._fill(source_vector.previous, conductor, float(conductor.cond_time[-2]))
+            self._fill(source_vector.previous, conductor, float(conductor.time_state.cond_time[-2]))
         else:
             self._fill(source_vector, conductor, t_new)
         return source_vector

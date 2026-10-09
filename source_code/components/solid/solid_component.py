@@ -377,7 +377,7 @@ class SolidComponent(Component):
 
         # Check consistency between flags conductor.inputs['I0_OP_MODE']
         # and self.operations['IOP_MODE'] only the first time.
-        if conductor.cond_time[-1] == 0:
+        if conductor.time_state.cond_time[-1] == 0:
             self.__check_current_mode(conductor)
 
         # Get current.
@@ -395,7 +395,7 @@ class SolidComponent(Component):
             # The object carryes a current and its value is defied as below.
             if conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FROM_FILE:
 
-                if conductor.cond_time[-1] == 0:
+                if conductor.time_state.cond_time[-1] == 0:
                     # Tabulated external current (ports.external_inputs).
                     series = self.external_inputs.tabulated_series(
                         "current", self.identifier,
@@ -464,7 +464,7 @@ class SolidComponent(Component):
                 # User does not specify a current: set current carrient
                 # operating current to zero only the first time in both nodal
                 # and gauss points.
-                if conductor.cond_num_step == 0:
+                if conductor.time_state.cond_num_step == 0:
                     self.node_fields.op_current = np.zeros(conductor.mesh.number_of_nodes)
                     self.gauss_fields.op_current = np.zeros(conductor.mesh.number_of_elements)
 
@@ -558,7 +558,7 @@ class SolidComponent(Component):
                 # cza to enable other negative \
                 # (read from file) flags -> ibifun.eq.-3, see below (August 29, 2018)
 
-                if conductor.cond_time[-1] == 0:
+                if conductor.time_state.cond_time[-1] == 0:
                     # Tabulated external field (ports.external_inputs).
                     series = self.external_inputs.tabulated_series(
                         "bfield", self.identifier,
@@ -633,7 +633,7 @@ class SolidComponent(Component):
         """
 
         # START INITIALIZATION (cdp, 10/2020)
-        if conductor.cond_num_step == 0:
+        if conductor.time_state.cond_num_step == 0:
             if self.operations.heat_flux_mode == HeatExcitation.NO_HEATING:
                 # Initialization is done always in the same way ragardless of the \
                 # solution method: a column vector to exploit the array smart notation \
@@ -658,7 +658,7 @@ class SolidComponent(Component):
                         (conductor.mesh.number_of_nodes, 4)
                     )
             # end if self.operations.heat_flux_mode (cdp, 11/2020)
-        # end if conductor.cond_num_step (cdp, 10/2020)
+        # end if conductor.time_state.cond_num_step (cdp, 10/2020)
         # END INITIALIZATION (cdp, 10/2020)
         # criteria to decide how to evaluate the external heating (cdp, 10/2020)
         if self.operations.heat_flux_mode == HeatExcitation.SQUARE_WAVE_IN_TIME_AND_SPACE:
@@ -667,19 +667,19 @@ class SolidComponent(Component):
             # necessary to distinguish according to "Method" options at this point \
             # (cdp, 10/2020)
             if (
-                conductor.cond_time[-1] >= self.operations.heat_flux_time_start
-                and conductor.cond_time[-1] <= self.operations.heat_flux_time_end
+                conductor.time_state.cond_time[-1] >= self.operations.heat_flux_time_start
+                and conductor.time_state.cond_time[-1] <= self.operations.heat_flux_time_end
             ):
                 self.heat0_where(conductor)
             elif (
-                conductor.cond_time[-1] > self.operations.heat_flux_time_end
+                conductor.time_state.cond_time[-1] > self.operations.heat_flux_time_end
                 and self.flag_heating == "On"
             ):
                 self.node_fields.EXTFLX[:, 0] = 0.0
                 self.flag_heating = "Off"
             # end if (cdp, 10/2020)
         elif self.operations.heat_flux_mode == HeatExcitation.FROM_FILE:
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Tabulated external heat (ports.external_inputs).
                 series = self.external_inputs.tabulated_series(
                     "heat", self.identifier, self.operations.heat_flux_interpolation
@@ -692,38 +692,38 @@ class SolidComponent(Component):
                 self.node_fields.EXTFLX[:, 0] = do_interpolation(
                     self.heat_interpolator,
                     conductor.mesh.node_coordinates,
-                    conductor.cond_time[-1],
+                    conductor.time_state.cond_time[-1],
                     self.heat_interp_flag,
                 )
-            elif conductor.cond_num_step > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_num_step > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, since after that the whole system load vector is saved and there is no need to compute twice the same values.
                     self.node_fields.EXTFLX[:, 1] = self.node_fields.EXTFLX[
                         :, 0
                     ].copy()
-                # end if conductor.cond_num_step (cdp, 10/2020)
+                # end if conductor.time_state.cond_num_step (cdp, 10/2020)
                 # call method load_user_defined_quantity to compute heat and overwrite the previous values.
                 self.node_fields.EXTFLX[:, 0] = do_interpolation(
                     self.heat_interpolator,
                     conductor.mesh.node_coordinates,
-                    conductor.cond_time[-1],
+                    conductor.time_state.cond_time[-1],
                     self.heat_interp_flag,
                 )
-            # end if conductor.cond_num_step (cdp, 10/2020)
+            # end if conductor.time_state.cond_num_step (cdp, 10/2020)
         elif self.operations.heat_flux_mode == HeatExcitation.FROM_USER_FUNCTION:
             # AM2 part to be implemented
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 self.user_heat_function(conductor)
-            elif conductor.cond_num_step > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_num_step > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, since after that the whole system load vector is saved and there is no need to compute twice the same values.
                     self.node_fields.EXTFLX[:, 1] = self.node_fields.EXTFLX[
                         :, 0
                     ].copy()
-                # end if conductor.cond_num_step (cdp, 10/2020)
+                # end if conductor.time_state.cond_num_step (cdp, 10/2020)
                 # call method load_user_defined_quantity to compute heat and overwrite the previous values.
                 self.user_heat_function(conductor)
-            # end if conductor.cond_num_step (cdp, 10/2020)
+            # end if conductor.time_state.cond_num_step (cdp, 10/2020)
         # end self.operations["IQFUN"] (cdp, 10/2020)
 
     # end Get_Q
@@ -741,14 +741,14 @@ class SolidComponent(Component):
             # Square wave in time and space (cdp, 11/2020)
             if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
                 # Backward Euler or Crank-Nicolson (cdp, 10/2020)
-                if conductor.cond_num_step == 0:
+                if conductor.time_state.cond_num_step == 0:
                     # Initialization to Q0 value: this occurs when TQBEG = 0.0 s, i.e. \
                     # heating starts at the beginning of the simulation (cdp, 10/2020)
                     self.node_fields.EXTFLX[
                         lower_bound : upper_bound + 1, 0
                     ] = self.operations.heat_flux_amplitude
-                elif conductor.cond_num_step > 0:
-                    if conductor.cond_num_step == 1:
+                elif conductor.time_state.cond_num_step > 0:
+                    if conductor.time_state.cond_num_step == 1:
                         # Store the old values only immediately after the initializzation, \
                         # since after that the whole system load vector is saved and there is no \
                         # need to compute twice the same values (cdp, 10/2020)
@@ -761,7 +761,7 @@ class SolidComponent(Component):
                 # end if (cdp, 10/2020)
             elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
                 # Adams-Moulton 4 (cdp, 10/2020)
-                if conductor.cond_num_step == 0:
+                if conductor.time_state.cond_num_step == 0:
                     self.node_fields.EXTFLX[
                         lower_bound : upper_bound + 1, 0
                     ] = self.operations.heat_flux_amplitude
@@ -770,7 +770,7 @@ class SolidComponent(Component):
                         # state (cdp, 10/2020)
                         self.node_fields.EXTFLX[:, cc] = self.node_fields.EXTFLX[:, 0].copy()
                     # end for cc (cdp, 10/2020)
-                elif conductor.cond_num_step > 0:
+                elif conductor.time_state.cond_num_step > 0:
                     self.node_fields.EXTFLX[:, 1:4] = self.node_fields.EXTFLX[
                         :, 0:3
                     ].copy()
@@ -825,13 +825,13 @@ class SolidComponent(Component):
         # Method JHTFLX_new_0 starts here. (cdp, 06/2020)
         if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson (cdp, 10/2020)
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization (cdp, 10/2020)
                 self.node_fields.JHTFLX = np.zeros(
                     (conductor.mesh.number_of_nodes, 2)
                 )
-            elif conductor.cond_time[-1] > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_time[-1] > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
                     # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values (cdp, 10/2020)
@@ -840,21 +840,21 @@ class SolidComponent(Component):
                     ].copy()
                 # Update value at the current time step (cdp, 10/2020)
                 self.node_fields.JHTFLX[:, 0] = 0.0
-            # end if conductor.cond_time[-1] (cdp, 10/2020)
+            # end if conductor.time_state.cond_time[-1] (cdp, 10/2020)
         elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton 4 (cdp, 10/2020)
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization (cdp, 10/2020)
                 self.node_fields.JHTFLX = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
                 )
-            elif conductor.cond_time[-1] > 0:
+            elif conductor.time_state.cond_time[-1] > 0:
                 self.node_fields.JHTFLX[:, 1:4] = self.node_fields.JHTFLX[
                     :, 0:3
                 ].copy()
                 # Update value at the current time step (cdp, 10/2020)
                 self.node_fields.JHTFLX[:, 0] = 0.0
-                # end if conductor.cond_time[-1] (cdp, 10/2020)
+                # end if conductor.time_state.cond_time[-1] (cdp, 10/2020)
         # end if conductor.inputs["METHOD"] (cdp, 10/2020)
 
     # end JHTFLX_new_0
@@ -891,7 +891,7 @@ class SolidComponent(Component):
         refreshed by the electromagnetic update at every thermal step, so
         any field model drives the rate consistently.
         """
-        time = conductor.cond_time[-1]
+        time = conductor.time_state.cond_time[-1]
         if getattr(self, "_field_rate_time", None) == time:
             # Already evaluated this step; return the cached rate so
             # multiple loss terms see the same value.
@@ -966,13 +966,13 @@ class SolidComponent(Component):
 
         if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.gauss_fields.linear_power_el_resistance = np.zeros(
                     (conductor.mesh.number_of_elements, 2)
                 )
-            elif conductor.cond_time[-1] > 0 and conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_time[-1] > 0 and conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the
                     # initializzation, since after that the whole system load vector
                     # is saved and there is no need to compute twice the same
@@ -991,12 +991,12 @@ class SolidComponent(Component):
                     )
         elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton 4.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.gauss_fields.linear_power_el_resistance = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
                 )
-            elif conductor.cond_time[-1] > 0 and conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
+            elif conductor.time_state.cond_time[-1] > 0 and conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
                 self.gauss_fields.linear_power_el_resistance[
                     :, 1:4
                 ] = self.gauss_fields.linear_power_el_resistance[:, 0:3].copy()
@@ -1019,13 +1019,13 @@ class SolidComponent(Component):
 
         if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.node_fields.total_linear_power_el_cond = np.zeros(
                     (conductor.mesh.number_of_nodes, 2)
                 )
-            elif conductor.cond_time[-1] > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_time[-1] > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the
                     # initializzation, since after that the whole system load vector
                     # is saved and there is no need to compute twice the same
@@ -1044,12 +1044,12 @@ class SolidComponent(Component):
                     )
         elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton 4.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.node_fields.total_linear_power_el_cond = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
                 )
-            elif conductor.cond_time[-1] > 0:
+            elif conductor.time_state.cond_time[-1] > 0:
                 self.node_fields.total_linear_power_el_cond[
                     :, 1:4
                 ] = self.node_fields.total_linear_power_el_cond[:, 0:3].copy()
@@ -1103,7 +1103,7 @@ class SolidComponent(Component):
 
         if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson (cdp, 10/2020)
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization (cdp, 10/2020)
                 self.node_fields.EEXT = np.zeros(
                     (conductor.mesh.number_of_nodes, 2)
@@ -1111,8 +1111,8 @@ class SolidComponent(Component):
                 self.node_fields.EJHT = np.zeros(
                     (conductor.mesh.number_of_nodes, 2)
                 )
-            elif conductor.cond_time[-1] > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_time[-1] > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
                     # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values (cdp, 10/2020)
@@ -1123,10 +1123,10 @@ class SolidComponent(Component):
                 # Update value at the current time step (cdp, 10/2020)
                 self.node_fields.EEXT[:, 0] = 0.0
                 self.node_fields.EJHT[:, 0] = 0.0
-            # end if conductor.cond_time[-1] (cdp, 10/2020)
+            # end if conductor.time_state.cond_time[-1] (cdp, 10/2020)
         elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton 4 (cdp, 10/2020)
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization (cdp, 10/2020)
                 self.node_fields.EEXT = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
@@ -1134,7 +1134,7 @@ class SolidComponent(Component):
                 self.node_fields.EJHT = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
                 )
-            elif conductor.cond_time[-1] > 0:
+            elif conductor.time_state.cond_time[-1] > 0:
                 self.node_fields.EEXT[:, 1:4] = self.node_fields.EEXT[
                     :, 0:3
                 ].copy()
@@ -1144,7 +1144,7 @@ class SolidComponent(Component):
                 # Update value at the current time step (cdp, 10/2020)
                 self.node_fields.EEXT[:, 0] = 0.0
                 self.node_fields.EJHT[:, 0] = 0.0
-            # end if conductor.cond_time[-1] (cdp, 10/2020)
+            # end if conductor.time_state.cond_time[-1] (cdp, 10/2020)
         # end if conductor.inputs["METHOD"] (cdp, 10/2020)
 
     # end Set_energy_counters

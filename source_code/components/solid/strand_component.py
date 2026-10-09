@@ -367,7 +367,7 @@ class StrandComponent(SolidComponent):
         if nodal:
             # compute alpha_B in each node (cdp, 07/2020)
             if self.operations.alpha_b_mode <= -1:  # read from file
-                if conductor.cond_time[-1] == 0:
+                if conductor.time_state.cond_time[-1] == 0:
                     # Tabulated alpha_B (ports.external_inputs).
                     series = self.external_inputs.tabulated_series(
                         "alphab", self.identifier, self.operations.alpha_b_interpolation
@@ -634,7 +634,7 @@ class StrandComponent(SolidComponent):
             # compute Epsilon in each node (cdp, 07/2020)
             if self.operations.strain_mode < 0:  # strain from file strain.dat
 
-                if conductor.cond_time[-1] == 0:
+                if conductor.time_state.cond_time[-1] == 0:
                     # Tabulated strain (ports.external_inputs).
                     series = self.external_inputs.tabulated_series(
                         "strain", self.identifier,

@@ -44,7 +44,7 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
 
     # Loop on StrandComponent objects.
     for strand in conductor.inventory.strands.collection:
-        if conductor.cond_num_step == 0 and strand.operations.heat_flux_mode == HeatExcitation.NO_HEATING:
+        if conductor.time_state.cond_num_step == 0 and strand.operations.heat_flux_mode == HeatExcitation.NO_HEATING:
             # Call method get_heat only once to initialize key EXTFLX of
             # dictionary node_fields to zeros.
             strand.get_heat(conductor)
@@ -80,7 +80,7 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
 
     # Loop on JacketComponents objects.
     for rr, jacket in enumerate(conductor.inventory.jackets.collection):
-        if conductor.cond_num_step == 0 and jacket.operations.heat_flux_mode == HeatExcitation.NO_HEATING:
+        if conductor.time_state.cond_num_step == 0 and jacket.operations.heat_flux_mode == HeatExcitation.NO_HEATING:
             # Call method get_heat only once to initialize key EXTFLX of
             # dictionary node_fields to zeros.
             jacket.get_heat(conductor)

@@ -65,7 +65,7 @@ def _solve_steady_reduced(conductor, matrix, right_hand_side):
         return spsolve(matrix, right_hand_side)
 
     matrix = matrix.tocsr()
-    permutation = getattr(conductor, "_steady_state_permutation", None)
+    permutation = conductor.electric._steady_state_permutation
     if permutation is None or permutation.size != matrix.shape[0]:
         structure = (abs(matrix) + abs(matrix).T).tocsr()
         permutation = reverse_cuthill_mckee(structure, symmetric_mode=True)
@@ -269,7 +269,7 @@ def _solve_steady_newton(conductor: object) -> None:
     # Warm start: previous thermal step's solution, else one legacy solve
     # from the imposed-current resistances (also builds the topology and
     # the reduction operator on the first call).
-    warm = getattr(conductor, "electric_solution_steady", None)
+    warm = conductor.electric.electric_solution_steady
     if warm is None or np.asarray(warm).shape[0] != full_size:
         _steady_solve_once(conductor)
         warm = conductor.electric.electric_solution
@@ -676,7 +676,7 @@ def compute_voltage_sum(conductor: object) -> None:
     """Integrate the longitudinal voltage drop between diagnostic coordinates.
 
     For each pair of consecutive diagnostic axial positions (stored in
-    ``conductor.Time_save``), the cumulative voltage drop is summed over all
+    ``conductor.save_schedule.Time_save``), the cumulative voltage drop is summed over all
     elements between those positions and stored at the right-most diagnostic
     point in each strand's ``gauss_fields.delta_voltage_along_sum``.
 
@@ -691,11 +691,11 @@ def compute_voltage_sum(conductor: object) -> None:
                 np.nonzero(
                     conductor.mesh.gauss_point_coordinates
                     <= round(
-                        conductor.Time_save[ii], conductor.mesh.position_precision
+                        conductor.save_schedule.Time_save[ii], conductor.mesh.position_precision
                     )
                 )
             )
-            for ii in range(1, conductor.Time_save.size)
+            for ii in range(1, conductor.save_schedule.Time_save.size)
         ]
     )
 

@@ -107,13 +107,13 @@ class JacketComponent(SolidComponent):
         key = f"{environment.KIND}_{self.identifier}"
         if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.radiative_heat_env = np.zeros(
                     (conductor.mesh.number_of_nodes, 2)
                 )
-            elif conductor.cond_time[-1] > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_time[-1] > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
                     # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values.
@@ -127,15 +127,15 @@ class JacketComponent(SolidComponent):
                         - self.node_fields.temperature
                     )
                 )
-            # end if conductor.cond_time[-1].
+            # end if conductor.time_state.cond_time[-1].
         elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton 4.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.radiative_heat_env = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
                 )
-            elif conductor.cond_time[-1] > 0:
+            elif conductor.time_state.cond_time[-1] > 0:
                 self.radiative_heat_env[:, 1:4] = self.radiative_heat_env[:, 0:3].copy()
                 # Update value at the current time step.
                 self.radiative_heat_env[:, 0] = (
@@ -146,7 +146,7 @@ class JacketComponent(SolidComponent):
                         - self.node_fields.temperature
                     )
                 )
-            # end if conductor.cond_time[-1].
+            # end if conductor.time_state.cond_time[-1].
         # end if conductor.inputs["METHOD"].
 
     # End method _radiative_source_therm.
@@ -165,13 +165,13 @@ class JacketComponent(SolidComponent):
         # End if self.identifier.
         if conductor.inputs.thermohydraulic_method in ONE_STEP_METHODS:
             # Backward Euler or Crank-Nicolson.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.radiative_heat_inn[key] = np.zeros(
                     (conductor.mesh.number_of_nodes, 2)
                 )
-            elif conductor.cond_time[-1] > 0:
-                if conductor.cond_num_step == 1:
+            elif conductor.time_state.cond_time[-1] > 0:
+                if conductor.time_state.cond_num_step == 1:
                     # Store the old values only immediately after the initializzation, \
                     # since after that the whole system load vector is saved and there is no \
                     # need to compute twice the same values.
@@ -187,15 +187,15 @@ class JacketComponent(SolidComponent):
                         - self.node_fields.temperature
                     )
                 )
-            # end if conductor.cond_time[-1].
+            # end if conductor.time_state.cond_time[-1].
         elif conductor.inputs.thermohydraulic_method == MethodFlag.ADAMS_MOULTON_4TH_ORDER:
             # Adams-Moulton 4.
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # Initialization.
                 self.radiative_heat_inn[key] = np.zeros(
                     (conductor.mesh.number_of_nodes, 4)
                 )
-            elif conductor.cond_time[-1] > 0:
+            elif conductor.time_state.cond_time[-1] > 0:
                 self.radiative_heat_inn[key][:, 1:4] = self.radiative_heat_inn[key][
                     :, 0:3
                 ].copy()
@@ -208,7 +208,7 @@ class JacketComponent(SolidComponent):
                         - self.node_fields.temperature
                     )
                 )
-            # end if conductor.cond_time[-1].
+            # end if conductor.time_state.cond_time[-1].
         # end if conductor.inputs["METHOD"].
 
     # End method _radiative_source_therm.

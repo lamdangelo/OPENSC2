@@ -435,7 +435,7 @@ def apply_network_port_boundary_conditions(
             swept_fraction = min(
                 1.0,
                 float(np.abs(end_velocity))
-                * conductor.time_step
+                * conductor.time_state.time_step
                 / element_length,
             )
             system_matrix[:, port.temperature_index] = 0.0

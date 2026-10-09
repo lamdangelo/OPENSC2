@@ -61,7 +61,7 @@ def run_transient(
         # declared, every conductor shares the smallest step.
         lockstep_conductors = list(conductors) if transverse_coupling_declared else coupled_conductors
         if lockstep_conductors:
-            shared_time_step = min(c.time_step for c in lockstep_conductors)
+            shared_time_step = min(c.time_state.time_step for c in lockstep_conductors)
             for conductor in lockstep_conductors:
                 conductor.time_state.time_step = shared_time_step
         for ii, conductor in enumerate(conductors):

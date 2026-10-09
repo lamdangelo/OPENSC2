@@ -33,10 +33,9 @@ from components.solid.strand_stabilizer_component import StrandStabilizerCompone
 from components.solid.strand_stabilizer_component_inputs import (
     StrandStabilizerComponentInputs,
 )
-from conductor.conductor import Conductor
 from conductor.conductor_flags import InterpolationType, MethodFlag
 from conductor.electric_state import ElectricState
-from conductor.run_state import UNSET, BalanceState, SaveSchedule, TimeState
+from conductor.run_state import BalanceState, SaveSchedule, TimeState
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode
 from hydraulics.hydraulic_flags import HydraulicFormulation
 from runtime.time_stepping import TimeSteppingSettings
@@ -302,28 +301,25 @@ def make_jacket(identifier="Z_JACKET_1", operations=None, build=None, **input_ov
 class ConductorStub:
     """What the physics reads from a Conductor, without input files.
 
-    Owns the same state objects as ``conductor.Conductor``. Transitional:
-    the legacy attribute spelling (``cond_time``, ``time_step``,
-    ``nodal_potential``, ...) is forwarded to the state objects exactly as
-    ``Conductor._FORWARDED`` does, until the production code reads the
-    state objects directly.
+    Owns the same state objects as ``conductor.Conductor`` (``time_state``,
+    ``electric``, ``balances``, ``save_schedule``); state is read and written
+    through them, exactly as on the real Conductor.
     """
 
     def __init__(self, identifier, mesh, inventory, inputs, operations, file_paths, time, time_step):
-        put = object.__setattr__
-        put(self, "electric", ElectricState())
-        put(self, "time_state", TimeState())
-        put(self, "balances", BalanceState())
-        put(self, "save_schedule", SaveSchedule())
-        put(self, "identifier", identifier)
-        put(self, "mesh", mesh)
-        put(self, "inventory", inventory)
-        put(self, "inputs", inputs)
-        put(self, "operations", operations)
-        put(self, "file_paths", file_paths)
-        put(self, "network_ports", [])
-        put(self, "hydraulic_formulation", HydraulicFormulation.VELOCITY)
-        put(self, "fluid_source_callback", None)
+        self.electric = ElectricState()
+        self.time_state = TimeState()
+        self.balances = BalanceState()
+        self.save_schedule = SaveSchedule()
+        self.identifier = identifier
+        self.mesh = mesh
+        self.inventory = inventory
+        self.inputs = inputs
+        self.operations = operations
+        self.file_paths = file_paths
+        self.network_ports = []
+        self.hydraulic_formulation = HydraulicFormulation.VELOCITY
+        self.fluid_source_callback = None
         self.time_state.cond_time = [time]
         self.time_state.cond_num_step = 0
         self.time_state.time_step = time_step
@@ -332,22 +328,6 @@ class ConductorStub:
     def component_element_lengths(self, identifier: str) -> np.ndarray:
         """Straight components: every element has the mesh element length."""
         return np.asarray(self.mesh.element_lengths, dtype=float)
-
-    # -- transitional forwarding of the legacy spelling (see Conductor) ----
-    def __getattr__(self, name):
-        holder_name = Conductor._FORWARDED.get(name)
-        if holder_name is not None and holder_name in self.__dict__:
-            value = getattr(self.__dict__[holder_name], name)
-            if value is not UNSET:
-                return value
-        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
-
-    def __setattr__(self, name, value):
-        holder_name = Conductor._FORWARDED.get(name)
-        if holder_name is not None and holder_name in self.__dict__:
-            setattr(self.__dict__[holder_name], name, value)
-        else:
-            object.__setattr__(self, name, value)
 
 
 def make_conductor(

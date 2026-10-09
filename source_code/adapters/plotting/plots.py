@@ -233,7 +233,7 @@ def make_plots(simulation, kind="Space_distr"):
             )
             # plot features (cdp, 01/2021)
             # unify the array (cdp, 11/2020)
-            # uni_label = cond.Space_save
+            # uni_label = cond.save_schedule.Space_save
             # x axis label (cdp, 11/2020)
             ascissa = "$x\ (m)$"
             # legend title (cdp, 11/2020)
@@ -242,7 +242,7 @@ def make_plots(simulation, kind="Space_distr"):
             title_comp = "s. d."
         elif kind == "Time_evol":
             # unify the array (cdp, 11/2020)
-            kind_save = cond.Time_save
+            kind_save = cond.save_schedule.Time_save
             root_load_path = simulation.dict_path[
                 f"Output_Time_evolution_{cond.identifier}_dir"
             ]
@@ -252,7 +252,7 @@ def make_plots(simulation, kind="Space_distr"):
             ]
             # plot features (cdp, 01/2021)
             # unify the array (cdp, 11/2020)
-            # uni_label = cond.Time_save
+            # uni_label = cond.save_schedule.Time_save
             # x axis label (cdp, 11/2020)
             ascissa = "$t\ (s)$"
             # legend title (cdp, 11/2020)
@@ -1278,13 +1278,13 @@ def update_real_time_plots_max_temperature(conductor, comp):
     """
     if comp.KIND == "Fluid_component":
         comp.axes_max_temp.plot(
-            conductor.cond_time[-1],
+            conductor.time_state.cond_time[-1],
             comp.coolant.node_fields.temperature.max(),
             "k.",
         )
     else:
         comp.axes_max_temp.plot(
-            conductor.cond_time[-1], comp.node_fields.temperature.max(), "k."
+            conductor.time_state.cond_time[-1], comp.node_fields.temperature.max(), "k."
         )
 
 
@@ -1300,13 +1300,13 @@ def update_real_time_plots_inlet_outlet_mfr(conductor, f_comp):
     """
     # Aggiustare per tener conto della effettiva direzione del flusso di refrigerante.
     f_comp.axes_io_mfr.plot(
-        conductor.cond_time[-1],
+        conductor.time_state.cond_time[-1],
         f_comp.coolant.node_fields.mass_flow_rate[0],
         "co",
         label="Inlet",
     )
     f_comp.axes_io_mfr.plot(
-        conductor.cond_time[-1],
+        conductor.time_state.cond_time[-1],
         f_comp.coolant.node_fields.mass_flow_rate[-1],
         "b.",
         label="Outlet",
@@ -1355,7 +1355,7 @@ def plot_time_animation(simulation, conductor):
 
     list_types = ["FluidComponent", "StrandComponent", "JacketComponent"]
     for l_type in list_types:
-        if conductor.cond_time[-1] == 0:
+        if conductor.time_state.cond_time[-1] == 0:
             # Define some immutable features of the plots only once (cdp, 10/2020)
             # Construct Figure and axes object related to maximum temperature plots, \
             # storing them in dictionaries (cdp, 10/2020)
@@ -1407,33 +1407,33 @@ def plot_time_animation(simulation, conductor):
             axes["T_max"][l_type].set_xlim(
                 [0.0, simulation.transient_input["TEND"]]
             )
-        # end if conductor.cond_time[-1] (cdp, 10/2020)
+        # end if conductor.time_state.cond_time[-1] (cdp, 10/2020)
         if l_type == "FluidComponent":
             # loop on FluidComponent (cdp, 10/2020)
             for fluid_comp in conductor.inventory.fluids.collection:
                 # make the plot of channels maximum temperature (cdp, 10/2020)
                 # axes["T_max"][l_type].plot(
-                #     conductor.cond_time[-1], fluid_comp.coolant.node_fields.temperature.max(), conductor.color[ii], label = fluid_comp.identifier) # choose the color
+                #     conductor.time_state.cond_time[-1], fluid_comp.coolant.node_fields.temperature.max(), conductor.color[ii], label = fluid_comp.identifier) # choose the color
                 axes["T_max"][l_type].plot(
-                    conductor.cond_time[-1],
+                    conductor.time_state.cond_time[-1],
                     fluid_comp.coolant.node_fields.temperature.max(),
                     label=fluid_comp.identifier,
                 )
                 # make plot of inlet and outlet mass flow rate; each channel has its \
                 # own figures (cdp, 10/2020)
                 axes["mfr"][fluid_comp.identifier].plot(
-                    conductor.cond_time[-1],
+                    conductor.time_state.cond_time[-1],
                     fluid_comp.coolant.node_fields.mass_flow_rate[0],
                     conductor.color[0],
                     label="Inlet",
                 )
                 axes["mfr"][fluid_comp.identifier].plot(
-                    conductor.cond_time[-1],
+                    conductor.time_state.cond_time[-1],
                     fluid_comp.coolant.node_fields.mass_flow_rate[-1],
                     conductor.color[1],
                     label="Outlet",
                 )
-                if conductor.cond_time[-1] == 0:
+                if conductor.time_state.cond_time[-1] == 0:
                     # define legend only once (cdp, 10/2020)
                     axes["T_max"][l_type].legend(
                         loc="best", fontsize=8, framealpha=0.2
@@ -1443,21 +1443,21 @@ def plot_time_animation(simulation, conductor):
                     axes["mfr"][fluid_comp.identifier].legend(
                         loc="best", fontsize=8, framealpha=0.2
                     )
-                # end if conductor.cond_time[-1] (cdp, 10/2020)
+                # end if conductor.time_state.cond_time[-1] (cdp, 10/2020)
             # end for ii (cdp, 10/2020)
         elif l_type == "StrandComponent":
             # loop on StrandComponent (cdp, 10/2020)
             for strand in conductor.inventory.strands.collection:
                 # plot the maximum strand temperature (cdp, 10/2020)
                 # axes["T_max"][l_type].plot(
-                #     conductor.cond_time[-1], strand.node_fields.temperature.max(), conductor.color[ii], label = strand.identifier) # choose the color.
+                #     conductor.time_state.cond_time[-1], strand.node_fields.temperature.max(), conductor.color[ii], label = strand.identifier) # choose the color.
                 axes["T_max"][l_type].plot(
-                    conductor.cond_time[-1],
+                    conductor.time_state.cond_time[-1],
                     strand.node_fields.temperature.max(),
                     label=strand.identifier,
                 )
             # end for strand (cdp, 10/2020)
-            if conductor.cond_time[-1] == 0:
+            if conductor.time_state.cond_time[-1] == 0:
                 # define legend only once (cdp, 10/2020)
                 axes["T_max"][l_type].legend(
                     loc="best", fontsize=8, framealpha=0.2
@@ -1469,7 +1469,7 @@ def plot_time_animation(simulation, conductor):
         # end if l_type (cdp, 10/2020)
     # end for l_type (cdp, 10/2020)
 
-    if conductor.cond_time[-1] == 0:
+    if conductor.time_state.cond_time[-1] == 0:
         # plt.show(block = False)
         # close figure related to JacketComponent objects (cdp, 10/2020)
         plt.close(figures["T_max"]["JacketComponent"])

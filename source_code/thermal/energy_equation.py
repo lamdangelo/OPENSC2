@@ -634,7 +634,7 @@ def build_svec_env_jacket_interface(
         # Linear heat flux from environment W/m
         env_heat = coef * env.temperature
 
-        if conductor.cond_num_step == 1:
+        if conductor.time_state.cond_num_step == 1:
             # Present time step.
             array.present[:, eq_idx[s_comp.identifier], 0] += env_heat
             array.present[:, eq_idx[s_comp.identifier], 1] += env_heat
@@ -690,7 +690,7 @@ def build_known_therm_vector(
         # band diagonal at a time with slice arithmetic instead of the
         # previous per-row Python loop.
         if method in THETA_FAMILY_METHODS:
-            banded_matrix = mass_capacity / conductor.time_step - (
+            banded_matrix = mass_capacity / conductor.time_state.time_step - (
                 1.0 - conductor.theta_method
             ) * (flux_jacobian + diffusion + source_jacobian)
             solution = solution_history[:, 0]
@@ -699,7 +699,7 @@ def build_known_therm_vector(
             # current level only; the previous levels enter through the mass
             # matrix with the multi-level time-derivative weights.
             _, a1, a2 = backward_difference_2_coefficients(conductor)
-            banded_matrix = mass_capacity / conductor.time_step
+            banded_matrix = mass_capacity / conductor.time_state.time_step
             solution = a1 * solution_history[:, 0] - a2 * solution_history[:, 1]
         array[:] = 0.0
         for diagonal in range(-half_1, half_1 + 1):
@@ -747,7 +747,7 @@ def build_known_therm_vector(
             # np.sum(am4_coef[2:] * am4_aa[2:,r_mat_idx,c_mat_idx].T * solution_history[r_arr_idx,1:3],1) should be equivalent to 5. / 24.* am4_aa[2,r_mat_idx,c_mat_idx] * solution_history[r_arr_idx, 1] - 1. / 24. * am4_aa[3,r_mat_idx,c_mat_idx] * solution_history[r_arr_idx, 2]
             array[c_mat_idx] = np.sum(
                 (
-                    mass_capacity[r_mat_idx, c_mat_idx] / conductor.time_step
+                    mass_capacity[r_mat_idx, c_mat_idx] / conductor.time_state.time_step
                     - am4_coef[1] * am4_aa[1,r_mat_idx,c_mat_idx]
                 ) * solution_history[r_arr_idx,0] # array of shape (r_arr_idx.shape[0],)
                 + np.sum(

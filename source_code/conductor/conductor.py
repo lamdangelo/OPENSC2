@@ -36,14 +36,8 @@ from components.fluid.fluid_component import FluidComponent
 from components.component_factory import build_component
 from components.component_build import ComponentBuildSettings
 from conductor.conductor_definition import ConductorDefinition
-from conductor.electric_state import ELECTRIC_ATTRIBUTES, ElectricState
-from conductor.run_state import (
-    RUN_STATE_ATTRIBUTES,
-    UNSET,
-    BalanceState,
-    SaveSchedule,
-    TimeState,
-)
+from conductor.electric_state import ElectricState
+from conductor.run_state import BalanceState, SaveSchedule, TimeState
 from runtime.time_stepping import TimeSteppingSettings
 from components.jacket.jacket_component import JacketComponent
 from components.solid.stack_component import StackComponent
@@ -186,26 +180,6 @@ class Conductor:
         # Call private method __initialize_attributes to initialize all the other useful and necessary attributes of class Conductor.
         self.__initialize_attributes(simulation)
 
-
-    # -- transitional: old spelling conductor.<state attribute> ----------
-    # Forwarded to the state objects (electric, time_state, balances,
-    # save_schedule); removed once every call site uses the new spelling.
-    _FORWARDED = {**{name: "electric" for name in ELECTRIC_ATTRIBUTES}, **RUN_STATE_ATTRIBUTES}
-
-    def __getattr__(self, name):
-        holder_name = Conductor._FORWARDED.get(name)
-        if holder_name is not None and holder_name in self.__dict__:
-            value = getattr(self.__dict__[holder_name], name)
-            if value is not UNSET:
-                return value
-        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
-
-    def __setattr__(self, name, value):
-        holder_name = Conductor._FORWARDED.get(name)
-        if holder_name is not None and holder_name in self.__dict__:
-            setattr(self.__dict__[holder_name], name, value)
-        else:
-            object.__setattr__(self, name, value)
 
     def set_hydraulic_formulation(self, formulation):
         """Resolved formulation of the 1D channel unknowns (never AUTO); also

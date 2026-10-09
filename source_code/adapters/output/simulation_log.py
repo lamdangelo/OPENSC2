@@ -280,7 +280,7 @@ class SimulationSummary:
                 checkpoint, whose hot-spot row is already in the truncated
                 file.
         """
-        time_now = conductor.cond_time[-1]
+        time_now = conductor.time_state.cond_time[-1]
         coordinates = conductor.mesh.node_coordinates
         per_component = self._per_conductor.setdefault(conductor.identifier, {})
         hotspot_row = [time_now]
@@ -311,7 +311,7 @@ class SimulationSummary:
             conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED
         )
         n_strands = conductor.inventory.strands.number
-        nodal_potential = getattr(conductor, "nodal_potential", None)
+        nodal_potential = conductor.electric.nodal_potential
 
         element_lengths = getattr(conductor.mesh, "element_lengths", None)
         for solid in _solid_components(conductor):

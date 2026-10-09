@@ -82,7 +82,7 @@ def update_em_operating_conditions(conductor: object) -> None:
             strand.get_superconductor_critical_prop(conductor)
             if (
                 strand.operations.tcs_evaluation == False
-                and conductor.cond_num_step == 0
+                and conductor.time_state.cond_num_step == 0
             ):
                 strand.get_tcs()
             elif strand.operations.tcs_evaluation == True:
@@ -140,7 +140,7 @@ def evaluate_em_gauss_points(conductor: object) -> None:
             strand.get_superconductor_critical_prop(conductor, nodal=False)
             if (
                 strand.operations.tcs_evaluation == False
-                and conductor.cond_num_step == 0
+                and conductor.time_state.cond_num_step == 0
             ):
                 strand.get_tcs(nodal=False)
             elif strand.operations.tcs_evaluation == True:

@@ -120,7 +120,7 @@ def evaluate_channel_solid_htc(conductor: object, simulation: object, dict_dummy
                             + dict_dummy_chan_r[flag_nodal]["temperature"] ** 2
                         )
                     )
-                    if conductor.cond_time[-1] > s_comp.operations.heat_flux_time_start:
+                    if conductor.time_state.cond_time[-1] > s_comp.operations.heat_flux_time_start:
                         # implementation fully correct only for fully implicit method \
                         # (cdp, 06/2020)
                         htc_transient = np.sqrt(
@@ -135,7 +135,7 @@ def evaluate_channel_solid_htc(conductor: object, simulation: object, dict_dummy
                             )
                             / (
                                 np.pi
-                                * (conductor.cond_time[-1] - s_comp.operations.heat_flux_time_start)
+                                * (conductor.time_state.cond_time[-1] - s_comp.operations.heat_flux_time_start)
                             )
                         )
                         htc_full_transient = (htc_Kapitza * htc_transient) / (

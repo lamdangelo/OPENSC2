@@ -53,7 +53,7 @@ class StiffCapture:
         conductor = simulation.list_of_Conductors[0]
         self.newton_iterations = max(
             self.newton_iterations,
-            getattr(conductor, "_steady_newton_iterations", 0),
+            conductor.electric._steady_newton_iterations,
         )
         stack = None
         for strand in conductor.inventory.strands.collection:

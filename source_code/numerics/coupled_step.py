@@ -164,13 +164,13 @@ def solve_coupled_conductors_step(conductors: list,
     digits. Shifted by the old network state, the particular solves run at
     p_port = p_node_old (essentially the true state) and the border
     corrections stay small."""
-    time_steps = {conductor.time_step for conductor in conductors}
+    time_steps = {conductor.time_state.time_step for conductor in conductors}
     if len(time_steps) > 1:
         raise ValueError(
             "Network-coupled conductors must share the time step; got "
             f"{sorted(time_steps)}."
         )
-    time_step = conductors[0].time_step
+    time_step = conductors[0].time_state.time_step
 
     network.update_properties()
     network_matrix, network_known = network.assemble_transient(time_step)

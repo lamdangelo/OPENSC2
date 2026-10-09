@@ -3,9 +3,9 @@
 The ~35 arrays, matrices and counters that the electromagnetics package
 builds and advances used to be loose attributes assigned on the Conductor
 from outside the class. They are grouped here; ``Conductor.electric`` holds
-the instance and physics reads/writes ``conductor.electric.<name>``. The
-old ``conductor.<name>`` spelling is forwarded by the Conductor for one
-stage (see ELECTRIC_ATTRIBUTES) and removed afterwards.
+the instance and physics reads/writes ``conductor.electric.<name>``.
+ELECTRIC_ATTRIBUTES lists the former names; tests/test_architecture.py fails
+on any read of the old ``conductor.<name>`` spelling.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class ElectricState:
     current_across: Any = None
     delta_voltage_across: Any = None
     _steady_state_permutation: Any = None
-    _steady_newton_iterations: Optional[int] = None
+    _steady_newton_iterations: int = 0
     # Electric clock
     electric_theta: float = 0.0
     electric_time: float = 0.0

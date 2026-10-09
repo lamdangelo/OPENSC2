@@ -365,8 +365,9 @@ def _performed_saves(cond, f_path, n_digit_time):
     plus the final save).
     """
     scheduled_steps = np.asarray(cond.save_schedule.num_step_save, dtype=int)
+    performed = cond.save_schedule.i_save
     performed_scheduled = min(
-        int(getattr(cond, "i_save", scheduled_steps.size)),
+        scheduled_steps.size if performed is None else int(performed),
         scheduled_steps.size,
     )
     actual_file = os.path.join(f_path, "Time_sd_actual.tsv")
@@ -392,7 +393,7 @@ def _write_consolidated(cond, path_save, frame):
     of the saves before the checkpoint; the new columns are appended to
     them instead of replacing the file.
     """
-    if getattr(cond, "restart_after_finalization", False) and os.path.isfile(
+    if cond.time_state.restart_after_finalization and os.path.isfile(
         path_save
     ):
         # round_trip parsing keeps the kept columns byte-identical on rewrite

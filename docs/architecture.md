@@ -94,10 +94,6 @@ regression, checkpoint-restart SHA and verification tests.
   `StrandComponent.eval_critical_properties` / `_critical_current_density`
   still branches on the material string (a `Superconductor` protocol would
   complete Stage 8).
-* Test fakes (`SimpleNamespace` conductors, `SolidComponent.__new__`) still
-  rely on the old attribute spelling that the Conductor forwards; the
-  forwarding (`Conductor._FORWARDED`) can be removed once the tests build
-  real objects (`tests/factories.py` is the intended home).
 * `models/` driver scripts are not tracked on this branch; their imports
   were updated in place together with `tests/`, `scripts/` and `tools/`.
 * The root-package move (`opensc2/...`) is deferred (appendix of the plan).

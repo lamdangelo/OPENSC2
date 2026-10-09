@@ -4,67 +4,57 @@ and the diagnostics save schedule.
 These attributes used to be assigned on the Conductor from the numerics,
 the application loop, the energy balance and the output adapters. They are
 grouped in three small state objects owned by the Conductor
-(``conductor.time_state``, ``conductor.balances``, ``conductor.save_schedule``).
-Fields start as UNSET so that ``getattr(conductor, name, default)`` and
-``hasattr`` keep their former meaning until the attribute is first assigned;
-the Conductor forwards the old spelling for one stage.
+(``conductor.time_state``, ``conductor.balances``, ``conductor.save_schedule``)
+and are always read and written through them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
-
-class _Unset:
-    __slots__ = ()
-
-    def __repr__(self):
-        return "UNSET"
-
-
-UNSET = _Unset()
+from typing import Any, Optional
 
 
 @dataclass
 class TimeState:
-    cond_time: Any = UNSET
-    cond_num_step: Any = UNSET
-    time_step: Any = UNSET
-    previous_time_step: Any = UNSET
-    local_truncation_error_ratio: Any = UNSET
-    time_accuracy_eigenvalue: Any = UNSET
-    equation_eigenvalues: Any = UNSET
-    restart_after_finalization: Any = UNSET
+    cond_time: list = field(default_factory=list)  # simulation time history [s]
+    cond_num_step: int = 0
+    time_step: Optional[float] = None
+    previous_time_step: Optional[float] = None
+    local_truncation_error_ratio: Any = None
+    time_accuracy_eigenvalue: Any = None
+    equation_eigenvalues: Any = None
+    restart_after_finalization: bool = False
 
 
 @dataclass
 class BalanceState:
-    E_sol_ini: Any = UNSET
-    E_sol_fin: Any = UNSET
-    E_str_ini: Any = UNSET
-    E_str_fin: Any = UNSET
-    E_jk_ini: Any = UNSET
-    E_jk_fin: Any = UNSET
-    enthalpy_balance: Any = UNSET
-    enthalpy_inl: Any = UNSET
-    enthalpy_out: Any = UNSET
-    inner_pow: Any = UNSET
-    outer_pow: Any = UNSET
-    mass_balance: Any = UNSET
-    energy_balance: Any = UNSET
-    MDTINL: Any = UNSET
+    E_sol_ini: Any = None
+    E_sol_fin: Any = None
+    E_str_ini: Any = None
+    E_str_fin: Any = None
+    E_jk_ini: Any = None
+    E_jk_fin: Any = None
+    enthalpy_balance: Any = None
+    enthalpy_inl: Any = None
+    enthalpy_out: Any = None
+    inner_pow: Any = None
+    outer_pow: Any = None
+    mass_balance: Any = None
+    energy_balance: Any = None
+    MDTINL: Any = None
 
 
 @dataclass
 class SaveSchedule:
-    Space_save: Any = UNSET
-    Time_save: Any = UNSET
-    i_save: Any = UNSET
-    num_step_save: Any = UNSET
+    Space_save: Any = None  # times at which spatial distributions are saved
+    Time_save: Any = None  # positions at which time evolutions are saved
+    i_save: Optional[int] = None  # number of spatial saves performed so far
+    num_step_save: Any = None  # step numbers of the scheduled spatial saves
 
 
-# old attribute name -> name of the holder on the Conductor
+# former Conductor attribute name -> name of its holder on the Conductor
+# (kept as documentation and for tests/test_architecture.py, which fails on
+# any read of the old spelling)
 RUN_STATE_ATTRIBUTES = {
     "cond_time": "time_state",
     "cond_num_step": "time_state",
