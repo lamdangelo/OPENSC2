@@ -83,8 +83,8 @@ from electromagnetics.operating_conditions import (
     evaluate_em_gauss_points,
     update_em_operating_conditions,
     evaluate_total_operating_current as _evaluate_total_operating_current,
-    user_defined_current,
 )
+from electromagnetics.current_waveform import user_defined_current
 
 # import functions
 from numerics.interpolation import set_diagnostic

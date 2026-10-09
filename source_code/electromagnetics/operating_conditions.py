@@ -27,35 +27,14 @@ From utility_functions/electric_auxiliary_functions.py:
     custom_current_function
 """
 
-from typing import Union
 
 import numpy as np
 
 from electromagnetics.electromagnetic_flags import CurrentMode
+from electromagnetics.current_waveform import user_defined_current  # noqa: F401 (re-export)
 from components.solid.strand_stabilizer_component import StrandStabilizerComponent
 from components.solid.strand_mixed_component import StrandMixedComponent
 from thermal.temperature_field import eval_temperature_solids_gauss_point
-
-
-# ---------------------------------------------------------------------------
-# USER-CUSTOMISABLE CURRENT WAVEFORM
-# ---------------------------------------------------------------------------
-
-def user_defined_current(time: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-    """Return the transport current at the given time(s).
-
-    **Customise this function** to define an arbitrary current waveform.
-    It is called when ``CurrentMode.CURRENT_IS_FUNCTION`` is active.
-
-    Args:
-        time: Scalar or array of time values in seconds.
-
-    Returns:
-        Current value(s) in amperes at the requested time(s).
-    """
-    CURRENT_AMPLITUDE = 1.0  # [A]
-    FREQUENCY = 50.0         # [Hz]
-    return CURRENT_AMPLITUDE * np.cos(2 * np.pi * FREQUENCY * time)
 
 
 # ---------------------------------------------------------------------------

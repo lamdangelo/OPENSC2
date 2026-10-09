@@ -89,7 +89,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "update_em_operating_conditions": "operating_conditions",
     "evaluate_em_gauss_points": "operating_conditions",
     "evaluate_total_operating_current": "operating_conditions",
-    "user_defined_current": "operating_conditions",
+    "user_defined_current": "current_waveform",
 }
 
 

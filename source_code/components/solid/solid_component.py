@@ -9,6 +9,7 @@ from components.solid.solid_component_inputs import (
     SolidComponentOperations
 )
 from electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode
+from electromagnetics.current_waveform import user_defined_current
 from thermal.thermal_flags import HeatExcitation
 from conductor.conductor_flags import MethodFlag, ONE_STEP_METHODS
 from components.component import Component
@@ -528,10 +529,6 @@ class SolidComponent(Component):
             return 1.0
 
         if conductor.inputs.current_mode == CurrentMode.CURRENT_IS_FUNCTION:
-            from electromagnetics.operating_conditions import (
-                user_defined_current,
-            )
-
             return (
                 user_defined_current(conductor.electric.electric_time)
                 / conductor.inputs.initial_current

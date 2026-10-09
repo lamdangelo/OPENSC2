@@ -99,9 +99,7 @@ BASELINE_LAYER_VIOLATIONS: frozenset[str] = frozenset({
 BASELINE_EXTERNAL_CONDUCTOR_ATTRIBUTES: frozenset[str] = frozenset({
 })
 
-BASELINE_DEFERRED_IMPORTS: frozenset[str] = frozenset({
-    "components.solid.solid_component -> electromagnetics.operating_conditions",
-})
+BASELINE_DEFERRED_IMPORTS: frozenset[str] = frozenset()
 
 CONDUCTOR_NAMES = frozenset({"conductor", "cond", "cond_r", "cond_c", "conductor_instance"})
 
