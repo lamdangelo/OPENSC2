@@ -133,6 +133,7 @@ class StrandMixedComponent(StrandComponent):
 
         self.__strand_density_flag = False
         self.__reorganize_input()
+        self.resolve_superconductor()
         self.__check_consistency(build.conductor_identifier)
 
         self.deal_with_fixed_potential(build.conductor_length)

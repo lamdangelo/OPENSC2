@@ -52,6 +52,14 @@ def test_signatures_match_direct_calls():
     np.testing.assert_array_equal(material_for("nbti-w7x").isobaric_specific_heat(T, **kwargs), isobaric_specific_heat_nbti_w7x(T, T_C, T_C0))
 
 
+def test_superconductor_entries_are_superconductor_objects():
+    from properties_of_materials.material import Superconductor
+
+    for name in ("nb3sn", "nbti", "nbti-w7x", "re123", "mgb2"):
+        assert isinstance(material_for(name), Superconductor)
+    assert not isinstance(material_for("cu"), Superconductor)
+
+
 def test_superconductors_have_no_normal_resistivity():
     with pytest.raises(NotImplementedError):
         material_for("nbti").electrical_resistivity(T)

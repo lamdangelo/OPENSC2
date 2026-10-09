@@ -74,6 +74,8 @@ class StrandStabilizerComponent(StrandComponent):
         """
 
         super().__init__(inputs, operations, build.external_inputs)
+        # A stabilizer carries no superconductor.
+        self.superconductor = None
         self.name = name
         self.identifier = identifier
 

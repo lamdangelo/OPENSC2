@@ -16,6 +16,7 @@ import numpy as np
 
 from components.solid.strand_component import StrandComponent
 from factories import make_conductor, make_strand_mixed, strand_operations
+from properties_of_materials.niobium3_tin import critical_current_density_nb3sn
 from properties_of_materials.niobium_titanium_w7x import (
     critical_current_density_nbti_w7x,
 )
@@ -105,10 +106,40 @@ def test_hysteresis_disabled_is_zero():
     assert np.all(strand.node_fields.hysteresis_loss_linear_power == 0.0)
 
 
-def test_hysteresis_unsupported_material_raises():
+def test_unknown_superconducting_material_is_rejected_at_construction():
     import pytest
 
-    strand = make_strand(FILAMENT_DIAMETER)
-    strand.inputs.superconducting_material = "nb3sn"
-    with pytest.raises(NotImplementedError):
-        drive(strand, 4.35, 3.0, 0.01)
+    with pytest.raises(KeyError, match="unobtainium"):
+        make_strand_mixed(superconducting_material="unobtainium")
+    with pytest.raises(KeyError, match="not a superconductor"):
+        make_strand_mixed(superconducting_material="cu")
+
+
+def test_hysteresis_nb3sn_uses_the_strain_dependent_scaling():
+    """Nb3Sn: Jc(T, B, eps) with the constant strain of the operations."""
+    strain = -0.0068
+    tc0, bc20, c0 = 16.22, 32.35, 1.21508e11  # CASE_1 ITER-like strand
+    strand = make_strand_mixed(
+        cross_section=CROSS_SECTION,
+        stabilizer_to_sc_ratio=CU_SC_RATIO,
+        critical_current_definition_mode=1,
+        critical_temperature_at_0T=tc0,
+        upper_critical_field_at_0K=bc20,
+        critical_current_scaling_constant=c0,
+        operations=strand_operations(
+            filament_diameter=FILAMENT_DIAMETER, strain_mode=1, strain_value=strain
+        ),
+    )
+    assert strand.superconductor.needs_strain
+    strand.get_eps(conductor_at(0.0))  # constant strain field on the nodes
+    b0, b1, dt = 12.0, 11.9, 0.01
+    drive(strand, b0, b1, dt)
+    temperature = np.full(NUMBER_OF_NODES, 6.0)
+    jc = critical_current_density_nb3sn(
+        temperature, np.full(NUMBER_OF_NODES, b1), np.full(NUMBER_OF_NODES, strain), tc0, bc20, c0
+    )
+    expected = (
+        (2.0 / (3.0 * np.pi)) * jc * FILAMENT_DIAMETER * abs((b1 - b0) / dt)
+        * CROSS_SECTION / (1.0 + CU_SC_RATIO)
+    )
+    assert np.allclose(strand.node_fields.hysteresis_loss_linear_power[:, 0], expected, rtol=1e-12)

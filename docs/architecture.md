@@ -72,6 +72,11 @@ to the context, so drivers' step callbacks keep working, including writes to
   `properties_of_materials/`, register a `Material` in
   `properties_of_materials/material.py` (choose the signature kind), add an
   alias if the deck uses another name.
+* **New superconductor**: register a `Superconductor` instead (its Jc, Tc
+  and Tcs correlations plus the `critical_signature` giving their argument
+  order; leave Tc out for a constant Tc0). `StrandComponent` binds it from
+  `inputs.superconducting_material` at construction; an unknown name fails
+  there.
 * **New fluid property library**: implement `FluidPropertyProvider`, register
   a factory with `ports.fluid_properties.register_provider_factory`.
 * **New external quantity read from file**: add a method to
@@ -97,10 +102,6 @@ regression, checkpoint-restart SHA and verification tests.
 
 ## Remaining debt (ratchet baselines)
 
-* The superconductor critical-property dispatch in
-  `StrandComponent.eval_critical_properties` / `_critical_current_density`
-  still branches on the material string (a `Superconductor` protocol would
-  complete Stage 8).
 * `models/` driver scripts are not tracked on this branch; their imports
   were updated in place together with `tests/`, `scripts/` and `tools/`.
 * The root-package move (`opensc2/...`) is deferred (appendix of the plan).

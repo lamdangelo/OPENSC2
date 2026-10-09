@@ -76,7 +76,7 @@ def update_em_operating_conditions(conductor: object) -> None:
         strand.get_magnetic_field_gradient(conductor)
 
         if not isinstance(strand, StrandStabilizerComponent):
-            if strand.inputs.superconducting_material == "nb3sn":
+            if strand.superconductor.needs_strain:
                 if conductor.electric.cond_el_num_step <= 1:
                     strand.get_eps(conductor)
             strand.get_superconductor_critical_prop(conductor)
@@ -134,7 +134,7 @@ def evaluate_em_gauss_points(conductor: object) -> None:
         strand.get_magnetic_field_gradient(conductor, nodal=False)
 
         if not isinstance(strand, StrandStabilizerComponent):
-            if strand.inputs.superconducting_material == "nb3sn":
+            if strand.superconductor.needs_strain:
                 if conductor.electric.cond_el_num_step <= 1:
                     strand.get_eps(conductor, nodal=False)
             strand.get_superconductor_critical_prop(conductor, nodal=False)

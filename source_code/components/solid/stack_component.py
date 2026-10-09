@@ -123,6 +123,7 @@ class StackComponent(StrandComponent):
 
 
         self.__reorganize_input()
+        self.resolve_superconductor()
         self.__check_consistency(build.conductor_identifier)
 
         self.__stack_density_flag = False

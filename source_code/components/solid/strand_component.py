@@ -8,39 +8,10 @@ from properties_of_materials.electrical_conductivity import (
     electrical_resistivity_of,
 )
 
-# from utility_functions.InitializationFunctions import Read_input_file
-# NbTi properties
-from properties_of_materials.niobium_titanium import (
-    critical_temperature_nbti,
-    critical_current_density_nbti,
-    current_sharing_temperature_nbti,
-)
-
-# NbTi properties, W7-X parameterization (CryoSoft/THEA)
-from properties_of_materials.niobium_titanium_w7x import (
-    critical_temperature_nbti_w7x,
-    critical_current_density_nbti_w7x,
-    current_sharing_temperature_nbti_w7x,
-)
-
-# Nb3Sn properties
-from properties_of_materials.niobium3_tin import (
-    critical_temperature_nb3sn,
-    critical_current_density_nb3sn,
-    current_sharing_temperature_nb3sn,
-)
-
-# RE123 properties
-from properties_of_materials.rare_earth_123 import (
-    critical_current_density_re123,
-    current_sharing_temperature_re123,
-)
-
-# MgB2 properties
-from properties_of_materials.magnesium_diboride import (
-    critical_magnetic_field_mgb2,
-    critical_current_density_mgb2,
-    current_sharing_temperature_mgb2,
+from properties_of_materials.material import (
+    CriticalSurfaceParameters,
+    UserDefinedScaling,
+    superconductor_for,
 )
 
 
@@ -195,50 +166,34 @@ class StrandComponent(SolidComponent):
             residual_resistivity_ratio=self.inputs.residual_resistivity_ratio,
         )
 
+    def resolve_superconductor(self) -> None:
+        """Bind ``self.superconductor`` (properties_of_materials.material) to
+        ``inputs.superconducting_material``; None for strands without one."""
+        name = self.inputs.superconducting_material
+        self.superconductor = superconductor_for(name) if name else None
+
+    @property
+    def critical_surface(self) -> CriticalSurfaceParameters:
+        """Tc0, Bc20 and c0 of this strand (c0 in the physical definition;
+        read from the inputs at every call because the engineering-mode
+        conversion rewrites it at construction)."""
+        return CriticalSurfaceParameters(
+            self.inputs.critical_temperature_at_0T,
+            self.inputs.upper_critical_field_at_0K,
+            self.inputs.critical_current_scaling_constant,
+        )
+
     def _critical_current_density(self, temperature, magnetic_field):
         """Critical (non-copper) current density Jc(T, B) [A/m^2] for the
-        hysteresis loss, dispatched on ``superconducting_material``. Mirrors
-        the Jc branch of eval_sol_comp_properties for the NbTi fits."""
-        material = self.inputs.superconducting_material
-        if material == "nbti-w7x":
-            return critical_current_density_nbti_w7x(
-                temperature,
-                magnetic_field,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-        if material == "nbti":
-            return critical_current_density_nbti(
-                temperature,
-                magnetic_field,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-        if material == "ybco":
-            return critical_current_density_re123(
-                temperature,
-                magnetic_field,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-            )
-        if material == "nb3sn":
-            # Same strain field as eval_sol_comp_properties (nodal values,
-            # consistent with the nodal temperature and field used here).
-            strain = np.asarray(self.node_fields.Epsilon).ravel()
-            return critical_current_density_nb3sn(
-                temperature,
-                magnetic_field,
-                strain,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-            )
-        raise NotImplementedError(
-            f"hysteresis loss has no Jc dispatch for superconducting_material "
-            f"'{material}'"
+        hysteresis loss; the Nb3Sn scaling uses the nodal strain field as in
+        eval_critical_properties."""
+        strain = (
+            np.asarray(self.node_fields.Epsilon).ravel()
+            if self.superconductor.needs_strain
+            else None
+        )
+        return self.superconductor.critical_current_density(
+            temperature, magnetic_field, self.critical_surface, strain=strain
         )
 
     def _superconductor_cross_section(self) -> float:
@@ -441,73 +396,22 @@ class StrandComponent(SolidComponent):
     # End of Method get_superconductor_critical_prop
 
     def eval_critical_properties(self, dict_dummy):
-
-        if self.inputs.superconducting_material == "nbti":
-            dict_dummy.T_critical = critical_temperature_nbti(
-                dict_dummy.B_field, self.inputs.upper_critical_field_at_0K, self.inputs.critical_temperature_at_0T
-            )
-            dict_dummy.J_critical = critical_current_density_nbti(
-                dict_dummy.temperature,
-                dict_dummy.B_field,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-        elif self.inputs.superconducting_material == "nbti-w7x":
-            dict_dummy.T_critical = critical_temperature_nbti_w7x(
-                dict_dummy.B_field,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_temperature_at_0T,
-            )
-            dict_dummy.J_critical = critical_current_density_nbti_w7x(
-                dict_dummy.temperature,
-                dict_dummy.B_field,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-        elif self.inputs.superconducting_material == "nb3sn":
-            dict_dummy.T_critical = critical_temperature_nb3sn(
-                dict_dummy.B_field,
-                dict_dummy.Epsilon,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-            )
-            dict_dummy.J_critical = critical_current_density_nb3sn(
-                dict_dummy.temperature,
-                dict_dummy.B_field,
-                dict_dummy.Epsilon,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-            )
-        elif self.inputs.superconducting_material == "ybco":
-            dict_dummy.T_critical = self.inputs.critical_temperature_at_0T * np.ones(
-                dict_dummy.temperature.shape
-            )
-            dict_dummy.J_critical = critical_current_density_re123(
-                dict_dummy.temperature,
-                dict_dummy.B_field,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-            )
-        elif self.inputs.superconducting_material == "mgb2":
-            dict_dummy.T_critical = self.inputs.critical_temperature_at_0T * np.ones(
-                dict_dummy.temperature.shape
-            )
-            dict_dummy.J_critical = critical_current_density_mgb2(
-                dict_dummy.temperature,
-                dict_dummy.B_field,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-        elif self.inputs.superconducting_material == "scaling.dat":
+        """Critical temperature and current density of the superconductor at
+        the given grid location (nodal or Gauss fields); Nb3Sn uses the
+        strain field of the same location."""
+        superconductor = self.superconductor
+        if isinstance(superconductor, UserDefinedScaling):
             # Get user defined scaling invoking method User_scaling_margin \
             # (cdp, 10/2020)
             self.user_scaling_margin()
-
+            return dict_dummy
+        strain = dict_dummy.Epsilon if superconductor.needs_strain else None
+        dict_dummy.T_critical = superconductor.critical_temperature(
+            dict_dummy.B_field, self.critical_surface, strain=strain
+        )
+        dict_dummy.J_critical = superconductor.critical_current_density(
+            dict_dummy.temperature, dict_dummy.B_field, self.critical_surface, strain=strain
+        )
         return dict_dummy
 
     # end method Eval_critical_properties (cdp, 10/2020)
@@ -529,101 +433,33 @@ class StrandComponent(SolidComponent):
     # End method get_tcs
 
     def eval_tcs(self, dict_dummy):
-        # NOTE: Tcs/margin diagnostics deliberately use the IMPOSED
-        # operating current (op_current), not the solved network current:
-        # they are evaluated in operating_conditions_em, before the
-        # steady-state current-consistency loop runs.
+        """Current sharing temperature at the given grid location.
 
-        # The scaling parameter c0 is converted to the physic definition if the 
-        # ingegneristic definition is given as input. Therefore, for the 
-        # evaluation of the current densities the total superconducting 
+        NOTE: Tcs/margin diagnostics deliberately use the IMPOSED operating
+        current (op_current), not the solved network current: they are
+        evaluated in operating_conditions_em, before the steady-state
+        current-consistency loop runs. ``T_cur_sharing_min`` (formerly the
+        value at the maximum field B (1 + alpha_B)) is kept equal to
+        ``T_cur_sharing``.
+        """
+        # The scaling parameter c0 is converted to the physic definition if the
+        # ingegneristic definition is given as input. Therefore, for the
+        # evaluation of the current densities the total superconducting
         # perpendicular cross section is always used.
         jop = (
             np.abs(dict_dummy.op_current)
             / (self.cross_section["sc"])
         )
 
-        bmax = dict_dummy.B_field * (1 + dict_dummy.alpha_B)
-        if self.inputs.superconducting_material == "nbti":
-            dict_dummy.T_cur_sharing = current_sharing_temperature_nbti(
-                dict_dummy.B_field,
-                jop,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-            # dict_dummy.T_cur_sharing_min = current_sharing_temperature_nbti(
-            #     bmax,
-            #     jop,
-            #     self.inputs.upper_critical_field_at_0K,
-            #     self.inputs.critical_current_scaling_constant,
-            #     self.inputs.critical_temperature_at_0T,
-            # )
-            dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
-        elif self.inputs.superconducting_material == "nbti-w7x":
-            dict_dummy.T_cur_sharing = current_sharing_temperature_nbti_w7x(
-                dict_dummy.B_field,
-                jop,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-            dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
-        elif self.inputs.superconducting_material == "nb3sn":
-            dict_dummy.T_cur_sharing = current_sharing_temperature_nb3sn(
-                dict_dummy.B_field,
-                dict_dummy.Epsilon,
-                jop,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-            )
-            # dict_dummy.T_cur_sharing_min = current_sharing_temperature_nb3sn(
-            #     bmax,
-            #     dict_dummy.Epsilon,
-            #     jop,
-            #     self.inputs.critical_temperature_at_0T,
-            #     self.inputs.upper_critical_field_at_0K,
-            #     self.inputs.critical_current_scaling_constant,
-            # )
-            dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
-        elif self.inputs.superconducting_material == "ybco":
-            dict_dummy.T_cur_sharing = current_sharing_temperature_re123(
-                dict_dummy.B_field,
-                jop,
-                self.inputs.critical_temperature_at_0T,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-            )
-            # dict_dummy.T_cur_sharing_min = current_sharing_temperature_re123(
-            #     bmax,
-            #     jop,
-            #     self.inputs.critical_temperature_at_0T,
-            #     self.inputs.upper_critical_field_at_0K,
-            #     self.inputs.critical_current_scaling_constant,
-            # )
-            dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
-        elif self.inputs.superconducting_material == "mgb2":
-            dict_dummy.T_cur_sharing = current_sharing_temperature_mgb2(
-                dict_dummy.B_field,
-                jop,
-                self.inputs.upper_critical_field_at_0K,
-                self.inputs.critical_current_scaling_constant,
-                self.inputs.critical_temperature_at_0T,
-            )
-            # dict_dummy.T_cur_sharing_min = 
-            # current_sharing_temperature_mgb2(
-            #     bmax,
-            #     jop,
-            #     self.inputs.upper_critical_field_at_0K,
-            #     self.inputs.critical_current_scaling_constant,
-            #     self.inputs.critical_temperature_at_0T,
-            # )
-            dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
-        elif self.inputs.superconducting_material == "scaling.dat":
-
+        superconductor = self.superconductor
+        if isinstance(superconductor, UserDefinedScaling):
             warnings.warn("Still to be understood what to do here!!")
-
+            return dict_dummy
+        strain = dict_dummy.Epsilon if superconductor.needs_strain else None
+        dict_dummy.T_cur_sharing = superconductor.current_sharing_temperature(
+            dict_dummy.B_field, jop, self.critical_surface, strain=strain
+        )
+        dict_dummy.T_cur_sharing_min = dict_dummy.T_cur_sharing
         return dict_dummy
 
     # End method eval_tcs
