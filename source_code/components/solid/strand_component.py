@@ -698,7 +698,7 @@ class StrandComponent(SolidComponent):
         Returns:
             np.ndarray: array of the electric resistance in Ohm of shape {ind.shape = }. The maximum lenght of the outcome is {conductor.mesh.number_of_elements = }.
         """
-        node_dist = conductor.node_distance[("StrandComponent", self.identifier)].iloc[ind]
+        node_dist = conductor.component_element_lengths(self.identifier)[ind]
 
         return (
             getattr(self.gauss_fields, electrical_resistivity_key)[ind]
@@ -787,9 +787,7 @@ class StrandComponent(SolidComponent):
             return
         floor = np.zeros(conductor.mesh.number_of_elements)
         if indices.size:
-            length = conductor.node_distance[
-                ("StrandComponent", self.identifier)
-            ].to_numpy()[indices]
+            length = conductor.component_element_lengths(self.identifier)[indices]
             floor[indices] = (
                 ratio * self.inputs.flux_flow_electric_field * length
                 / np.maximum(critical_current, 1.0e-300)
@@ -831,9 +829,7 @@ class StrandComponent(SolidComponent):
 
         sharing = regimes["sharing"]
         if sharing.size:
-            length = conductor.node_distance[
-                ("StrandComponent", self.identifier)
-            ].to_numpy()[sharing]
+            length = conductor.component_element_lengths(self.identifier)[sharing]
             critical_current = regimes["critical_current"][sharing]
             sc_current = regimes["i_sc"][sharing]
             sc_differential_resistance = (

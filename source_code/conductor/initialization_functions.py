@@ -59,17 +59,17 @@ def assign_user_defined_spatial_discretization(
         StrandStabilizerComponent,
         StackComponent,
     ],
-    df,
+    table: dict,
 ):
-    """Assign the user-defined coordinates from a DataFrame to a conductor component.
+    """Assign the user-defined coordinates from a column table to a conductor component.
 
     Args:
         comp: generic conductor component object.
-        df: DataFrame with columns "x [m]", "y [m]", "z [m]".
+        table: {column name: 1-D array} with columns "x [m]", "y [m]", "z [m]".
     """
-    comp.coordinate["x"] = df["x [m]"].to_numpy()
-    comp.coordinate["y"] = df["y [m]"].to_numpy()
-    comp.coordinate["z"] = df["z [m]"].to_numpy()
+    comp.coordinate["x"] = np.asarray(table["x [m]"])
+    comp.coordinate["y"] = np.asarray(table["y [m]"])
+    comp.coordinate["z"] = np.asarray(table["z [m]"])
 
 
 def straight_coordinates(

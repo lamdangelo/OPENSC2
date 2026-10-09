@@ -11,7 +11,6 @@ The floor pins R >= floor * E0 * L_e / Ic for the superconducting elements.
 from types import SimpleNamespace
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from components.solid.strand_component import StrandComponent
@@ -26,7 +25,7 @@ def make_strand(number_of_elements=5, floor=1.0e-3, consistency=True):
     conductor = SimpleNamespace(
         operations=SimpleNamespace(electric_resistance_floor=floor, electric_current_consistency=consistency),
         mesh=SimpleNamespace(number_of_elements=number_of_elements),
-        node_distance=pd.DataFrame({("StrandComponent", "STACK1"): lengths}),
+        component_element_lengths=lambda identifier: lengths,
     )
     return strand, conductor
 

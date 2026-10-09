@@ -64,4 +64,8 @@ class FileExternalInputReader:
         return _READERS[extension](file_name, sheet_name, _DEFAULT_DELIMITERS[extension])
 
     def user_defined_grid_tables(self) -> dict:
-        return pd.read_excel(self.file_paths.external_grid, sheet_name=None)
+        frames = pd.read_excel(self.file_paths.external_grid, sheet_name=None)
+        return {
+            sheet: {str(column): frame[column].to_numpy() for column in frame.columns}
+            for sheet, frame in frames.items()
+        }

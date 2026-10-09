@@ -8,7 +8,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional, Union
 import numpy as np
-import pandas as pd
 
 import conductor.input_validator as validator
 from conductor.conductor_flags import MeshType  # noqa: F401 (re-export)
@@ -17,8 +16,14 @@ from conductor.initialization_functions import (
     build_coordinates_of_barycenter,
     user_defined_grid,
 )
+from numerics.geometry import row_norms
 
 logger_discretization = logging.getLogger("opensc2Logger.discretization")
+
+
+def _table_row_count(table: dict) -> int:
+    """Number of rows of a {column name: 1-D array} table."""
+    return len(next(iter(table.values())))
 
 
 class ConductorMesh:
@@ -594,7 +599,7 @@ class ConductorMesh:
 
     def validate_user_defined_grid(
         self,
-        dfs: dict,
+        tables: dict,
         n_components: int,
         reference_component_id: str,
         file_path: str,
@@ -602,8 +607,9 @@ class ConductorMesh:
         """Check consistency of a user-defined spatial discretization across all components.
 
         Args:
-            dfs: dict of DataFrames keyed by component identifier; each DataFrame
-                has at least columns "x [m]", "y [m]", "z [m]".
+            tables: {component identifier: {column name: 1-D array}} with at
+                least the columns "x [m]", "y [m]", "z [m]" (see
+                ports.external_inputs.ExternalInputReader.user_defined_grid_tables).
             n_components: total number of conductor components.
             reference_component_id: identifier of the FluidComponent used as the
                 reference for z-coordinate comparison.
@@ -619,32 +625,32 @@ class ConductorMesh:
             (number_of_nodes, reference_z_coordinates): total node count and the
             z-coordinate array from the reference component.
         """
-        if len(dfs) != n_components:
+        if len(tables) != n_components:
             raise ValueError(
                 f"The number of sheets in file {file_path} must equal the number of "
-                f"defined conductor components.\n{len(dfs)} != {n_components}.\n"
+                f"defined conductor components.\n{len(tables)} != {n_components}.\n"
             )
 
         reference_node_count = self.check_node_count(
-            dfs[reference_component_id].shape[0], file_path, reference_component_id
+            _table_row_count(tables[reference_component_id]), file_path, reference_component_id
         )
-        reference_z_coordinates = dfs[reference_component_id]["z [m]"].to_numpy()
+        reference_z_coordinates = np.asarray(tables[reference_component_id]["z [m]"])
 
-        for comp_id, df in dfs.items():
+        for comp_id, table in tables.items():
             if comp_id == reference_component_id:
                 continue
-            if df.shape[1] < 3:
+            if len(table) < 3:
                 raise ValueError(
                     f"User must provide three coordinates in sheet {comp_id} of "
                     f"input file {file_path}.\n"
                 )
-            if df.shape[0] != reference_node_count:
+            if _table_row_count(table) != reference_node_count:
                 raise ValueError(
                     f"Inconsistent number of user-defined nodes. The number of nodes "
                     f"in sheet {comp_id} of file {file_path} must equal the one "
                     f"defined in sheet {reference_component_id} of the same file."
                 )
-            if not np.allclose(df["z [m]"].to_numpy(), reference_z_coordinates, equal_nan=True):
+            if not np.allclose(np.asarray(table["z [m]"]), reference_z_coordinates, equal_nan=True):
                 raise ValueError(
                     f"User must provide the same z component of the coordinate for "
                     f"all components. Please check column 'z [m]' in sheet {comp_id} "
@@ -857,170 +863,84 @@ def evaluate_component_coordinates(conductor: object, simulation: object) -> Non
         )
 
 
-def build_multi_index(conductor: object) -> pd.MultiIndex:
-    """Build the multindex used in pandas dataframes used to store the nodal coordinates and the connectivity (matrix) of each conductor component.
+def build_component_kind_masks(conductor: object) -> None:
+    """Boolean masks selecting the StrandComponent rows of the mesh tables.
 
-    Returns:
-        pd.MultiIndex: pandas multindex with 'Kind' (parent class) and 'Identifier' (the component identifier).
+    Node rows are ordered cross section by cross section; within a cross
+    section the components appear in ``inventory.all_components``
+    declaration order, so node ``k`` belongs to component ``k % n_all`` of
+    cross section ``k // n_all``. Element rows follow the same pattern
+    (there is one cross section less). The masks are stored in
+    ``conductor.strand_node_mask`` and ``conductor.strand_element_mask``.
     """
-    identifiers = [
-        obj.identifier for obj in conductor.inventory.all_components.collection
-    ]
-    kinds = list()
-    for obj in conductor.inventory.all_components.collection:
-        if isinstance(obj, StrandComponent):
-            kinds.append(StrandComponent.__name__)
-        else:
-            kinds.append(obj.__class__.__name__)
-
-    cat_kind = pd.CategoricalIndex(
-        np.tile(kinds, conductor.mesh.number_of_elements + 1),
-        dtype="category",
-        ordered=True,
-        categories=["FluidComponent", "StrandComponent", "JacketComponent"],
+    is_strand = np.array(
+        [
+            isinstance(obj, StrandComponent)
+            for obj in conductor.inventory.all_components.collection
+        ],
+        dtype=bool,
     )
-    cat_ids = pd.CategoricalIndex(
-        np.tile(identifiers, conductor.mesh.number_of_elements + 1),
-        dtype="category",
-        ordered=True,
-        categories=identifiers,
-    )
-
-    return pd.MultiIndex.from_arrays(
-        [cat_kind, cat_ids], names=["Kind", "Identifier"]
-    )
+    n_all = conductor.inventory.all_components.number
+    conductor.strand_node_mask = np.tile(is_strand, conductor.mesh.number_of_elements + 1)
+    conductor.strand_element_mask = conductor.strand_node_mask[:-n_all]
 
 
-def build_multi_index_current_carriers(conductor: object) -> pd.MultiIndex:
-    """Build the multindex used in pandas dataframes used to store the nodal coordinates and the connectivity (matrix) only for conductor components of kind strand (StrandMixedComponent, StrandStabilizerComponent and StrandSuperconductroComponent).
+def initialize_mesh_tables(conductor: object) -> None:
+    """Allocate the mesh tables: nodal coordinates and connectivity.
 
-    Returns:
-        pd.MultiIndex:  pandas multindex with 'Kind' (parent class) and 'Identifier' (the component identifier).
+    * ``conductor.nodal_coordinates``: ``(total_nodes, 3)`` float array of
+      x, y, z (row order described in :func:`build_component_kind_masks`);
+    * ``conductor.connectivity_matrix``: ``(total_elements, 2)`` int array
+      with the global start and end node of every element;
+    * ``conductor.connectivity_matrix_current_carriers``: the same for the
+      strand elements only, in strand-local node numbering.
     """
-    identifiers = [
-        obj.identifier for obj in conductor.inventory.strands.collection
-    ]
-    kinds = [
-        obj.__class__.__name__
-        for obj in conductor.inventory.strands.collection
-    ]
+    build_component_kind_masks(conductor)
 
-    cat_kind = pd.CategoricalIndex(
-        np.tile(kinds, conductor.mesh.number_of_elements + 1),
-        dtype="category",
-        ordered=True,
-        categories=[
-            "StrandMixedComponent",
-            "StrandStabilizerComponent",
-            "StackComponent",
-        ],
-    )
-    cat_ids = pd.CategoricalIndex(
-        np.tile(identifiers, conductor.mesh.number_of_elements + 1),
-        dtype="category",
-        ordered=True,
-        categories=identifiers,
-    )
-
-    return pd.MultiIndex.from_arrays(
-        [cat_kind, cat_ids], names=["Kind", "Identifier"]
-    )
-
-
-def initialize_mesh_dataframes(conductor: object) -> None:
-    """Initialize pandas dataframes used to store nodal coordinates and connectivity (matrix)."""
-
-    multi_index = build_multi_index(conductor)
-    multi_index_current_carriers = build_multi_index_current_carriers(conductor)
-
-    conductor.nodal_coordinates = pd.DataFrame(
-        dict(
-            x=np.zeros(conductor.total_nodes),
-            y=np.zeros(conductor.total_nodes),
-            z=np.zeros(conductor.total_nodes),
-        ),
-        index=multi_index,
-    )
-
-    conductor.connectivity_matrix = pd.DataFrame(
-        dict(
-            start=np.zeros(conductor.total_elements, dtype=int),
-            end=np.zeros(conductor.total_elements, dtype=int),
-            identifiers=pd.Series(np.zeros(conductor.total_elements), dtype=str),
-        ),
-        index=multi_index[: -conductor.inventory.all_components.number],
-    )
-
-    conductor.connectivity_matrix_current_carriers = pd.DataFrame(
-        dict(
-            start=np.zeros(conductor.total_elements_current_carriers, dtype=int),
-            end=np.zeros(conductor.total_elements_current_carriers, dtype=int),
-            identifiers=pd.Series(
-                np.zeros(conductor.total_elements_current_carriers), dtype=str
-            ),
-        ),
-        index=multi_index_current_carriers[
-            : -conductor.inventory.strands.number
-        ],
+    conductor.nodal_coordinates = np.zeros((conductor.total_nodes, 3))
+    conductor.connectivity_matrix = np.zeros((conductor.total_elements, 2), dtype=int)
+    conductor.connectivity_matrix_current_carriers = np.zeros(
+        (conductor.electric.total_elements_current_carriers, 2), dtype=int
     )
 
 
 def build_nodal_coordinates(conductor: object, nn: int, collection: object) -> None:
-    """Build the dataframe with the nodal coordinates of all conductor components.
+    """Fill the nodal coordinates of the components of one collection.
 
     Args:
         conductor (object): conductor object.
-        nn (int): starting value of the index
+        nn (int): position of the first component of the collection in the cross section.
         collection (ComponentCollection): one of conductor.inventory's collections (fluids, strands or jackets).
     """
-
+    n_all = conductor.inventory.all_components.number
     for ii, obj in enumerate(collection.collection, nn):
-        for coord in ["x", "y", "z"]:
-            conductor.nodal_coordinates.iloc[
-                ii :: conductor.inventory.all_components.number,
-                conductor.nodal_coordinates.columns.get_loc(coord),
-            ] = obj.coordinate[coord]
+        for column, coord in enumerate(("x", "y", "z")):
+            conductor.nodal_coordinates[ii::n_all, column] = obj.coordinate[coord]
 
 
 def build_connectivity(conductor: object, nn: int, collection: object) -> None:
-    """Build the dataframe with the connections (start and end node of each elements) of all conductor components.
+    """Fill the connectivity (start and end node of each element) of the components of one collection.
 
     Args:
         conductor (object): conductor object.
-        nn (int): starting value of the index
+        nn (int): position of the first component of the collection in the cross section.
         collection (ComponentCollection): one of conductor.inventory's collections (fluids, strands or jackets).
     """
-    for ii, obj in enumerate(collection.collection, nn):
+    n_all = conductor.inventory.all_components.number
+    for ii, _ in enumerate(collection.collection, nn):
         nodes = np.linspace(
             ii, ii + conductor.total_elements, conductor.mesh.number_of_elements + 1, dtype=int
         )
-        conductor.connectivity_matrix.iloc[
-            ii :: conductor.inventory.all_components.number,
-            conductor.connectivity_matrix.columns.get_loc("start"),
-        ] = nodes[:-1]
-        conductor.connectivity_matrix.iloc[
-            ii :: conductor.inventory.all_components.number,
-            conductor.connectivity_matrix.columns.get_loc("end"),
-        ] = nodes[1:]
-        conductor.connectivity_matrix.iloc[
-            ii :: conductor.inventory.all_components.number,
-            conductor.connectivity_matrix.columns.get_loc("identifiers"),
-        ] = obj.identifier
-    # End for
+        conductor.connectivity_matrix[ii::n_all, 0] = nodes[:-1]
+        conductor.connectivity_matrix[ii::n_all, 1] = nodes[1:]
 
 
 def compute_node_distance(conductor: object) -> None:
     """Compute the distance between nodes taking into account all the coordinates (x,y,z). Values are stored in attribute node_distance."""
-    conductor.node_distance = (
-        (
-            (
-                conductor.nodal_coordinates.iloc[conductor.connectivity_matrix["end"], :]
-                - conductor.nodal_coordinates.iloc[conductor.connectivity_matrix["start"], :]
-            )
-            ** 2
-        )
-        .sum(axis=1)
-        .apply(np.sqrt)
+    coordinates = conductor.nodal_coordinates
+    connectivity = conductor.connectivity_matrix
+    conductor.node_distance = row_norms(
+        coordinates[connectivity[:, 1]] - coordinates[connectivity[:, 0]]
     )
 
     # noda_distance correction.

@@ -531,7 +531,7 @@ class Conductor:
         # step it will start from 1. Value 0 is assumed only at initialization.
         self.electric.cond_el_num_step = 0
 
-        conductor_mesh.initialize_mesh_dataframes(self)
+        conductor_mesh.initialize_mesh_tables(self)
 
     ##############################################################################
 
@@ -843,6 +843,20 @@ class Conductor:
         # and the cached incidence and conductance blocks.
         self.__build_electric_stiffness_matrix()
 
+    def component_element_lengths(self, identifier: str) -> np.ndarray:
+        """Length of every element of one component (its node distances along the conductor).
+
+        Args:
+            identifier: component identifier.
+
+        Returns:
+            np.ndarray: ``number_of_elements`` lengths in m, in element order.
+        """
+        position = [
+            obj.identifier for obj in self.inventory.all_components.collection
+        ].index(identifier)
+        return self.node_distance[position :: self.inventory.all_components.number]
+
     def __build_electric_topology(self):
         """Private method that builds all the geometry/topology dependent electric structures."""
 
@@ -869,22 +883,6 @@ class Conductor:
         self.__build_connectivity_current_carriers()
         # conductorlogger.debug(
         #     f"After call method {self.__build_connectivity_current_carriers.__name__}, operates on StrandComponents only.\n"
-        # )
-
-        # Convert index to categorical
-        # conductorlogger.debug(
-        #     f"Before convert index of dataframe self.connectivity_matrix to categorical.\n"
-        # )
-        self.connectivity_matrix.loc[:, "identifiers"] = self.connectivity_matrix.loc[
-            :, "identifiers"
-        ].astype("category")
-        self.connectivity_matrix_current_carriers.loc[
-            :, "identifiers"
-        ] = self.connectivity_matrix_current_carriers.loc[:, "identifiers"].astype(
-            "category"
-        )
-        # conductorlogger.debug(
-        #     f"After convert index of dataframe self.connectivity_matrix to categorical.\n"
         # )
 
         # Compute node distance

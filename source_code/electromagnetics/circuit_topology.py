@@ -13,7 +13,6 @@ Ported from the private methods of the Conductor class:
 """
 
 import numpy as np
-import pandas as pd
 from scipy.sparse import coo_matrix
 
 
@@ -24,7 +23,8 @@ def build_connectivity_current_carriers(conductor: object) -> None:
     n is the total number of strands. Start and end node indices are computed
     by distributing nodes across strands and mesh elements.
 
-    Results are stored in ``conductor.connectivity_matrix_current_carriers``.
+    Results are stored in ``conductor.connectivity_matrix_current_carriers``,
+    an ``(n_elements, 2)`` integer array of (start, end) strand-local nodes.
 
     Args:
         conductor: Conductor object whose connectivity matrix, inventory, and
@@ -34,12 +34,11 @@ def build_connectivity_current_carriers(conductor: object) -> None:
     n_elements = conductor.mesh.number_of_elements
     n_elements_total = conductor.electric.total_elements_current_carriers
 
-    for ii, strand in enumerate(conductor.inventory.strands.collection):
+    cm = conductor.connectivity_matrix_current_carriers
+    for ii in range(n_strands):
         nodes = np.linspace(ii, ii + n_elements_total, n_elements + 1, dtype=int)
-        cm = conductor.connectivity_matrix_current_carriers
-        cm.iloc[ii::n_strands, cm.columns.get_loc("start")] = nodes[:-1]
-        cm.iloc[ii::n_strands, cm.columns.get_loc("end")] = nodes[1:]
-        cm.iloc[ii::n_strands, cm.columns.get_loc("identifiers")] = strand.identifier
+        cm[ii::n_strands, 0] = nodes[:-1]
+        cm[ii::n_strands, 1] = nodes[1:]
 
 
 def build_incidence_matrix(conductor: object) -> None:
@@ -66,8 +65,7 @@ def build_incidence_matrix(conductor: object) -> None:
 
     # Column indices: start and end node for every element
     jcol = (
-        conductor.connectivity_matrix_current_carriers.iloc[:, 0:2]
-        .to_numpy()
+        conductor.connectivity_matrix_current_carriers
         .copy()
         .transpose()
         .flatten("F")
@@ -123,8 +121,8 @@ def detect_contacts(conductor: object) -> None:
     the first cross-section, then replicates them across every cross-section
     by adding the appropriate node offsets.
 
-    Results are stored in ``conductor.electric.contact_nodes_current_carriers`` as a
-    DataFrame with columns ``"start"`` and ``"end"``.
+    Results are stored in ``conductor.electric.contact_nodes_current_carriers``
+    as an ``(n_contacts, 2)`` integer array of (start, end) strand-local nodes.
 
     Args:
         conductor: Conductor object with inventory and mesh set up.
@@ -132,9 +130,7 @@ def detect_contacts(conductor: object) -> None:
     _detect_contacts_first_cross_section(conductor)
 
     if conductor.electric._contact_nodes_first.size == 0:
-        conductor.electric.contact_nodes_current_carriers = pd.DataFrame(
-            columns=["start", "end"], dtype=int
-        )
+        conductor.electric.contact_nodes_current_carriers = np.empty((0, 2), dtype=int)
         return
 
     n_cross_sections = conductor.mesh.number_of_elements + 1
@@ -145,9 +141,7 @@ def detect_contacts(conductor: object) -> None:
         conductor.electric._contact_nodes_first[np.newaxis, :, :] + offsets[:, None]
     ).reshape(-1, 2)
 
-    conductor.electric.contact_nodes_current_carriers = pd.DataFrame(
-        contact_nodes, dtype=int, columns=["start", "end"]
-    )
+    conductor.electric.contact_nodes_current_carriers = contact_nodes.astype(int)
 
 
 def build_contact_incidence_matrix(conductor: object) -> None:
@@ -166,7 +160,7 @@ def build_contact_incidence_matrix(conductor: object) -> None:
 
     row_ind = np.tile(np.r_[0:n_contacts], (2, 1)).flatten("F")
     col_ind = (
-        conductor.electric.contact_nodes_current_carriers.to_numpy().transpose().flatten("F")
+        conductor.electric.contact_nodes_current_carriers.transpose().flatten("F")
     )
 
     conductor.electric.contact_incidence_matrix = coo_matrix(

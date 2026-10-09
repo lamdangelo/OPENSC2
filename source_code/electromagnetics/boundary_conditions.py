@@ -50,7 +50,7 @@ def assign_equipotential_surfaces(conductor: object) -> None:
 
     n_el = conductor.electric.total_elements_current_carriers
     n_strands = conductor.inventory.strands.number
-    z_values = conductor.nodal_coordinates.loc["StrandComponent", "z"].to_numpy()
+    z_values = conductor.nodal_coordinates[conductor.strand_node_mask, 2]
 
     for ii, coord in enumerate(
         conductor.operations.equipotential_surface_coordinates
@@ -80,7 +80,7 @@ def assign_fixed_potential(conductor: object) -> None:
             within tolerance ``1e-10``.
     """
     tol = 1e-10
-    z_values = conductor.nodal_coordinates.xs("StrandComponent").z.to_numpy()
+    z_values = conductor.nodal_coordinates[conductor.strand_node_mask, 2]
     offset = conductor.electric.total_elements_current_carriers
     jj = 0
 

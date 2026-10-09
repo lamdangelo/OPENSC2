@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 
-from numerics.interpolation import build_interpolator, do_interpolation
 from thermal.thermal_flags import HeatExcitation
 from conductor.conductor_flags import InterpolationType
 

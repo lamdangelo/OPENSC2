@@ -104,10 +104,10 @@ def initialize_conductors(
             (cond.mesh.number_of_nodes, cond.equation_counts.solid_equations)
         )
     else:
-        contacts = ctx.conductor_contacts
+        contacts = np.asarray(ctx.conductor_contacts)
         for rr in range(number):
             cond_r = ctx.conductors[rr]
-            if all(contacts.iloc[rr, :]) == 0:
+            if all(contacts[rr, :]) == 0:
                 # No contact between cond_r and all the others.
                 ctx.qsources[cond_r.identifier] = np.zeros(
                     (cond_r.mesh.number_of_nodes, cond_r.equation_counts.solid_equations)
@@ -115,7 +115,7 @@ def initialize_conductors(
             else:
                 for cc in range(rr + 1, number):
                     cond_c = ctx.conductors[cc]
-                    if contacts.iat[rr, cc] == 1:
+                    if contacts[rr, cc] == 1:
                         raise ValueError(
                             "Multi conductors with thermal contact: not yet managed the situation, need to build dict_qsource properly!!"
                         )

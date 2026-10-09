@@ -91,10 +91,7 @@ FORBIDDEN_EXTERNAL: dict[int, frozenset[str]] = {
 # Baselines (today's violations; may only shrink)
 # --------------------------------------------------------------------------
 
-BASELINE_LAYER_VIOLATIONS: frozenset[str] = frozenset({
-    "conductor.conductor_mesh -> pandas",
-    "electromagnetics.circuit_topology -> pandas",
-})
+BASELINE_LAYER_VIOLATIONS: frozenset[str] = frozenset()
 
 BASELINE_EXTERNAL_CONDUCTOR_ATTRIBUTES: frozenset[str] = frozenset({
 })

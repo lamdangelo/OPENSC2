@@ -59,7 +59,7 @@ class ElectricState:
     incidence_matrix: Any = None
     incidence_matrix_transposed: Any = None
     contact_incidence_matrix: Any = None
-    contact_nodes_current_carriers: Any = None
+    contact_nodes_current_carriers: Any = None  # (n_contacts, 2) int array of strand-local nodes
     _contact_nodes_first: Any = None
     total_elements_current_carriers: int = 0
     parallel_jacket_pairs: Any = field(default_factory=list)  # absent == no pairs

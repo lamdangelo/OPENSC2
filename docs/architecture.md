@@ -87,13 +87,6 @@ regression, checkpoint-restart SHA and verification tests.
 
 ## Remaining debt (ratchet baselines)
 
-* `conductor.conductor_mesh` and `electromagnetics.circuit_topology` build
-  pandas DataFrames as in-memory tables (nodal coordinates, connectivity,
-  contact nodes) read by `electromagnetics.inductance`. No I/O is involved;
-  replacing them by numpy structures is a follow-up.
-* `components.solid.solid_component` imports
-  `electromagnetics.operating_conditions` inside a function: a genuine
-  cycle (that module imports the strand classes).
 * `SolidComponent.get_transverse_coupling` still parses its CSV patch file
   and walks `simulation.list_of_Conductors` lazily; moving this to the
   external-input reader and the application layer is the next step.

@@ -41,6 +41,7 @@ class ExternalInputReader(Protocol):
         ...
 
     def user_defined_grid_tables(self) -> dict:
-        """{component identifier: table with columns "x [m]", "y [m]", "z [m]"}
-        of the user-defined spatial discretization file."""
+        """{component identifier: {column name: 1-D numpy array}} of the
+        user-defined spatial discretization file; the columns include
+        "x [m]", "y [m]", "z [m]"."""
         ...

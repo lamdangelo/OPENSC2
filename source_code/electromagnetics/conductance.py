@@ -29,6 +29,7 @@ import numpy as np
 from scipy.sparse import diags
 
 from electromagnetics.electromagnetic_flags import ElectricConductanceMode
+from numerics.geometry import row_norms
 
 
 def evaluate_transversal_distance(conductor: object) -> np.ndarray:
@@ -48,25 +49,11 @@ def evaluate_transversal_distance(conductor: object) -> np.ndarray:
         ``(n_contact_pairs,)``.
     """
     contact_nodes = conductor.electric.contact_nodes_current_carriers
-    strand_coords = conductor.nodal_coordinates.loc["StrandComponent"]
-
-    distance = (
-        (
-            (
-                strand_coords
-                .iloc[contact_nodes["end"], :]
-                .reset_index(level="Identifier", drop=True)
-                - strand_coords
-                .iloc[contact_nodes["start"], :]
-                .reset_index(level="Identifier", drop=True)
-            )
-            ** 2
-        )
-        .sum(axis="columns")
-        .apply(np.sqrt)
-        .to_numpy()
+    # Strand nodes in strand-local numbering (cross section major).
+    strand_coords = conductor.nodal_coordinates[conductor.strand_node_mask]
+    return row_norms(
+        strand_coords[contact_nodes[:, 1]] - strand_coords[contact_nodes[:, 0]]
     )
-    return distance
 
 
 def evaluate_electric_conductance(

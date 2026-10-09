@@ -28,6 +28,21 @@ import numpy as np
 from scipy import constants, integrate
 
 from electromagnetics.electromagnetic_flags import InductanceMode, SelfInductanceMode
+from numerics.geometry import row_norms
+
+# Column of the connectivity arrays holding a vertex of an element.
+_VERTEX_COLUMN = {"start": 0, "end": 1}
+
+
+def _strand_connectivity(conductor: object) -> np.ndarray:
+    """``(n_strand_elements, 2)`` global start and end node of every strand element."""
+    return conductor.connectivity_matrix[conductor.strand_element_mask]
+
+
+def _element_vectors(conductor: object, connectivity: np.ndarray) -> np.ndarray:
+    """End-minus-start coordinate vector of every element, ``(n_elements, 3)``."""
+    coordinates = conductor.nodal_coordinates
+    return coordinates[connectivity[:, 1]] - coordinates[connectivity[:, 0]]
 
 
 def build_inductance_matrix(conductor: object) -> None:
@@ -90,29 +105,16 @@ def _analytical_inductance(
 
     ABSTOL = 1e-6
 
-    # Element lengths for all strand elements
-    lmod = (
-        (
-            (
-                conductor.nodal_coordinates.iloc[
-                    conductor.connectivity_matrix.loc["StrandComponent", "end"], :
-                ]
-                - conductor.nodal_coordinates.iloc[
-                    conductor.connectivity_matrix.loc["StrandComponent", "start"], :
-                ]
-            )
-            ** 2
-        )
-        .sum(axis=1)
-        .apply(np.sqrt)
-    )
+    # Global start/end nodes and lengths of all strand elements
+    connectivity = _strand_connectivity(conductor)
+    lmod = row_norms(_element_vectors(conductor, connectivity))
 
     mutual_inductance = np.zeros(conductor.electric.inductance_matrix.shape)
 
     if conductor.inventory.strands.number > 1:
         for ii in range(conductor.electric.total_elements_current_carriers - 1):
             mutual_inductance = _mutual_inductance_analytical(
-                conductor, lmod, ii, mutual_inductance, ABSTOL
+                conductor, connectivity, lmod, ii, mutual_inductance, ABSTOL
             )
 
     self_inductance_fn = {
@@ -136,7 +138,8 @@ def _analytical_inductance(
 
 def _mutual_inductance_analytical(
     conductor: object,
-    lmod: object,
+    connectivity: np.ndarray,
+    lmod: np.ndarray,
     ii: int,
     matrix: np.ndarray,
     abstol: float = 1e-6,
@@ -147,7 +150,8 @@ def _mutual_inductance_analytical(
 
     Args:
         conductor: Conductor object.
-        lmod: Series of element lengths for all strand elements.
+        connectivity: global (start, end) nodes of the strand elements.
+        lmod: Array of element lengths for all strand elements.
         ii: Index of the source element.
         matrix: Accumulator matrix of shape ``(n_elements, n_elements)``; is
             updated in-place and returned.
@@ -164,7 +168,7 @@ def _mutual_inductance_analytical(
     len_jj = conductor.electric.total_elements_current_carriers - (ii + 1)
 
     rr = {
-        key: _vertex_to_vertex_distance(conductor, key, ii, jj)
+        key: _vertex_to_vertex_distance(conductor, connectivity, key, ii, jj)
         for key in ("end_end", "end_start", "start_start", "start_end")
     }
 
@@ -240,47 +244,36 @@ def _mutual_inductance_analytical(
 
 
 def _vertex_to_vertex_distance(
-    conductor: object, key: str, ii: int, jj: np.ndarray
+    conductor: object, connectivity: np.ndarray, key: str, ii: int, jj: np.ndarray
 ) -> np.ndarray:
     """Compute Euclidean distances between element vertices.
 
     Args:
-        conductor: Conductor object with nodal coordinates and strand
-            connectivity matrix.
+        conductor: Conductor object with nodal coordinates.
+        connectivity: global (start, end) nodes of the strand elements.
         key: One of ``"start_end"``, ``"start_start"``, ``"end_end"``,
-            ``"end_start"``, indicating which vertices of elements ``ii``
-            and ``jj`` to compare.
+            ``"end_start"``, indicating which vertices of elements ``jj``
+            (first word) and ``ii`` (second word) to compare.
         ii: Source element index.
         jj: Array of target element indices.
 
     Returns:
         Array of distances, one per element in ``jj``.
     """
-    cols = key.split("_")
-    cm = conductor.connectivity_matrix.loc["StrandComponent"]
-    return (
-        (
-            (
-                conductor.nodal_coordinates.iloc[
-                    cm.iloc[jj, cm.columns.get_loc(cols[0])], :
-                ]
-                - conductor.nodal_coordinates.iloc[
-                    cm.iat[ii, cm.columns.get_loc(cols[1])], :
-                ]
-            )
-            ** 2
-        )
-        .sum(axis="columns")
-        .apply(np.sqrt)
+    vertex_jj, vertex_ii = key.split("_")
+    coordinates = conductor.nodal_coordinates
+    return row_norms(
+        coordinates[connectivity[jj, _VERTEX_COLUMN[vertex_jj]]]
+        - coordinates[connectivity[ii, _VERTEX_COLUMN[vertex_ii]]]
     )
 
 
-def _self_inductance_mode1(conductor: object, lmod: object) -> np.ndarray:
+def _self_inductance_mode1(conductor: object, lmod: np.ndarray) -> np.ndarray:
     """Compute self-inductances using mode-1 formula (arcsinh-based).
 
     Args:
         conductor: Conductor object with strand inventory.
-        lmod: Series of element lengths for all strand elements.
+        lmod: Array of element lengths for all strand elements.
 
     Returns:
         Array of self-inductance values, one per strand element.
@@ -298,12 +291,12 @@ def _self_inductance_mode1(conductor: object, lmod: object) -> np.ndarray:
     return self_inductance
 
 
-def _self_inductance_mode2(conductor: object, lmod: object) -> np.ndarray:
+def _self_inductance_mode2(conductor: object, lmod: np.ndarray) -> np.ndarray:
     """Compute self-inductances using mode-2 formula (logarithm-based).
 
     Args:
         conductor: Conductor object with strand inventory.
-        lmod: Series of element lengths for all strand elements.
+        lmod: Array of element lengths for all strand elements.
 
     Returns:
         Array of self-inductance values, one per strand element.
@@ -342,24 +335,18 @@ def _approximate_inductance(conductor: object) -> None:
     Args:
         conductor: Conductor object.
     """
-    ll = (
-        conductor.nodal_coordinates.iloc[
-            conductor.connectivity_matrix.loc["StrandComponent", "end"], :
-        ]
-        - conductor.nodal_coordinates.iloc[
-            conductor.connectivity_matrix.loc["StrandComponent", "start"], :
-        ]
-    )
-    lmod = (ll ** 2).sum(axis=1).apply(np.sqrt)
+    connectivity = _strand_connectivity(conductor)
+    ll = _element_vectors(conductor, connectivity)
+    lmod = row_norms(ll)
 
     mutual_inductance = np.zeros(conductor.electric.inductance_matrix.shape)
     if conductor.inventory.strands.number > 1:
         mutual_inductance = _mutual_inductance_approximate(
-            conductor, ll, mutual_inductance
+            conductor, connectivity, ll, mutual_inductance
         )
 
     self_inductance = _self_inductance_approximate(conductor, lmod)
-    internal_inductance = lmod.to_numpy() / 2.0
+    internal_inductance = lmod / 2.0
 
     conductor.electric.inductance_matrix = (
         constants.mu_0
@@ -373,7 +360,7 @@ def _approximate_inductance(conductor: object) -> None:
 
 
 def _mutual_inductance_approximate(
-    conductor: object, ll: object, matrix: np.ndarray
+    conductor: object, connectivity: np.ndarray, ll: np.ndarray, matrix: np.ndarray
 ) -> np.ndarray:
     """Approximate mutual inductances via numerical double integration.
 
@@ -383,7 +370,8 @@ def _mutual_inductance_approximate(
 
     Args:
         conductor: Conductor object.
-        ll: DataFrame of element direction vectors (end minus start).
+        connectivity: global (start, end) nodes of the strand elements.
+        ll: ``(n_elements, 3)`` element direction vectors (end minus start).
         matrix: Zero-initialised accumulator of shape
             ``(n_elements, n_elements)``; updated in-place and returned.
 
@@ -400,14 +388,14 @@ def _mutual_inductance_approximate(
             + (qi[2] + xi * vi[2] - qj[2] - xj * vj[2]) ** 2
         )
 
-    cm_start = conductor.connectivity_matrix.loc["StrandComponent", "start"]
+    start_coordinates = conductor.nodal_coordinates[connectivity[:, 0]]
 
     for ii in range(conductor.electric.total_elements_current_carriers):
-        qi = conductor.nodal_coordinates.iloc[cm_start, :].iloc[ii, :].to_numpy()
-        vi = ll.iloc[ii, :].to_numpy()
+        qi = start_coordinates[ii]
+        vi = ll[ii]
         for jj in range(ii + 1, conductor.electric.total_elements_current_carriers):
-            qj = conductor.nodal_coordinates.iloc[cm_start, :].iloc[jj, :].to_numpy()
-            vj = ll.iloc[jj, :].to_numpy()
+            qj = start_coordinates[jj]
+            vj = ll[jj]
             matrix[ii, jj] = np.sum(vi * vj) * integrate.dblquad(
                 _reverse_distance,
                 0.0,
@@ -422,7 +410,7 @@ def _mutual_inductance_approximate(
     return matrix
 
 
-def _self_inductance_approximate(conductor: object, lmod: object) -> np.ndarray:
+def _self_inductance_approximate(conductor: object, lmod: np.ndarray) -> np.ndarray:
     """Approximate self-inductances using the logarithm-based mode-2 formula.
 
     The approximate and analytical mode-2 formulae are mathematically
@@ -430,7 +418,7 @@ def _self_inductance_approximate(conductor: object, lmod: object) -> np.ndarray:
 
     Args:
         conductor: Conductor object with strand inventory.
-        lmod: Series of element lengths for all strand elements.
+        lmod: Array of element lengths for all strand elements.
 
     Returns:
         Array of self-inductance values, one per strand element.

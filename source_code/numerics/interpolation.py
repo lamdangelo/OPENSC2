@@ -32,33 +32,41 @@ def set_diagnostic(vv, **kwargs):
 
 
 
-def build_interpolator(df, interpolation_kind="linear"):
-    """Function that builds the interpolator for the data loaded from auxiliary input files. If data are costant in time or in space 1D interpolate.interp1d is used, if values describe a dependence in both time and space interpolate.interp1d is used.
+def build_interpolator(table, interpolation_kind="linear"):
+    """Function that builds the interpolator for the data loaded from auxiliary input files. If data are costant in time or in space 1D interpolate.interp1d is used, if values describe a dependence in both time and space interpolate.interp2d is used.
 
     Args:
-        df (_type_): _description_
-        interpolation_kind (str, optional): _description_. Defaults to "linear".
+        table: 2-D array-like (numpy array, nested lists or a pandas
+            DataFrame) in the legacy auxiliary-sheet layout: the first row
+            holds the time points from the second column on, the first
+            column the space points from the second row on, and the
+            remaining cells the known values. The first cell is a flag and
+            is not used.
+        interpolation_kind (str, optional): scipy interpolation kind. Defaults to "linear".
 
     Returns:
-        _type_: _description_
+        tuple: (scipy interpolator, flag in {"space_only", "time_only", "space_and_time"}).
     """
     # Normalize the enum to the string expected by scipy's interp1d (an
     # InterpolationType would silently be read as a spline order otherwise).
     if isinstance(interpolation_kind, InterpolationType):
         interpolation_kind = interpolation_kind.name.lower()
-    # The first column of the dataframe stores the space points used in the
+    # Object array first: the flag cell may be a string, every other cell
+    # converts to float exactly as pandas' to_numpy(dtype=float) did.
+    table = np.asarray(table, dtype=object)
+    # The first column of the table stores the space points used in the
     # interpolation function starting from the second row.
-    strand_space_points = df.iloc[1:,0].to_numpy(dtype=float)
+    strand_space_points = table[1:, 0].astype(float)
 
-    # The first row of the dataframe stores the time points used in the 
+    # The first row of the table stores the time points used in the
     # interpolation function starting from the second column.
-    strand_time_points = df.iloc[0,1:].to_numpy(dtype=float)
+    strand_time_points = table[0, 1:].astype(float)
 
-    # Get the known values to be used in the interpolation, stored from the 
-    # second row second column of the data frame.
-    known_val = df.iloc[1:,1:].to_numpy(dtype=float)
-    
-    # Remark: value in position df.iloc[0,0] is not used; it is a kind of flag not well understood up to now.
+    # Get the known values to be used in the interpolation, stored from the
+    # second row second column of the table.
+    known_val = table[1:, 1:].astype(float)
+
+    # Remark: value in position table[0, 0] is not used; it is a kind of flag not well understood up to now.
 
     if strand_time_points.size == 1 and strand_space_points.size > 1:
         # Values are constant in time but not in space.

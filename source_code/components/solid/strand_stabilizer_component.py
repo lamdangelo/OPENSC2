@@ -161,7 +161,7 @@ class StrandStabilizerComponent(StrandComponent):
             np.ndarray: array of electrical resistance in Ohm of length {conductor.mesh.number_of_elements = }.
         """
         self.gauss_fields.electric_resistance = (self.gauss_fields.electrical_resistivity_stabilizer
-            * conductor.node_distance[("StrandComponent", self.identifier)]
+            * conductor.component_element_lengths(self.identifier)
             / self.inputs.cross_section)
         # Ohmic: the differential resistance equals the resistance itself.
         self._electric_resistance_strand_only = np.asarray(
