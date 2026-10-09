@@ -8,8 +8,12 @@ combinations on CI runners, while still catching real physics or solver
 regressions, which show up orders of magnitude above the tolerance).
 
 To regenerate reference data after an intentional physics/solver change, run
-the simulation on a copy of the example's input directory and copy the
-corresponding files from ``<method>/<simulation name>/Output``.
+the simulation on a copy of the example's input directory (for CASE_2 and
+CASE_3 apply the ``shorten_scenario`` of the respective test module first) and
+copy the corresponding files from ``<method>/<simulation name>/Output``.
+Before doing so, prove with ``tests/tools/compare_trees.py`` that the new
+outputs are byte-identical to the commit that introduced the change, so that
+the refreshed references never absorb an accidental regression.
 """
 
 import shutil
