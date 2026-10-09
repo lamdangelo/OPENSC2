@@ -14,11 +14,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from components.solid.strand_component import StrandComponent
-from conductor import conductor_mesh
-from conductor.conductor import Conductor
-from electromagnetics import circuit_topology, conductance, inductance
-from electromagnetics.electromagnetic_flags import InductanceMode, SelfInductanceMode
+from opensc2.components.solid.strand_component import StrandComponent
+from opensc2.conductor import conductor_mesh
+from opensc2.conductor.conductor import Conductor
+from opensc2.electromagnetics import circuit_topology, conductance, inductance
+from opensc2.electromagnetics.electromagnetic_flags import InductanceMode, SelfInductanceMode
 from factories import make_strand_mixed
 
 

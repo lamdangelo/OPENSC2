@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from numerics import step_matrix_construction as smc
+from opensc2.numerics import step_matrix_construction as smc
 
 
 def reference_scatter(fmat, batch, number_of_elements, nodofs, half):

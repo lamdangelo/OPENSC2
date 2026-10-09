@@ -13,14 +13,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from adapters.output.simulation_log import (
+from opensc2.adapters.output.simulation_log import (
     ComponentExtrema,
     SimulationSummary,
     conductor_level_extremum,
     detect_features,
     format_log,
 )
-from electromagnetics.electromagnetic_flags import CurrentMode
+from opensc2.electromagnetics.electromagnetic_flags import CurrentMode
 from factories import make_conductor
 
 from test_network_coupling import (
@@ -489,7 +489,7 @@ def test_simulation_log_network_run(network_run):
 
 
 def test_normal_zone_length_from_regime_data():
-    from adapters.output.simulation_log import normal_zone_length
+    from opensc2.adapters.output.simulation_log import normal_zone_length
 
     strand = SimpleNamespace(
         _electric_regime_gauss={
@@ -502,13 +502,13 @@ def test_normal_zone_length_from_regime_data():
 
 
 def test_normal_zone_length_none_without_regime_data():
-    from adapters.output.simulation_log import normal_zone_length
+    from opensc2.adapters.output.simulation_log import normal_zone_length
 
     assert normal_zone_length(SimpleNamespace(), np.ones(4)) is None
 
 
 def test_normal_zone_length_zero_when_superconducting():
-    from adapters.output.simulation_log import normal_zone_length
+    from opensc2.adapters.output.simulation_log import normal_zone_length
 
     strand = SimpleNamespace(
         _electric_regime_gauss={
@@ -520,7 +520,7 @@ def test_normal_zone_length_zero_when_superconducting():
 
 
 def test_estimate_nzpv_linear_growth():
-    from adapters.output.simulation_log import (
+    from opensc2.adapters.output.simulation_log import (
         estimate_normal_zone_propagation,
     )
 
@@ -535,7 +535,7 @@ def test_estimate_nzpv_linear_growth():
 
 
 def test_estimate_nzpv_no_zone():
-    from adapters.output.simulation_log import (
+    from opensc2.adapters.output.simulation_log import (
         estimate_normal_zone_propagation,
     )
 
@@ -545,7 +545,7 @@ def test_estimate_nzpv_no_zone():
 
 
 def test_estimate_nzpv_degenerate_window_has_no_velocity():
-    from adapters.output.simulation_log import (
+    from opensc2.adapters.output.simulation_log import (
         estimate_normal_zone_propagation,
     )
 
@@ -580,7 +580,7 @@ def test_format_log_normal_zone_section():
 
 
 def test_estimate_nzpv_ignition_only_is_not_propagation():
-    from adapters.output.simulation_log import (
+    from opensc2.adapters.output.simulation_log import (
         estimate_normal_zone_propagation,
     )
 
@@ -597,7 +597,7 @@ def test_estimate_nzpv_ignition_only_is_not_propagation():
 
 
 def test_estimate_nzpv_growth_after_disturbance():
-    from adapters.output.simulation_log import (
+    from opensc2.adapters.output.simulation_log import (
         estimate_normal_zone_propagation,
     )
 

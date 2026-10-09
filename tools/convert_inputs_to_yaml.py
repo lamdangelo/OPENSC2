@@ -22,10 +22,10 @@ import pandas as pd
 import yaml
 from openpyxl import load_workbook
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "source_code"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import adapters.input.yaml_schema_v2 as schema_v2  # noqa: E402
-from adapters.input.yaml_input_registry import (  # noqa: E402
+import opensc2.adapters.input.yaml_schema_v2 as schema_v2  # noqa: E402
+from opensc2.adapters.input.yaml_input_registry import (  # noqa: E402
     ADAPTIVITY_MODE_FROM_VALUE,
     COUPLING_PROPERTY_NAMES,
     SIMULATION_FILE_NAME,

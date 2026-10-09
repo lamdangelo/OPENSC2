@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 import yaml
 
-import adapters.fluid_properties.coolprop_provider as cpi
-from conductor.conductor_mesh import ConductorMesh, MeshType
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+from opensc2.conductor.conductor_mesh import ConductorMesh, MeshType
 
 sys.path.insert(0, str(Path(__file__).parent / "verification"))
 from case_builders import (  # noqa: E402

@@ -28,7 +28,7 @@ from case_builders import (
     reservoir,
     valve,
 )
-from conductor.conductor_flags import MethodFlag
+from opensc2.conductor.conductor_flags import MethodFlag
 
 RESERVOIR_PRESSURE = 1.0e5  # Pa
 NODE_VOLUME = 1.0e-3  # m^3 -> M = rho0 V = 1 kg

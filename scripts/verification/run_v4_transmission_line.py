@@ -14,7 +14,7 @@ from pathlib import Path  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-import adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
 
 import analytical  # noqa: E402
 import test_v4_transmission_line as v4  # noqa: E402

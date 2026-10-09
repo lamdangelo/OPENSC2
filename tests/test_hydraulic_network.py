@@ -18,10 +18,10 @@ The solver tests compare against closed-form references:
 import numpy as np
 import pytest
 
-import adapters.fluid_properties.coolprop_provider as cpi
-from conductor.conductor_flags import MethodFlag
-from hydraulics.hydraulic_flags import FluidType
-from hydraulics.network import (
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+from opensc2.conductor.conductor_flags import MethodFlag
+from opensc2.hydraulics.hydraulic_flags import FluidType
+from opensc2.hydraulics.network import (
     HydraulicNetwork,
     HydraulicNetworkInput,
     NetworkBranchKind,

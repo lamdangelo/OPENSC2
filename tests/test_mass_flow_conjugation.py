@@ -15,11 +15,11 @@ coefficients are built exactly as the production wrapper builds them.
 import numpy as np
 import pytest
 
-from hydraulics.formulation import (
+from opensc2.hydraulics.formulation import (
     conjugate_gauss_blocks,
     resolve_hydraulic_formulation,
 )
-from hydraulics.hydraulic_flags import (
+from opensc2.hydraulics.hydraulic_flags import (
     HydraulicFormulation,
     get_hydraulic_formulation,
 )

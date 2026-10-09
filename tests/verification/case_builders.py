@@ -14,10 +14,10 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-import adapters.fluid_properties.coolprop_provider as cpi
-from conductor.conductor_flags import MethodFlag
-from hydraulics.network import HydraulicNetwork, HydraulicNetworkInput
-from simulation import Simulation
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+from opensc2.conductor.conductor_flags import MethodFlag
+from opensc2.hydraulics.network import HydraulicNetwork, HydraulicNetworkInput
+from opensc2.simulation import Simulation
 
 # Default verification fluid: water-like magnitudes giving a moderate wave
 # speed a = 1/sqrt(rho kappa_T) = 31.62 m/s, so acoustic transients are

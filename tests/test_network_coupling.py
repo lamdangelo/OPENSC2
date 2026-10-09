@@ -29,7 +29,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from simulation import Simulation
+from opensc2.simulation import Simulation
 
 from regression_utilities import copy_input_files
 
@@ -802,7 +802,7 @@ def make_port_stub(
 
 
 def overlay(conductor, port):
-    from hydraulics.network.coupling import (
+    from opensc2.hydraulics.network.coupling import (
         apply_network_port_boundary_conditions,
     )
 

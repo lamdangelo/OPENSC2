@@ -1,5 +1,5 @@
 """Common bootstrap for the verification figure scripts: headless backend,
-sys.path for the flat source_code imports (matching the editable install) and
+sys.path for the ``opensc2`` package (the repository root, matching the editable install) and
 for the shared test-side builders, and the output directory."""
 
 from pathlib import Path
@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 for _path in (
-    REPOSITORY_ROOT / "source_code",
+    REPOSITORY_ROOT,
     REPOSITORY_ROOT / "tests" / "verification",
 ):
     if str(_path) not in sys.path:

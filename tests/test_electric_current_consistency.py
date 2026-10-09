@@ -11,13 +11,13 @@ import sys
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPOSITORY_ROOT / "source_code"))
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
 import numpy as np  # noqa: E402
 
-from conductor.conductor_inputs import ConductorOperations  # noqa: E402
-from adapters.input.conductor_loader import ConductorInputLoader  # noqa: E402
-import adapters.input.yaml_schema_v2 as schema_v2  # noqa: E402
+from opensc2.conductor.conductor_inputs import ConductorOperations  # noqa: E402
+from opensc2.adapters.input.conductor_loader import ConductorInputLoader  # noqa: E402
+import opensc2.adapters.input.yaml_schema_v2 as schema_v2  # noqa: E402
 
 
 RAW_OPERATIONS = {

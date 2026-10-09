@@ -16,30 +16,30 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from components.component_build import ComponentBuildSettings
-from components.component_collection import ComponentInventory
-from components.component_flags import ComponentType
-from components.jacket.jacket_component import JacketComponent
-from components.jacket.jacket_component_inputs import JacketComponentInputs
-from components.solid.solid_component_inputs import (
+from opensc2.components.component_build import ComponentBuildSettings
+from opensc2.components.component_collection import ComponentInventory
+from opensc2.components.component_flags import ComponentType
+from opensc2.components.jacket.jacket_component import JacketComponent
+from opensc2.components.jacket.jacket_component_inputs import JacketComponentInputs
+from opensc2.components.solid.solid_component_inputs import (
     SolidComponentOperations,
     StrandComponentOperations,
 )
-from components.solid.stack_component import StackComponent
-from components.solid.stack_component_inputs import StackComponentInputs, TapeLayer
-from components.solid.strand_mixed_component import StrandMixedComponent
-from components.solid.strand_mixed_component_inputs import StrandMixedComponentInputs
-from components.solid.strand_stabilizer_component import StrandStabilizerComponent
-from components.solid.strand_stabilizer_component_inputs import (
+from opensc2.components.solid.stack_component import StackComponent
+from opensc2.components.solid.stack_component_inputs import StackComponentInputs, TapeLayer
+from opensc2.components.solid.strand_mixed_component import StrandMixedComponent
+from opensc2.components.solid.strand_mixed_component_inputs import StrandMixedComponentInputs
+from opensc2.components.solid.strand_stabilizer_component import StrandStabilizerComponent
+from opensc2.components.solid.strand_stabilizer_component_inputs import (
     StrandStabilizerComponentInputs,
 )
-from conductor.conductor_flags import InterpolationType, MethodFlag
-from conductor.electric_state import ElectricState
-from conductor.run_state import BalanceState, SaveSchedule, TimeState
-from electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode
-from hydraulics.hydraulic_flags import HydraulicFormulation
-from runtime.time_stepping import TimeSteppingSettings
-from thermal.thermal_flags import HeatExcitation
+from opensc2.conductor.conductor_flags import InterpolationType, MethodFlag
+from opensc2.conductor.electric_state import ElectricState
+from opensc2.conductor.run_state import BalanceState, SaveSchedule, TimeState
+from opensc2.electromagnetics.electromagnetic_flags import BFieldDefinitionType, CurrentMode
+from opensc2.hydraulics.hydraulic_flags import HydraulicFormulation
+from opensc2.runtime.time_stepping import TimeSteppingSettings
+from opensc2.thermal.thermal_flags import HeatExcitation
 
 
 # --------------------------------------------------------------------------

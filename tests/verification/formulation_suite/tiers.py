@@ -371,7 +371,7 @@ def manufactured_initial_state(solution: ManufacturedSolution):
                 fields.mass_flow_rate = mass_flow
                 fields.velocity = mass_flow / (density * f_comp.channel.inputs.cross_section)
                 sol = conductor.time_integration.solution
-                from hydraulics.hydraulic_flags import MASS_FLOW_FORMULATIONS
+                from opensc2.hydraulics.hydraulic_flags import MASS_FLOW_FORMULATIONS
                 slot_value = (mass_flow if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS
                               else fields.velocity)
                 for column in range(sol.shape[1]):

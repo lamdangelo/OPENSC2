@@ -56,11 +56,11 @@ Users can benefit from several test cases to check the software functionalities:
 
 To run a simulation with one of the above test cases, download the repository and install the requirements (more informations in section [Install requirements](user-content-intall-requirements)). After that, you have two possibilities to run the software: 
 
-1. **GUI mode**: You can run _simulation_starter.py_ and from the GUI you can navigate through the folder three until you enter directory _TDD_examples_ and then select one of the three folders contained with pre-compiled inpuput files. In the GUI window select **Add solution path** to select where to save the results (by default they are all collected in the directory _Simulation_results_, that is automatically created if does not already exist). User can create a new folder in this directory or open an existing one: the output (both .tsv files and .eps figures) will be saved in this folder.
-2. **Headless mode**: You can run the headless driver Python scripts in the respective folders of the test examples, or in general run these few line of codes:
+1. **GUI mode**: You can run `python -m opensc2.simulation_starter` and from the GUI you can navigate through the folder three until you enter directory _TDD_examples_ and then select one of the three folders contained with pre-compiled inpuput files. In the GUI window select **Add solution path** to select where to save the results (by default they are all collected in the directory _Simulation_results_, that is automatically created if does not already exist). User can create a new folder in this directory or open an existing one: the output (both .tsv files and .eps figures) will be saved in this folder.
+2. **Headless mode**: You can run the headless driver Python scripts in the respective folders of the test examples, run `python -m opensc2.drivers.cli <model_directory>` (or the `opensc2 <model_directory>` command installed with the package), or in general run these few line of codes:
 
 ```
-    from simulation import Simulation
+    from opensc2.simulation import Simulation
 
     input_directory = './TDD_examples/CASE_1_ITER_like_LTS/'  # adapt path for other examples
     simulation = Simulation(input_directory)
@@ -75,13 +75,13 @@ The selected Python version is now [3.11](https://www.python.org/downloads/relea
     python -m pip install --upgrade pip   # update pip to the latest version
     python -m pip install -e .            # install OPENSC² and its dependencies
 
-The editable install (`-e`) is recommended for running the test cases and developing against the `source_code` tree. If you also want the development tooling (formatting, linting, type checking, profiling), install the `dev` extra instead:
+The editable install (`-e`) is recommended for running the test cases and developing against the `opensc2` package (the repository root is its parent, so `pip install -e .` makes `import opensc2` work from anywhere). If you also want the development tooling (formatting, linting, type checking, profiling), install the `dev` extra instead:
 
     python -m pip install -e ".[dev]"
 
 Among the dependencies there is [CoolProp](http://www.coolprop.org/) that, according to the operative system you use, may require some other dependences and/or packages. To deal with this, please follow the [documentation](http://www.coolprop.org/coolprop/wrappers/Python/index.html) and [prerequisites](http://www.coolprop.org/coolprop/wrappers/index.html#wrapper-common-prereqs).
 
-The GUI (`OPENSC2_gui.py`) is built with `tkinter`, part of the Python standard library; on some Linux distributions it requires an OS-level package (e.g. `python3-tk`) installed separately, since it is not distributed via pip.
+The GUI (`opensc2/drivers/gui/opensc2_gui.py`) is built with `tkinter`, part of the Python standard library; on some Linux distributions it requires an OS-level package (e.g. `python3-tk`) installed separately, since it is not distributed via pip.
 
 As an alternative, a **headless simulation** is possible, which allows for a pure scripted / command-line execution of OPENSC² without the GUI with a couple of lines of code (see the `headless_driver.py` files in the TDD examples).
 

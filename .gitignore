@@ -262,13 +262,11 @@ $RECYCLE.BIN/
 # (gitignore has no inline comments: a '#' only starts a comment at the
 # beginning of a line, so each comment sits above its pattern.)
 # Input files
-source_code/Description_of_Components/**/
+opensc2/Description_of_Components/**/
 # code output directory
 Simulations_results/**/
-# virtual environment
-source_code/opensc2/**/
-# graphical user interface images
-source_code/GUI_icons/**/
+# graphical user interface images (legacy location)
+opensc2/GUI_icons/**/
 # input files template for the three selected cases used within the
 # Test Driven Development approach
 TDD_examples/**/

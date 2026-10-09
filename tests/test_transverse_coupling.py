@@ -13,9 +13,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from adapters.input.external_inputs import FileExternalInputReader
-from application.build_simulation import wire_transverse_coupling
-from components.solid.solid_component import SolidComponent
+from opensc2.adapters.input.external_inputs import FileExternalInputReader
+from opensc2.application.build_simulation import wire_transverse_coupling
+from opensc2.components.solid.solid_component import SolidComponent
 from factories import build_settings, make_conductor, make_jacket, solid_operations
 
 NUMBER_OF_NODES = 11

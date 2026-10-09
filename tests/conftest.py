@@ -1,8 +1,16 @@
 """Shared pytest configuration for the OPENSC2 test suite."""
 
 import os
+import sys
+from pathlib import Path
 
 import matplotlib
+
+# The opensc2 package is imported from this checkout even without an
+# (editable) install: the repository root goes first on sys.path.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 # The simulation produces figures as a side effect; force the non-interactive
 # Agg backend so the tests run on headless machines (e.g. CI runners) exactly
@@ -57,7 +65,7 @@ def pytest_collection_modifyitems(config, items):
 # (ports.fluid_properties).
 # ---------------------------------------------------------------------------
 
-from adapters.fluid_properties import coolprop_provider as _coolprop_provider  # noqa: E402
-from ports.fluid_properties import register_provider_factory as _register  # noqa: E402
+from opensc2.adapters.fluid_properties import coolprop_provider as _coolprop_provider  # noqa: E402
+from opensc2.ports.fluid_properties import register_provider_factory as _register  # noqa: E402
 
 _register(_coolprop_provider.provider_for)

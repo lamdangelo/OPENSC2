@@ -22,7 +22,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPOSITORY_ROOT / "source_code"))
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
 import analytical  # noqa: E402
 
@@ -50,7 +50,7 @@ CURRENT_OVER_IC = 1.2
 
 
 def critical_current() -> float:
-    from properties_of_materials.rare_earth_123 import (
+    from opensc2.properties_of_materials.rare_earth_123 import (
         critical_current_density_re123,
     )
 
@@ -61,7 +61,7 @@ def critical_current() -> float:
 
 
 def copper_resistivity() -> float:
-    from properties_of_materials.copper import electrical_resistivity_cu_nist
+    from opensc2.properties_of_materials.copper import electrical_resistivity_cu_nist
 
     return float(
         np.atleast_1d(
@@ -305,7 +305,7 @@ def run_case(directory: Path, consistency: bool, total_current: float):
     import os
 
     os.environ.setdefault("MPLBACKEND", "Agg")
-    from simulation import Simulation
+    from opensc2.simulation import Simulation
 
     write_run_directory(directory, consistency, total_current)
     capture = CurrentCapture()

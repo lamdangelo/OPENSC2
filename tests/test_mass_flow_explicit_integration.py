@@ -27,9 +27,9 @@ import pandas as pd
 import pytest
 import yaml
 
-import adapters.fluid_properties.coolprop_provider as cpi
-from hydraulics.hydraulic_flags import HydraulicFormulation
-from simulation import Simulation
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+from opensc2.hydraulics.hydraulic_flags import HydraulicFormulation
+from opensc2.simulation import Simulation
 
 from regression_utilities import copy_input_files
 from test_mass_flow_formulation import (

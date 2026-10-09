@@ -39,7 +39,7 @@ import numpy as np
 import pandas as pd
 
 import CoolProp
-from hydraulics.hydraulic_flags import MASS_FLOW_FORMULATIONS
+from opensc2.hydraulics.hydraulic_flags import MASS_FLOW_FORMULATIONS
 
 from formulation_suite.geometry import REPOSITORY_ROOT, helium_properties
 
@@ -65,7 +65,7 @@ def property_library_version() -> dict:
         "CoolProp": getattr(CoolProp, "__version__", "unknown"),
         "CoolProp_git": getattr(CoolProp, "__gitrevision__", "unknown"),
         "tabulated_properties": bool(
-            __import__("adapters.fluid_properties.coolprop_provider", fromlist=["x"]).USE_TABULAR_PROPERTIES
+            __import__("opensc2.adapters.fluid_properties.coolprop_provider", fromlist=["x"]).USE_TABULAR_PROPERTIES
         ),
     }
 

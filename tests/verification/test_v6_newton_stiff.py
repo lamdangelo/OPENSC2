@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPOSITORY_ROOT / "source_code"))
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
 import analytical  # noqa: E402
 from test_v6_current_sharing import (  # noqa: E402
@@ -89,7 +89,7 @@ class StiffCapture:
 
 def _voltage(conductor, strand, current):
     """V(I) = R(I) * I with the strand-alone resistance at bound |I|."""
-    from electromagnetics.electric_solver import _bind_current_for_resistance
+    from opensc2.electromagnetics.electric_solver import _bind_current_for_resistance
 
     _bind_current_for_resistance(strand, current)
     resistance = np.asarray(strand.get_electric_resistance(conductor))
@@ -102,7 +102,7 @@ def _finite_difference_check(conductor, strand):
 
     Returns {regime: max relative deviation}.
     """
-    from electromagnetics.electric_solver import _bind_current_for_resistance
+    from opensc2.electromagnetics.electric_solver import _bind_current_for_resistance
 
     critical = np.asarray(
         strand.cross_section["sc"] * strand.gauss_fields.J_critical
@@ -146,7 +146,7 @@ def stiff_result(tmp_path_factory):
     import os
 
     os.environ.setdefault("MPLBACKEND", "Agg")
-    from simulation import Simulation
+    from opensc2.simulation import Simulation
 
     write_run_directory(directory, True, total_current)
     capture = StiffCapture()

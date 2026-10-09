@@ -23,9 +23,9 @@ import numpy as np
 import pytest
 import yaml
 
-import adapters.fluid_properties.coolprop_provider as cpi
-import numerics.transient_solution_functions as tsf
-from hydraulics.hydraulic_flags import HydraulicFormulation
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+import opensc2.numerics.transient_solution_functions as tsf
+from opensc2.hydraulics.hydraulic_flags import HydraulicFormulation
 
 from test_mass_flow_explicit_integration import FORMULATION_EDITS
 from test_mass_flow_formulation import (

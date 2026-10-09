@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from simulation import Simulation
+from opensc2.simulation import Simulation
 
 from regression_utilities import (
     compare_output_tree,

@@ -8,8 +8,8 @@ these are the reusable pieces the eddy terms will build on.
 
 import numpy as np
 
-from components.solid.strand_component import StrandComponent
-from components.jacket.jacket_component import JacketComponent
+from opensc2.components.solid.strand_component import StrandComponent
+from opensc2.components.jacket.jacket_component import JacketComponent
 from factories import (
     jacket_inputs,
     make_conductor,
@@ -18,7 +18,7 @@ from factories import (
     strand_operations,
 )
 from factories import make_jacket as build_jacket
-from properties_of_materials.electrical_conductivity import (
+from opensc2.properties_of_materials.electrical_conductivity import (
     electrical_conductivity_of,
     electrical_resistivity_of,
 )
@@ -183,7 +183,7 @@ def test_base_eddy_conductivity_not_implemented():
     loudly rather than silently produce nonsense."""
     import pytest
 
-    from components.solid.solid_component import SolidComponent
+    from opensc2.components.solid.solid_component import SolidComponent
 
     component = SolidComponent(jacket_inputs(), solid_operations())
     with pytest.raises(NotImplementedError):

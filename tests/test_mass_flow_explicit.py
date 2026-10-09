@@ -26,10 +26,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import adapters.fluid_properties.coolprop_provider as cpi
-from hydraulics.hydraulic_flags import FluidType
-from hydraulics.hydraulics import compute_gruneisen
-from hydraulics.mass_flow_equations import (
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+from opensc2.hydraulics.hydraulic_flags import FluidType
+from opensc2.hydraulics.hydraulics import compute_gruneisen
+from opensc2.hydraulics.mass_flow_equations import (
     build_amat_mass_flow,
     build_kmat_fluid_mass_flow,
     build_smat_fluid_energy_mass_flow,
@@ -38,12 +38,12 @@ from hydraulics.mass_flow_equations import (
     check_source_consistency,
     thermodynamic_coefficients,
 )
-from physical_fields.physical_field import FieldContainer, GridLocation
-from thermal.energy_equation import (
+from opensc2.physical_fields.physical_field import FieldContainer, GridLocation
+from opensc2.thermal.energy_equation import (
     build_smat_fluid_interface_energy,
     build_smat_fluid_solid_interface,
 )
-from numerics.step_matrix_construction import build_amat
+from opensc2.numerics.step_matrix_construction import build_amat
 
 NUMBER_OF_STATES = 20
 SEED = 20260908

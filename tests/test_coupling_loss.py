@@ -13,7 +13,7 @@ opt-in behaviour (zero time constant produces exactly zero power).
 
 import numpy as np
 
-from components.solid.strand_component import StrandComponent
+from opensc2.components.solid.strand_component import StrandComponent
 from factories import make_conductor as conductor_stub
 from factories import make_strand_mixed, strand_operations
 

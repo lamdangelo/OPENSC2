@@ -32,7 +32,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIRECTORY = REPOSITORY_ROOT / "tests"
-SOURCE_DIRECTORY = REPOSITORY_ROOT / "source_code"
+SOURCE_DIRECTORY = REPOSITORY_ROOT
 for directory in (SOURCE_DIRECTORY, TESTS_DIRECTORY):
     if str(directory) not in sys.path:
         sys.path.insert(0, str(directory))
@@ -68,7 +68,7 @@ def run_case(case: str, input_format: str = "yaml") -> dict[str, str]:
 
     matplotlib.use("Agg", force=True)
     from regression_utilities import copy_input_files
-    from simulation import Simulation
+    from opensc2.simulation import Simulation
 
     example_name, shortening_module = CASES[case]
     input_directory = REPOSITORY_ROOT / "TDD_examples" / example_name

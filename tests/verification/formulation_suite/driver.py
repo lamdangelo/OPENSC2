@@ -28,7 +28,7 @@ matplotlib.use("Agg", force=True)
 
 HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE.parents[2]
-for entry in (REPOSITORY_ROOT / "source_code", REPOSITORY_ROOT / "tests",
+for entry in (REPOSITORY_ROOT, REPOSITORY_ROOT / "tests",
               REPOSITORY_ROOT / "tests" / "verification"):
     if str(entry) not in sys.path:
         sys.path.insert(0, str(entry))
@@ -47,7 +47,7 @@ def tier_name(value: str) -> str:
 
 def execute(spec: tiers.RunSpec, force: bool = False) -> dict:
     """Run one configuration (skipped when its manifest exists)."""
-    from simulation import Simulation
+    from opensc2.simulation import Simulation
 
     manifest_path = spec.run_directory / "run_manifest.json"
     if manifest_path.exists() and not force:
@@ -90,7 +90,7 @@ def execute(spec: tiers.RunSpec, force: bool = False) -> dict:
 def calibrate_pulse(results_root: Path, target_peak_temperature: float = 18.0) -> float:
     """Coarse Tier-3a runs (velocity formulation): scale the pulse peak so
     that the peak strand temperature reaches the target."""
-    from simulation import Simulation
+    from opensc2.simulation import Simulation
 
     peak = PEAK_LINEAR_POWER
     history = []

@@ -4,7 +4,7 @@ conftest module."""
 
 import pytest
 
-import adapters.fluid_properties.coolprop_provider as cpi
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
 from case_builders import ACOUSTIC_FLUID, VERIFICATION_FLUID
 
 

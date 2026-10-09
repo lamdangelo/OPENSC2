@@ -116,7 +116,7 @@ def test_disabled_family_is_dropped():
 
 
 def test_copper_scaling_follows_nist_resistivity():
-    from properties_of_materials.electrical_conductivity import electrical_resistivity_of
+    from opensc2.properties_of_materials.electrical_conductivity import electrical_resistivity_of
 
     strand = make_strand(0.3, 0.0)
     strand.operations.coupling_loss_copper_scaling = True
@@ -162,7 +162,7 @@ def drive_stack(stack, b0, b1, dt, temperature=4.5):
 
 
 def test_stack_hysteresis_matches_strip_formula_at_high_field():
-    from properties_of_materials.rare_earth_123 import critical_current_density_re123
+    from opensc2.properties_of_materials.rare_earth_123 import critical_current_density_re123
 
     stack = make_stack()
     b0, rate, dt = 14.1, -24.9, 1.0e-3

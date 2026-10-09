@@ -5,8 +5,12 @@
 [architecture_refactoring_plan.md](architecture_refactoring_plan.md).*
 
 OPENSC2 is organised in concentric layers whose dependencies point inward
-only. `pyproject.toml` maps every sub-folder of `source_code/` to a top-level
-package, so the layer of a module is the layer of its top-level package.
+only. All code lives in the `opensc2` package at the repository root; each
+of its sub-packages (`opensc2.conductor`, `opensc2.adapters`, ...) is
+assigned to one layer, so the layer of a module is the layer of its
+sub-package. The entry points are `python -m opensc2.drivers.cli <model_dir>`
+(or the installed `opensc2` command) and `python -m opensc2.simulation_starter`
+(GUI).
 `tests/test_architecture.py` checks the import direction on every test run
 (baselines may only shrink); `lint-imports` (import-linter, dev dependency)
 enforces the same contracts from `pyproject.toml`.
@@ -18,7 +22,7 @@ enforces the same contracts from `pyproject.toml`.
 | domain | `physical_fields`, `properties_of_materials`, `hydraulics`, `thermal`, `electromagnetics`, `components`, `conductor`, `environment`, `numerics`, `runtime`, `ports` | domain | numpy, scipy, numba |
 | application | `application` | domain | numpy |
 | adapters | `adapters` (`input`, `output`, `plotting`, `fluid_properties`) | application, domain | pandas, openpyxl, yaml, CoolProp, matplotlib |
-| drivers | `simulation.py`, `drivers` (`cli`, `gui`), `simulation_starter.py` | everything | tkinter, PIL |
+| drivers | `simulation`, `drivers` (`cli`, `gui`), `simulation_starter` | everything | tkinter, PIL |
 
 ### Domain
 
@@ -104,4 +108,3 @@ regression, checkpoint-restart SHA and verification tests.
 
 * `models/` driver scripts are not tracked on this branch; their imports
   were updated in place together with `tests/`, `scripts/` and `tools/`.
-* The root-package move (`opensc2/...`) is deferred (appendix of the plan).

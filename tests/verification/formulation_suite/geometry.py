@@ -24,12 +24,12 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-import adapters.fluid_properties.coolprop_provider as cpi
-from components.fluid.fluid_component_inputs import FluidComponentInputs
-from hydraulics.friction_factor_factory import FrictionFactorFactory
-from hydraulics.friction_factor_models import FrictionFactorModelType
-from hydraulics.hydraulic_flags import get_channel_type, get_fluid_type, FluidType
-from thermal.heat_transfer_models import HeatTransferModelType
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi
+from opensc2.components.fluid.fluid_component_inputs import FluidComponentInputs
+from opensc2.hydraulics.friction_factor_factory import FrictionFactorFactory
+from opensc2.hydraulics.friction_factor_models import FrictionFactorModelType
+from opensc2.hydraulics.hydraulic_flags import get_channel_type, get_fluid_type, FluidType
+from opensc2.thermal.heat_transfer_models import HeatTransferModelType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_DECK = REPOSITORY_ROOT / "W7-X" / "comparison_1D" / "conductor_CONDUCTOR_100.yaml"

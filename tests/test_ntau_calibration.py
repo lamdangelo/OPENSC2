@@ -2,7 +2,7 @@
 
 The calibration script lives in ``W7-X/quench_test_validation`` and is a
 standalone module rather than part of the installed package; importing it
-prepends both ``source_code`` and its own directory to ``sys.path``.
+prepends both the repository root (the ``opensc2`` package) and its own directory to ``sys.path``.
 
 Covered here (Phase 0.1): the bracket assertion that turns the old silent
 ``bisection -> high`` failure into a clear error, and the root-enumeration

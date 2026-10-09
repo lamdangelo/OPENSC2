@@ -30,8 +30,8 @@ import pandas as pd
 import pytest
 import yaml
 
-from hydraulics.hydraulic_flags import HydraulicFormulation
-from simulation import Simulation
+from opensc2.hydraulics.hydraulic_flags import HydraulicFormulation
+from opensc2.simulation import Simulation
 
 from test_network_coupling import (
     NETWORK_SECTION,

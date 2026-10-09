@@ -20,9 +20,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from simulation import Simulation
-from adapters.input import yaml_input_registry
-from adapters.input.yaml_input_registry import (
+from opensc2.simulation import Simulation
+from opensc2.adapters.input import yaml_input_registry
+from opensc2.adapters.input.yaml_input_registry import (
     _parse_autosave_interval,
     _parse_restart_flag,
 )
@@ -42,7 +42,7 @@ from case_builders import (  # noqa: E402
     channel_operations,
     write_channel_run_directory,
 )
-import adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
+import opensc2.adapters.fluid_properties.coolprop_provider as cpi  # noqa: E402
 
 
 @pytest.fixture
@@ -348,8 +348,8 @@ def test_manifest_method_mismatch_errors_at_unit_level(tmp_path):
 
     import numpy as np
 
-    from conductor.conductor_flags import MethodFlag
-    from adapters.output.checkpoint import _restore_conductor_state
+    from opensc2.conductor.conductor_flags import MethodFlag
+    from opensc2.adapters.output.checkpoint import _restore_conductor_state
 
     archive_buffer = io.BytesIO()
     np.savez(

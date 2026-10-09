@@ -6,12 +6,12 @@ import numpy as np
 import pytest
 
 from factories import make_conductor, make_stack, make_strand_mixed
-from properties_of_materials import magnesium_diboride as mgb2
-from properties_of_materials import niobium3_tin as nb3sn
-from properties_of_materials import niobium_titanium as nbti
-from properties_of_materials import niobium_titanium_w7x as nbti_w7x
-from properties_of_materials import rare_earth_123 as re123
-from properties_of_materials.material import (
+from opensc2.properties_of_materials import magnesium_diboride as mgb2
+from opensc2.properties_of_materials import niobium3_tin as nb3sn
+from opensc2.properties_of_materials import niobium_titanium as nbti
+from opensc2.properties_of_materials import niobium_titanium_w7x as nbti_w7x
+from opensc2.properties_of_materials import rare_earth_123 as re123
+from opensc2.properties_of_materials.material import (
     SUPERCONDUCTORS,
     CriticalSurfaceParameters,
     Superconductor,

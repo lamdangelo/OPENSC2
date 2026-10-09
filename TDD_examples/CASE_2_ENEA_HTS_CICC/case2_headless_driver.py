@@ -4,7 +4,7 @@ A headless (no-GUI) driver to run the simulation of the ENEA HTS CICC model.
 Author: Laura D'Angelo
 """
 
-from simulation import Simulation
+from opensc2.simulation import Simulation
 
 
 # Setup

@@ -4,18 +4,18 @@ arguments the components used to pass (Stage 8 of the architecture plan)."""
 import numpy as np
 import pytest
 
-from properties_of_materials.copper import (
+from opensc2.properties_of_materials.copper import (
     electrical_resistivity_cu_nist,
     isobaric_specific_heat_cu_nist,
     thermal_conductivity_cu_nist,
 )
-from properties_of_materials.electrical_conductivity import electrical_resistivity_of
-from properties_of_materials.magnesium_diboride import thermal_conductivity_mgb2
-from properties_of_materials.material import MATERIALS, material_for
-from properties_of_materials.niobium3_tin import isobaric_specific_heat_nb3sn
-from properties_of_materials.niobium_titanium import isobaric_specific_heat_nbti
-from properties_of_materials.niobium_titanium_w7x import isobaric_specific_heat_nbti_w7x
-from properties_of_materials.stainless_steel import thermal_conductivity_ss
+from opensc2.properties_of_materials.electrical_conductivity import electrical_resistivity_of
+from opensc2.properties_of_materials.magnesium_diboride import thermal_conductivity_mgb2
+from opensc2.properties_of_materials.material import MATERIALS, material_for
+from opensc2.properties_of_materials.niobium3_tin import isobaric_specific_heat_nb3sn
+from opensc2.properties_of_materials.niobium_titanium import isobaric_specific_heat_nbti
+from opensc2.properties_of_materials.niobium_titanium_w7x import isobaric_specific_heat_nbti_w7x
+from opensc2.properties_of_materials.stainless_steel import thermal_conductivity_ss
 
 T = np.linspace(4.5, 60.0, 7)
 B = np.linspace(1.0, 6.0, 7)
@@ -53,7 +53,7 @@ def test_signatures_match_direct_calls():
 
 
 def test_superconductor_entries_are_superconductor_objects():
-    from properties_of_materials.material import Superconductor
+    from opensc2.properties_of_materials.material import Superconductor
 
     for name in ("nb3sn", "nbti", "nbti-w7x", "re123", "mgb2"):
         assert isinstance(material_for(name), Superconductor)

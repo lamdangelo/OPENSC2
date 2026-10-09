@@ -1,4 +1,4 @@
-"""Architecture ratchet: layered dependencies of ``source_code``.
+"""Architecture ratchet: layered dependencies of the ``opensc2`` package.
 
 Target architecture (docs/architecture_refactoring_plan.md): concentric layers
 whose dependencies point inward only.
@@ -8,7 +8,7 @@ whose dependencies point inward only.
     2 adapters     input readers, output writers, plotting, property libraries
     3 drivers      Simulation facade, GUI, CLI
 
-Because ``pyproject.toml`` maps every subfolder of ``source_code`` to a top
+Because every subfolder of ``opensc2`` is a sub-package assigned to a layer, a top
 level package, the layer of a module is decided by its top-level package
 (``LAYER_OF``). Three ratchets are enforced, each against a committed
 baseline of today's violations:
@@ -40,7 +40,12 @@ import warnings
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_ROOT = REPOSITORY_ROOT / "source_code"
+PACKAGE = "opensc2"
+SOURCE_ROOT = REPOSITORY_ROOT / PACKAGE
+# ``python tests/test_architecture.py`` (baseline printing) runs without the
+# conftest: make the package importable from the checkout.
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 # --------------------------------------------------------------------------
 # Layer assignment
@@ -72,7 +77,6 @@ LAYER_OF: dict[str, int] = {
     # drivers
     "simulation": DRIVERS,
     "simulation_starter": DRIVERS,
-    "opensc2_gui": DRIVERS,
     "drivers": DRIVERS,
 }
 
@@ -138,6 +142,15 @@ def top_package(dotted: str) -> str:
     return dotted.split(".")[0]
 
 
+def strip_package(dotted: str) -> str:
+    """``opensc2.conductor.x`` -> ``conductor.x`` (package-relative name)."""
+    if dotted == PACKAGE:
+        return ""
+    if dotted.startswith(PACKAGE + "."):
+        return dotted[len(PACKAGE) + 1:]
+    return dotted
+
+
 def internal_packages() -> set[str]:
     names = set()
     for entry in SOURCE_ROOT.iterdir():
@@ -193,10 +206,8 @@ def layer_violations() -> set[str]:
         if source_layer is None:
             continue
         for target, _local in collect_imports(path):
+            target = strip_package(target)
             top = top_package(target)
-            if top == "source_code":
-                target = target[len("source_code."):]
-                top = top_package(target)
             if top in internal:
                 target_layer = LAYER_OF.get(top)
                 if target_layer is not None and target_layer > source_layer:
@@ -217,6 +228,7 @@ def deferred_imports() -> set[str]:
         if LAYER_OF.get(top_package(module)) == DRIVERS:
             continue
         for target, local in collect_imports(path):
+            target = strip_package(target)
             if local and top_package(target) in internal:
                 found.add(f"{module} -> {target}")
     return found
@@ -259,8 +271,8 @@ def legacy_conductor_reads() -> set[str]:
     its former loose name (see conductor.electric_state.ELECTRIC_ATTRIBUTES and
     conductor.run_state.RUN_STATE_ATTRIBUTES), as an attribute of a conductor
     variable or through getattr/hasattr/setattr with a literal name."""
-    from conductor.electric_state import ELECTRIC_ATTRIBUTES
-    from conductor.run_state import RUN_STATE_ATTRIBUTES
+    from opensc2.conductor.electric_state import ELECTRIC_ATTRIBUTES
+    from opensc2.conductor.run_state import RUN_STATE_ATTRIBUTES
 
     legacy = set(ELECTRIC_ATTRIBUTES) | set(RUN_STATE_ATTRIBUTES)
     found = set()

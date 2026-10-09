@@ -33,7 +33,7 @@ from case_builders import (
     reservoir,
     valve,
 )
-from conductor.conductor_flags import MethodFlag
+from opensc2.conductor.conductor_flags import MethodFlag
 
 RESERVOIR_PRESSURE = 1.0e5  # Pa
 PRESSURE_OFFSET = 1.0e3  # Pa (dp0)

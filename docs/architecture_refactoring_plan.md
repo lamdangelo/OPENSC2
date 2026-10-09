@@ -1,6 +1,6 @@
 # OPENSC2 Clean-Architecture Refactoring Plan
 
-*Status: stages 0–9 implemented on branch `clean-architecture` (2026-10-08); see [architecture.md](architecture.md) for the resulting structure and the remaining debt. Scope: structure only — no numerical change in any stage.*
+*Status: stages 0–9 implemented on branch `clean-architecture` (2026-10-08); the remaining-debt stages 10–16 (import cycle, numpy tables, test factories, state-object reads, transverse coupling port, Superconductor objects, root package `opensc2/` replacing `source_code/`) followed on 2026-10-09; see [architecture.md](architecture.md) for the resulting structure. Paths below are written as they were when the plan was made (`source_code/...` is now `opensc2/...`). Scope: structure only — no numerical change in any stage.*
 
 This document analyses the current dependency structure of `source_code/` and lays out a
 staged plan to reach a layered ("clean") architecture in the sense of Robert C. Martin:

@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The GUI (drivers/gui/opensc2_gui.py) uses tkinter, which ships with the Python
+# The GUI (opensc2/drivers/gui/opensc2_gui.py) uses tkinter, which ships with the Python
 # standard library (may require an OS-level Tk package, e.g. python3-tk).
 dev = [
 # Testing
@@ -81,19 +81,19 @@ select = ["E", "F", "I", "B", "T20"]
 # domain modules that still print (docs/architecture_refactoring_plan.md,
 # Stage 5 replaces them with observers); it may only shrink.
 [tool.ruff.lint.per-file-ignores]
-"source_code/adapters/**" = ["T20"]
-"source_code/drivers/**" = ["T20"]
-"source_code/simulation.py" = ["T20"]
+"opensc2/adapters/**" = ["T20"]
+"opensc2/drivers/**" = ["T20"]
+"opensc2/simulation.py" = ["T20"]
 "tests/**" = ["T20"]
 "scripts/**" = ["T20"]
 "models/**" = ["T20"]
 "tools/**" = ["T20"]
-"source_code/components/fluid/fluid_component.py" = ["T20"]
-"source_code/components/solid/solid_component.py" = ["T20"]
-"source_code/conductor/conductor_topology.py" = ["T20"]
-"source_code/numerics/initial_flow.py" = ["T20"]
-"source_code/thermal/energy_balance.py" = ["T20"]
-"source_code/thermal/temperature_field.py" = ["T20"]
+"opensc2/components/fluid/fluid_component.py" = ["T20"]
+"opensc2/components/solid/solid_component.py" = ["T20"]
+"opensc2/conductor/conductor_topology.py" = ["T20"]
+"opensc2/numerics/initial_flow.py" = ["T20"]
+"opensc2/thermal/energy_balance.py" = ["T20"]
+"opensc2/thermal/temperature_field.py" = ["T20"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -101,44 +101,45 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
 
+[project.scripts]
+opensc2 = "opensc2.drivers.cli:main"
+
 [tool.setuptools]
-package-dir = {"" = "source_code"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["source_code"]
+include = ["opensc2*"]
+
+[tool.setuptools.package-data]
+opensc2 = ["*.conf", "drivers/gui/gui_icons/*", "input_files/input_file_template/*"]
 
 # ---------------------------------------------------------------------------
-# Layered architecture (docs/architecture_refactoring_plan.md). Run with
-# `lint-imports` from the repository root. The pytest ratchet in
-# tests/test_architecture.py enforces the same direction with a baseline;
-# the contracts here are the end state and are expected to fail until the
-# refactoring stages are complete.
+# Layered architecture (docs/architecture.md). Run with `lint-imports` from
+# the repository root. The pytest ratchet in tests/test_architecture.py
+# enforces the same direction (all its baselines are empty).
 # ---------------------------------------------------------------------------
 [tool.importlinter]
-root_packages = [
-    "physical_fields", "properties_of_materials", "hydraulics", "thermal",
-    "electromagnetics", "components", "conductor", "environment", "numerics",
-    "runtime", "ports", "application", "adapters", "simulation", "drivers",
-]
+root_packages = ["opensc2"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Layers: drivers -> adapters -> application -> domain"
 type = "layers"
 layers = [
-    "simulation | drivers",
-    "adapters",
-    "application",
-    "numerics | runtime | ports | conductor | components | thermal | electromagnetics | hydraulics | environment | properties_of_materials | physical_fields",
+    "opensc2.simulation | opensc2.simulation_starter | opensc2.drivers",
+    "opensc2.adapters",
+    "opensc2.application",
+    "opensc2.numerics | opensc2.runtime | opensc2.ports | opensc2.conductor | opensc2.components | opensc2.thermal | opensc2.electromagnetics | opensc2.hydraulics | opensc2.environment | opensc2.properties_of_materials | opensc2.physical_fields | opensc2.cylindrical_helix",
 ]
 
 [[tool.importlinter.contracts]]
 name = "Domain and application do not use I/O or plotting libraries"
 type = "forbidden"
 source_modules = [
-    "physical_fields", "properties_of_materials", "hydraulics", "thermal",
-    "electromagnetics", "components", "conductor", "environment", "numerics",
-    "runtime", "ports", "application",
+    "opensc2.physical_fields", "opensc2.properties_of_materials", "opensc2.hydraulics",
+    "opensc2.thermal", "opensc2.electromagnetics", "opensc2.components", "opensc2.conductor",
+    "opensc2.environment", "opensc2.numerics", "opensc2.runtime", "opensc2.ports",
+    "opensc2.application",
 ]
 forbidden_modules = [
     "pandas", "openpyxl", "yaml", "CoolProp", "matplotlib", "PIL", "tkinter", "IPython",
@@ -147,5 +148,5 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Adapters do not depend on the GUI toolkit"
 type = "forbidden"
-source_modules = ["adapters"]
+source_modules = ["opensc2.adapters"]
 forbidden_modules = ["tkinter"]

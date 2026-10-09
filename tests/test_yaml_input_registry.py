@@ -8,7 +8,7 @@ inside a YAML-driven directory still resolve to that directory.
 
 from pathlib import Path
 
-import adapters.input.yaml_input_registry as yaml_input_registry
+import opensc2.adapters.input.yaml_input_registry as yaml_input_registry
 
 from regression_utilities import copy_input_files
 

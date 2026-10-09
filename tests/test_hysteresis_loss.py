@@ -14,10 +14,10 @@ and the opt-in behaviour.
 
 import numpy as np
 
-from components.solid.strand_component import StrandComponent
+from opensc2.components.solid.strand_component import StrandComponent
 from factories import make_conductor, make_strand_mixed, strand_operations
-from properties_of_materials.niobium3_tin import critical_current_density_nb3sn
-from properties_of_materials.niobium_titanium_w7x import (
+from opensc2.properties_of_materials.niobium3_tin import critical_current_density_nb3sn
+from opensc2.properties_of_materials.niobium_titanium_w7x import (
     critical_current_density_nbti_w7x,
 )
 
