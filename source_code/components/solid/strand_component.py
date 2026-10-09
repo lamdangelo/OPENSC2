@@ -224,6 +224,18 @@ class StrandComponent(SolidComponent):
                 self.inputs.upper_critical_field_at_0K,
                 self.inputs.critical_current_scaling_constant,
             )
+        if material == "nb3sn":
+            # Same strain field as eval_sol_comp_properties (nodal values,
+            # consistent with the nodal temperature and field used here).
+            strain = np.asarray(self.node_fields.Epsilon).ravel()
+            return critical_current_density_nb3sn(
+                temperature,
+                magnetic_field,
+                strain,
+                self.inputs.critical_temperature_at_0T,
+                self.inputs.upper_critical_field_at_0K,
+                self.inputs.critical_current_scaling_constant,
+            )
         raise NotImplementedError(
             f"hysteresis loss has no Jc dispatch for superconducting_material "
             f"'{material}'"
