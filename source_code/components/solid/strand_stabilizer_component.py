@@ -73,8 +73,7 @@ class StrandStabilizerComponent(StrandComponent):
             build (ComponentBuildSettings): conductor identifier/length and time-stepping settings.
         """
 
-        super().__init__(inputs, operations)
-        self.external_inputs = build.external_inputs
+        super().__init__(inputs, operations, build.external_inputs)
         self.name = name
         self.identifier = identifier
 

@@ -59,6 +59,9 @@ class NullExternalInputReader:
     user_defined_quantity = _unavailable
     user_defined_grid_tables = _unavailable
 
+    def transverse_coupling_rows(self, file_name):
+        return ()
+
 
 def build_settings(
     conductor_identifier="CONDUCTOR_1",

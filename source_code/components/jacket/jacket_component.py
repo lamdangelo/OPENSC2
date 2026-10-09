@@ -70,8 +70,7 @@ class JacketComponent(SolidComponent):
         operations: SolidComponentOperations,
         build: ComponentBuildSettings,
     ):
-        super().__init__(inputs, operations)
-        self.external_inputs = build.external_inputs
+        super().__init__(inputs, operations, build.external_inputs)
         self.name = name
         self.identifier = identifier
 

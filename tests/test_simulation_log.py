@@ -209,7 +209,7 @@ def test_detect_features_casing_bath_and_network():
     strand = SimpleNamespace(
         identifier="STR_1",
         operations=make_operations(),
-        _transverse_patches=[{"partner": None}, {"partner": object()}],
+        transverse_patches=[{"partner": None}, {"partner": object()}],
     )
     conductor = make_stub_conductor(strands=[strand], network_ports=["port"])
     features = detect_features(conductor)

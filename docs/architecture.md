@@ -85,11 +85,18 @@ byte-identical (stricter than the 1e-5 regression tolerance).
 `pytest -m "not slow"` is the developer loop; the full suite includes the
 regression, checkpoint-restart SHA and verification tests.
 
+## Known physics caveats (recorded, not changed by the refactoring)
+
+* Transverse insulation coupling evaluates both temperatures at
+  source-build time. Network-coupled conductors are all prepared before the
+  shared solve of a step, so every patch pair is exactly antisymmetric. A
+  conductor without network ports is stepped inside the same loop iteration
+  (`application/transient_loop.py`), so a later conductor in the list reads
+  its partner's already-updated field; the exchange is then not exactly
+  antisymmetric for such pairs.
+
 ## Remaining debt (ratchet baselines)
 
-* `SolidComponent.get_transverse_coupling` still parses its CSV patch file
-  and walks `simulation.list_of_Conductors` lazily; moving this to the
-  external-input reader and the application layer is the next step.
 * The superconductor critical-property dispatch in
   `StrandComponent.eval_critical_properties` / `_critical_current_density`
   still branches on the material string (a `Superconductor` protocol would

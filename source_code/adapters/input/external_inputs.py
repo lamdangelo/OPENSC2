@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from adapters.input.auxiliary_files import (
 )
 from conductor.conductor_inputs import ConductorInputFiles
 from numerics.interpolation import build_interpolator
-from ports.external_inputs import TabulatedSeries
+from ports.external_inputs import TabulatedSeries, TransverseCouplingRow
 
 # Reader and default delimiter per file extension (formerly
 # Simulation.func_open_aux / Simulation.default_vals).
@@ -69,3 +70,38 @@ class FileExternalInputReader:
             sheet: {str(column): frame[column].to_numpy() for column in frame.columns}
             for sheet, frame in frames.items()
         }
+
+    def transverse_coupling_rows(self, file_name: str) -> tuple:
+        """CSV without header, one patch per row:
+
+            x_low, x_high, partner_conductor, partner_component,
+            partner_x_start, partner_x_end, conductance_per_metre
+            [, temperature_exponent, reference_temperature, saturation_temperature]
+
+        Blank lines and lines starting with ``#`` are skipped. A relative
+        file name is resolved against the directory of the conductor
+        definition (structure elements file)."""
+        path = Path(file_name)
+        if not path.is_absolute():
+            path = Path(self.file_paths.structure_elements_path).parent / path
+        rows = []
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [entry.strip() for entry in line.split(",")]
+            rows.append(
+                TransverseCouplingRow(
+                    x_low=float(parts[0]),
+                    x_high=float(parts[1]),
+                    partner_conductor=parts[2],
+                    partner_component=parts[3],
+                    partner_x_start=float(parts[4]),
+                    partner_x_end=float(parts[5]),
+                    conductance=float(parts[6]),
+                    temperature_exponent=float(parts[7]) if len(parts) > 7 else 0.0,
+                    reference_temperature=float(parts[8]) if len(parts) > 8 else 1.0,
+                    saturation_temperature=float(parts[9]) if len(parts) > 9 else math.inf,
+                )
+            )
+        return tuple(rows)

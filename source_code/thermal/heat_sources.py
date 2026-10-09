@@ -73,7 +73,7 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
         strand.get_hysteresis_loss(conductor)
         # Evaluate the nonlocal transverse-conduction power; zero unless
         # operations.transverse_coupling_file is set.
-        strand.get_transverse_coupling(conductor, simulation)
+        strand.get_transverse_coupling(conductor)
         # Call set_energy_counters to initialize EEXT and EJHT to zeros for
         # each conductor solid components.
         strand.set_energy_counters(conductor)
@@ -100,7 +100,7 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
         jacket.get_joule_power_across(conductor)
         # Evaluate the nonlocal transverse-conduction power; zero unless
         # operations.transverse_coupling_file is set.
-        jacket.get_transverse_coupling(conductor, simulation)
+        jacket.get_transverse_coupling(conductor)
         # Evaluate the induced eddy-current power in the jacket metal; zero
         # unless operations.eddy_loss_geometry_constant is set.
         jacket.get_eddy_loss(conductor)

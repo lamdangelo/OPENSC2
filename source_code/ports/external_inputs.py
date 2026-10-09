@@ -10,7 +10,36 @@ physics is unchanged: the reader is called where the files used to be read.
 
 from __future__ import annotations
 
+import math
 from typing import Any, NamedTuple, Protocol
+
+
+class TransverseCouplingRow(NamedTuple):
+    """One patch of a transverse insulation-coupling file: local nodes with
+    x in [x_low, x_high] exchange heat with the partner component between
+    partner_x_start and partner_x_end (see
+    components.solid.transverse_coupling). A partner conductor named
+    ``BOUNDARY`` is a fixed-temperature reservoir whose temperature (K) is
+    held in ``partner_component``."""
+
+    x_low: float
+    x_high: float
+    partner_conductor: str
+    partner_component: str
+    partner_x_start: float
+    partner_x_end: float
+    conductance: float  # W/(m K)
+    temperature_exponent: float = 0.0
+    reference_temperature: float = 1.0
+    saturation_temperature: float = math.inf
+
+    @property
+    def is_boundary(self) -> bool:
+        return self.partner_conductor == "BOUNDARY"
+
+    @property
+    def boundary_temperature(self) -> float:
+        return float(self.partner_component)
 
 
 class TabulatedSeries(NamedTuple):
@@ -44,4 +73,11 @@ class ExternalInputReader(Protocol):
         """{component identifier: {column name: 1-D numpy array}} of the
         user-defined spatial discretization file; the columns include
         "x [m]", "y [m]", "z [m]"."""
+        ...
+
+    def transverse_coupling_rows(self, file_name: str) -> tuple:
+        """The patches of a transverse insulation-coupling file as
+        ``TransverseCouplingRow`` tuples, in file order. ``file_name`` is
+        the value of a solid component's ``transverse_coupling_file``
+        operation (absolute, or relative to the conductor definition)."""
         ...

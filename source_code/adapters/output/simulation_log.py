@@ -240,7 +240,7 @@ def detect_features(conductor):
         "casing bath (BOUNDARY sink)": any(
             patch["partner"] is None
             for c in solids
-            for patch in (getattr(c, "_transverse_patches", None) or [])
+            for patch in (getattr(c, "transverse_patches", None) or [])
         ),
         "transversal thermal coupling": any(
             getattr(c.operations, "transverse_coupling_file", "") != ""

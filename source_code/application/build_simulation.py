@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from components.solid.transverse_coupling import build_transverse_patches, partner_index
 from conductor.conductor import Conductor
 from conductor.conductor_definition import ConductorDefinition
 from electromagnetics.electromagnetic_flags import CurrentMode
@@ -33,8 +34,24 @@ def instantiate_conductors(
         conductor.initialize_with_simulation(ctx)
         ctx.conductors.append(conductor)
     ctx.conductor_contacts = conductor_contacts
+    wire_transverse_coupling(ctx.conductors)
     for conductor in ctx.conductors:
         observers.on_conductor_created(target, conductor)
+
+
+def wire_transverse_coupling(conductors) -> None:
+    """Resolve the transverse insulation-coupling patches of every solid
+    component against the meshes of all conductors (cross-conductor wiring;
+    needs every conductor instantiated and meshed)."""
+    partners = partner_index(conductors)
+    for conductor in conductors:
+        for solid in conductor.inventory.solids.collection:
+            solid.transverse_patches = build_transverse_patches(
+                solid.transverse_coupling_rows,
+                conductor.mesh.node_coordinates,
+                partners,
+                solid.identifier,
+            )
 
 
 def initialize_conductors(

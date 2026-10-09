@@ -11,44 +11,53 @@ net energy) and the opt-in behaviour (no file -> exactly zero power).
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+from adapters.input.external_inputs import FileExternalInputReader
+from application.build_simulation import wire_transverse_coupling
 from components.solid.solid_component import SolidComponent
-from factories import make_conductor, make_jacket, solid_operations
+from factories import build_settings, make_conductor, make_jacket, solid_operations
 
 NUMBER_OF_NODES = 11
 LENGTH = 10.0
 CONDUCTANCE = 0.7  # W/(m K)
 
 
+def make_reader(tmp_path) -> FileExternalInputReader:
+    """Reader resolving relative file names against the deck directory."""
+    return FileExternalInputReader(
+        SimpleNamespace(structure_elements_path=tmp_path / "conductor.yaml")
+    )
+
+
 def make_component(identifier: str, coupling_file: str,
-                   temperature: np.ndarray) -> SolidComponent:
+                   temperature: np.ndarray, tmp_path) -> SolidComponent:
     component = make_jacket(
         identifier=identifier,
         operations=solid_operations(transverse_coupling_file=coupling_file),
+        build=build_settings(external_inputs=make_reader(tmp_path)),
     )
     component.node_fields.temperature = temperature
     return component
 
 
 def make_world(tmp_path, files: dict, temperatures: dict):
-    """Two single-component conductors CONDUCTOR_A / CONDUCTOR_B."""
+    """Two single-component conductors CONDUCTOR_A / CONDUCTOR_B, wired."""
     conductors = []
     components = {}
     for name in ("A", "B"):
         component = make_component(
-            f"COMP_{name}", files.get(name, ""), temperatures[name]
+            f"COMP_{name}", files.get(name, ""), temperatures[name], tmp_path
         )
         conductor = make_conductor(
             number_of_nodes=NUMBER_OF_NODES,
             length=LENGTH,
             identifier=f"CONDUCTOR_{name}",
             components=[component],
-            file_paths=SimpleNamespace(
-                structure_elements_path=tmp_path / "conductor.yaml"
-            ),
         )
         conductors.append(conductor)
         components[name] = component
+    wire_transverse_coupling(conductors)
     simulation = SimpleNamespace(list_of_Conductors=conductors)
     return conductors, components, simulation
 
@@ -71,8 +80,8 @@ def test_matches_closed_form(tmp_path):
         {"A": np.full(NUMBER_OF_NODES, 6.0), "B": 6.0 + 0.5 * x},
     )
     conductor_a = sim.list_of_Conductors[0]
-    comps["A"].get_transverse_coupling(conductor_a, sim)  # allocates only
-    comps["A"].get_transverse_coupling(conductor_a, sim)
+    comps["A"].get_transverse_coupling(conductor_a)  # allocates only
+    comps["A"].get_transverse_coupling(conductor_a)
     power = comps["A"].node_fields.transverse_coupling_linear_power[:, 0]
     assert np.allclose(power, CONDUCTANCE * 0.5 * x)
 
@@ -88,8 +97,8 @@ def test_reversed_interval_maps_mirror(tmp_path):
         tmp_path, {"A": file_a},
         {"A": np.full(NUMBER_OF_NODES, 6.0), "B": 6.0 + 0.5 * x},
     )
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
     power = comps["A"].node_fields.transverse_coupling_linear_power[:, 0]
     assert np.allclose(power, CONDUCTANCE * 0.5 * (LENGTH - x))
 
@@ -103,8 +112,8 @@ def test_overlapping_patches_accumulate(tmp_path):
         tmp_path, {"A": file_a},
         {"A": np.full(NUMBER_OF_NODES, 6.0), "B": 6.0 + 0.5 * x},
     )
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
     power = comps["A"].node_fields.transverse_coupling_linear_power[:, 0]
     assert np.allclose(power, 2.0 * CONDUCTANCE * 0.5 * x)
 
@@ -130,8 +139,8 @@ def test_pair_is_antisymmetric(tmp_path):
         {"A": 6.0 + 0.2 * x, "B": 7.0 - 0.3 * x},
     )
     for _ in range(2):
-        comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
-        comps["B"].get_transverse_coupling(sim.list_of_Conductors[1], sim)
+        comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
+        comps["B"].get_transverse_coupling(sim.list_of_Conductors[1])
     total = (
         comps["A"].node_fields.transverse_coupling_linear_power[:, 0]
         + comps["B"].node_fields.transverse_coupling_linear_power[:, 0]
@@ -146,8 +155,8 @@ def test_no_file_gives_zero(tmp_path):
         {"A": np.full(NUMBER_OF_NODES, 6.0),
          "B": np.full(NUMBER_OF_NODES, 9.0)},
     )
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
     assert np.all(
         comps["A"].node_fields.transverse_coupling_linear_power == 0.0
     )
@@ -168,8 +177,8 @@ def test_temperature_dependent_conductance(tmp_path):
         tmp_path, {"A": file_a},
         {"A": temperature_a, "B": temperature_b},
     )
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
-    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0], sim)
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
+    comps["A"].get_transverse_coupling(sim.list_of_Conductors[0])
     power = comps["A"].node_fields.transverse_coupling_linear_power[:, 0]
     mean = np.minimum(0.5 * (temperature_a + temperature_b), t_sat)
     expected = (
@@ -177,3 +186,62 @@ def test_temperature_dependent_conductance(tmp_path):
         * (temperature_b - temperature_a)
     )
     assert np.allclose(power, expected)
+
+
+# --------------------------------------------------------------------------
+# Reader and wiring
+# --------------------------------------------------------------------------
+
+def test_reader_parses_rows_defaults_comments_and_boundary(tmp_path):
+    name = write_patch_file(
+        tmp_path, "rows.csv",
+        [
+            ["# x_low, x_high, partner, component, xs, xe, g, n, T_ref, T_sat"],
+            [0.0, 2.0, "CONDUCTOR_B", "COMP_B", 2.0, 0.0, 0.7],
+            [2.0, 4.0, "CONDUCTOR_B", "COMP_B", 0.0, 2.0, 0.5, 1.5, 10.0, 12.0],
+            [4.0, 6.0, "BOUNDARY", 4.5, 0.0, 0.0, 0.1],
+        ],
+    )
+    rows = make_reader(tmp_path).transverse_coupling_rows(name)
+    assert len(rows) == 3
+    first, second, third = rows
+    assert (first.x_low, first.x_high, first.partner_x_start, first.partner_x_end) == (0.0, 2.0, 2.0, 0.0)
+    assert first.conductance == 0.7
+    assert (first.temperature_exponent, first.reference_temperature) == (0.0, 1.0)
+    assert first.saturation_temperature == np.inf
+    assert not first.is_boundary
+    assert (second.temperature_exponent, second.reference_temperature, second.saturation_temperature) == (1.5, 10.0, 12.0)
+    assert third.is_boundary and third.boundary_temperature == 4.5
+
+
+def test_rows_are_read_at_construction_and_mapped_by_the_wiring(tmp_path):
+    x = np.linspace(0.0, LENGTH, NUMBER_OF_NODES)
+    file_a = write_patch_file(
+        tmp_path, "a.csv",
+        [[0.0, 4.0, "CONDUCTOR_B", "COMP_B", 0.0, 4.0, CONDUCTANCE],
+         [20.0, 30.0, "CONDUCTOR_B", "COMP_B", 0.0, 1.0, CONDUCTANCE],  # no local node
+         [8.0, LENGTH, "BOUNDARY", 4.5, 0.0, 0.0, 0.1]],
+    )
+    conductors, comps, _ = make_world(
+        tmp_path, {"A": file_a},
+        {"A": np.full(NUMBER_OF_NODES, 6.0), "B": 6.0 + 0.5 * x},
+    )
+    assert len(comps["A"].transverse_coupling_rows) == 3
+    patches = comps["A"].transverse_patches
+    assert len(patches) == 2  # the row covering no local node is dropped
+    np.testing.assert_array_equal(patches[0]["indices"], np.flatnonzero(x <= 4.0))
+    assert patches[0]["partner"]["component"] is comps["B"]
+    assert patches[1]["partner"] is None and patches[1]["boundary_temperature"] == 4.5
+    assert comps["B"].transverse_coupling_rows == () and comps["B"].transverse_patches == []
+
+
+def test_unknown_partner_is_reported_by_the_wiring(tmp_path):
+    file_a = write_patch_file(
+        tmp_path, "a.csv",
+        [[0.0, LENGTH, "CONDUCTOR_Z", "COMP_B", 0.0, LENGTH, CONDUCTANCE]],
+    )
+    with pytest.raises(KeyError, match="unknown partner CONDUCTOR_Z/COMP_B"):
+        make_world(
+            tmp_path, {"A": file_a},
+            {"A": np.full(NUMBER_OF_NODES, 6.0), "B": np.full(NUMBER_OF_NODES, 6.0)},
+        )
