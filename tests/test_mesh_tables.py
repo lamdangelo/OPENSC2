@@ -19,6 +19,7 @@ from conductor import conductor_mesh
 from conductor.conductor import Conductor
 from electromagnetics import circuit_topology, conductance, inductance
 from electromagnetics.electromagnetic_flags import InductanceMode, SelfInductanceMode
+from factories import make_strand_mixed
 
 
 # --------------------------------------------------------------------------
@@ -31,11 +32,8 @@ def _collection(items):
 
 def _component(identifier, coordinate, strand=False):
     if strand:
-        obj = StrandComponent.__new__(StrandComponent)
-        obj.identifier = identifier
+        obj = make_strand_mixed(identifier=identifier, cos_theta=0.95)
         obj.coordinate = coordinate
-        obj.radius = 0.5e-3
-        obj.inputs = SimpleNamespace(cos_theta=0.95)
         return obj
     return SimpleNamespace(identifier=identifier, coordinate=coordinate)
 

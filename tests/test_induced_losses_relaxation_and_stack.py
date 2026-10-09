@@ -2,14 +2,11 @@
 (ii) the thin-strip hysteresis loss of REBCO stacks with the stack shielding
 bound (both added after the review of docs/hts_induced_losses.tex)."""
 
-from types import SimpleNamespace
-
 import numpy as np
 import pytest
 
-from components.solid.strand_component import StrandComponent
-from components.solid.stack_component import StackComponent
-from physical_fields.physical_field import FieldContainer, GridLocation
+from factories import make_conductor, make_strand_mixed, strand_operations
+from factories import make_stack as build_stack
 
 MU0 = 4.0e-7 * np.pi
 NODES = 7
@@ -17,23 +14,23 @@ AREA = 3.0e-5  # m^2 (one stack)
 
 
 def make_strand(time_constant, relaxation_time=0.0, **extra):
-    strand = StrandComponent.__new__(StrandComponent)
-    strand.identifier = "S1"
-    strand.node_fields = FieldContainer(GridLocation.NODE)
-    strand.operations = SimpleNamespace(
-        coupling_loss_time_constant=time_constant,
-        coupling_loss_relaxation_time=relaxation_time,
-        coupling_loss_copper_scaling=False,
-        coupling_loss_reference_temperature=0.0,
-        coupling_loss_reference_field=0.0,
-        **extra,
+    return make_strand_mixed(
+        identifier="S1",
+        cross_section=AREA,
+        residual_resistivity_ratio=100.0,
+        operations=strand_operations(
+            coupling_loss_time_constant=time_constant,
+            coupling_loss_relaxation_time=relaxation_time,
+            coupling_loss_copper_scaling=False,
+            coupling_loss_reference_temperature=0.0,
+            coupling_loss_reference_field=0.0,
+            **extra,
+        ),
     )
-    strand.inputs = SimpleNamespace(cross_section=AREA, residual_resistivity_ratio=100.0)
-    return strand
 
 
 def conductor_at(time):
-    return SimpleNamespace(cond_time=[time], mesh=SimpleNamespace(number_of_nodes=NODES))
+    return make_conductor(number_of_nodes=NODES, time=time)
 
 
 def drive(strand, times, fields):
@@ -139,25 +136,20 @@ def test_copper_scaling_follows_nist_resistivity():
 # --------------------------------------------------------------------------
 
 def make_stack(tape_hysteresis=True, filament_diameter=0.0):
-    stack = StackComponent.__new__(StackComponent)
-    stack.identifier = "STACK1"
-    stack.node_fields = FieldContainer(GridLocation.NODE)
-    stack.operations = SimpleNamespace(
-        tape_hysteresis_loss=tape_hysteresis, filament_diameter=filament_diameter
-    )
-    n_tapes, width, t_hts = 80, 6.0e-3, 2.0e-6
-    stack.inputs = SimpleNamespace(
-        superconducting_material="ybco",
+    # 80 tapes, 6 mm wide, 2 um of REBCO each (the factory default stack)
+    return build_stack(
+        identifier="STACK1",
         cross_section=AREA,
-        stack_width=width,
-        tape_identifier=str(n_tapes),
+        stack_width=6.0e-3,
+        tape_identifier="80",
+        num_tapes=80,
         critical_current_scaling_constant=1.838522e8,
         critical_temperature_at_0T=93.0,
         upper_critical_field_at_0K=140.0,
+        operations=strand_operations(
+            tape_hysteresis_loss=tape_hysteresis, filament_diameter=filament_diameter
+        ),
     )
-    stack.sc = n_tapes * width * t_hts
-    stack.sc_cross_section = stack.sc
-    return stack
 
 
 def drive_stack(stack, b0, b1, dt, temperature=4.5):

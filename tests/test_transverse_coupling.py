@@ -8,13 +8,12 @@ accumulation of overlapping patches, the pairwise antisymmetry (zero
 net energy) and the opt-in behaviour (no file -> exactly zero power).
 """
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 
 from components.solid.solid_component import SolidComponent
-from physical_fields.physical_field import FieldContainer, GridLocation
+from factories import make_conductor, make_jacket, solid_operations
 
 NUMBER_OF_NODES = 11
 LENGTH = 10.0
@@ -23,13 +22,11 @@ CONDUCTANCE = 0.7  # W/(m K)
 
 def make_component(identifier: str, coupling_file: str,
                    temperature: np.ndarray) -> SolidComponent:
-    component = SolidComponent.__new__(SolidComponent)
-    component.identifier = identifier
-    component.node_fields = FieldContainer(GridLocation.NODE)
-    component.node_fields.temperature = temperature
-    component.operations = SimpleNamespace(
-        transverse_coupling_file=coupling_file
+    component = make_jacket(
+        identifier=identifier,
+        operations=solid_operations(transverse_coupling_file=coupling_file),
     )
+    component.node_fields.temperature = temperature
     return component
 
 
@@ -41,18 +38,13 @@ def make_world(tmp_path, files: dict, temperatures: dict):
         component = make_component(
             f"COMP_{name}", files.get(name, ""), temperatures[name]
         )
-        conductor = SimpleNamespace(
+        conductor = make_conductor(
+            number_of_nodes=NUMBER_OF_NODES,
+            length=LENGTH,
             identifier=f"CONDUCTOR_{name}",
-            mesh=SimpleNamespace(
-                number_of_nodes=NUMBER_OF_NODES,
-                node_coordinates=np.linspace(0.0, LENGTH, NUMBER_OF_NODES),
-            ),
+            components=[component],
             file_paths=SimpleNamespace(
                 structure_elements_path=tmp_path / "conductor.yaml"
-            ),
-            inventory=SimpleNamespace(
-                strands=SimpleNamespace(collection=[component]),
-                jackets=SimpleNamespace(collection=[]),
             ),
         )
         conductors.append(conductor)

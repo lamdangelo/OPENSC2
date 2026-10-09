@@ -12,12 +12,10 @@ check the power against the closed form, the |dB/dt| (not squared) scaling,
 and the opt-in behaviour.
 """
 
-from types import SimpleNamespace
-
 import numpy as np
 
 from components.solid.strand_component import StrandComponent
-from physical_fields.physical_field import FieldContainer, GridLocation
+from factories import make_conductor, make_strand_mixed, strand_operations
 from properties_of_materials.niobium_titanium_w7x import (
     critical_current_density_nbti_w7x,
 )
@@ -30,25 +28,20 @@ BC20, C0, TC0 = 14.61, 16.8512e10, 9.03  # NbTi-W7X critical surface
 
 
 def make_strand(filament_diameter: float) -> StrandComponent:
-    strand = StrandComponent.__new__(StrandComponent)
-    strand.node_fields = FieldContainer(GridLocation.NODE)
-    strand.operations = SimpleNamespace(filament_diameter=filament_diameter)
-    strand.inputs = SimpleNamespace(
+    return make_strand_mixed(
         superconducting_material="nbti-w7x",
         cross_section=CROSS_SECTION,
         stabilizer_to_sc_ratio=CU_SC_RATIO,
         upper_critical_field_at_0K=BC20,
         critical_current_scaling_constant=C0,
         critical_temperature_at_0T=TC0,
+        critical_current_definition_mode=1,  # C0 is the physical scaling constant
+        operations=strand_operations(filament_diameter=filament_diameter),
     )
-    return strand
 
 
-def conductor_at(time: float) -> SimpleNamespace:
-    return SimpleNamespace(
-        cond_time=[time],
-        mesh=SimpleNamespace(number_of_nodes=NUMBER_OF_NODES),
-    )
+def conductor_at(time: float):
+    return make_conductor(number_of_nodes=NUMBER_OF_NODES, time=time)
 
 
 def drive(strand: StrandComponent, b0: float, b1: float, dt: float):

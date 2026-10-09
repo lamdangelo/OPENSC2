@@ -13,19 +13,22 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from components.solid.strand_component import StrandComponent
+from factories import make_conductor, make_stack
 
 
 def make_strand(number_of_elements=5, floor=1.0e-3, consistency=True):
-    strand = StrandComponent.__new__(StrandComponent)
-    strand.identifier = "STACK1"
-    strand.inputs = SimpleNamespace(flux_flow_electric_field=1.0e-4, power_law_exponent=20)
-    strand.gauss_fields = SimpleNamespace(electric_resistance=np.zeros(number_of_elements))
-    lengths = np.full(number_of_elements, 0.5)
-    conductor = SimpleNamespace(
-        operations=SimpleNamespace(electric_resistance_floor=floor, electric_current_consistency=consistency),
-        mesh=SimpleNamespace(number_of_elements=number_of_elements),
-        component_element_lengths=lambda identifier: lengths,
+    strand = make_stack(
+        identifier="STACK1", flux_flow_electric_field=1.0e-4, power_law_exponent=20
+    )
+    strand.gauss_fields.electric_resistance = np.zeros(number_of_elements)
+    # straight stack: every element is 0.5 m long
+    conductor = make_conductor(
+        number_of_nodes=number_of_elements + 1,
+        length=0.5 * number_of_elements,
+        components=[strand],
+        operations=SimpleNamespace(
+            electric_resistance_floor=floor, electric_current_consistency=consistency
+        ),
     )
     return strand, conductor
 

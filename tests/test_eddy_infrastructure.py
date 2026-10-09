@@ -6,13 +6,18 @@ material-name conductivity dispatcher. No physics is wired to a solver here;
 these are the reusable pieces the eddy terms will build on.
 """
 
-from types import SimpleNamespace
-
 import numpy as np
 
 from components.solid.strand_component import StrandComponent
 from components.jacket.jacket_component import JacketComponent
-from physical_fields.physical_field import FieldContainer, GridLocation
+from factories import (
+    jacket_inputs,
+    make_conductor,
+    make_strand_mixed,
+    solid_operations,
+    strand_operations,
+)
+from factories import make_jacket as build_jacket
 from properties_of_materials.electrical_conductivity import (
     electrical_conductivity_of,
     electrical_resistivity_of,
@@ -23,13 +28,11 @@ JACKET_GEOMETRY_CONSTANT = 4.4437e-9  # m^4, W7-X Al6063 conduit second moment
 
 
 def make_component() -> StrandComponent:
-    component = StrandComponent.__new__(StrandComponent)
-    component.node_fields = FieldContainer(GridLocation.NODE)
-    return component
+    return make_strand_mixed()
 
 
-def conductor_at(time: float) -> SimpleNamespace:
-    return SimpleNamespace(cond_time=[time])
+def conductor_at(time: float):
+    return make_conductor(number_of_nodes=NUMBER_OF_NODES, time=time)
 
 
 # --------------------------------------------------------------------------
@@ -112,20 +115,14 @@ def test_unknown_material_raises():
 # jacket eddy-current loss
 # --------------------------------------------------------------------------
 def make_jacket(geometry_constant: float, material: str = "al6063") -> JacketComponent:
-    jacket = JacketComponent.__new__(JacketComponent)
-    jacket.node_fields = FieldContainer(GridLocation.NODE)
-    jacket.operations = SimpleNamespace(
-        eddy_loss_geometry_constant=geometry_constant
+    return build_jacket(
+        jacket_material=material,
+        operations=solid_operations(eddy_loss_geometry_constant=geometry_constant),
     )
-    jacket.inputs = SimpleNamespace(jacket_material=material)
-    return jacket
 
 
-def conductor_with_mesh(time: float) -> SimpleNamespace:
-    return SimpleNamespace(
-        cond_time=[time],
-        mesh=SimpleNamespace(number_of_nodes=NUMBER_OF_NODES),
-    )
+def conductor_with_mesh(time: float):
+    return make_conductor(number_of_nodes=NUMBER_OF_NODES, time=time)
 
 
 def test_jacket_eddy_loss_matches_closed_form():
@@ -188,7 +185,7 @@ def test_base_eddy_conductivity_not_implemented():
 
     from components.solid.solid_component import SolidComponent
 
-    component = SolidComponent.__new__(SolidComponent)
+    component = SolidComponent(jacket_inputs(), solid_operations())
     with pytest.raises(NotImplementedError):
         component._eddy_conductivity(conductor_with_mesh(0.0))
 
@@ -202,15 +199,11 @@ STRAND_EDDY_GEOMETRY_CONSTANT = 9.0938e-13  # m^4, W7-X 243-strand copper
 def make_strand_eddy(
     geometry_constant: float, rrr: float = 160.0
 ) -> StrandComponent:
-    strand = StrandComponent.__new__(StrandComponent)
-    strand.node_fields = FieldContainer(GridLocation.NODE)
-    strand.operations = SimpleNamespace(
-        eddy_loss_geometry_constant=geometry_constant
+    return make_strand_mixed(
+        stabilizer_material="cu",
+        residual_resistivity_ratio=rrr,
+        operations=strand_operations(eddy_loss_geometry_constant=geometry_constant),
     )
-    strand.inputs = SimpleNamespace(
-        stabilizer_material="Cu", residual_resistivity_ratio=rrr
-    )
-    return strand
 
 
 def test_strand_copper_eddy_matches_closed_form():

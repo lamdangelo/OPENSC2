@@ -789,11 +789,14 @@ def make_port_stub(
             )
         ),
     )
-    conductor = SimpleNamespace(
+    from factories import make_conductor
+
+    conductor = make_conductor(
+        number_of_nodes=nodes,
+        time_step=1.0e-3,
         band=SimpleNamespace(number_of_subdiagonals=2),
         network_ports=[port],
         mesh=SimpleNamespace(element_lengths=np.full(4, 0.01)),
-        time_step=1.0e-3,
     )
     return conductor, port
 

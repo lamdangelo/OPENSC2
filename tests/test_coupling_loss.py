@@ -11,12 +11,11 @@ power against the closed form, the energy of a linear ramp, and the
 opt-in behaviour (zero time constant produces exactly zero power).
 """
 
-from types import SimpleNamespace
-
 import numpy as np
 
 from components.solid.strand_component import StrandComponent
-from physical_fields.physical_field import FieldContainer, GridLocation
+from factories import make_conductor as conductor_stub
+from factories import make_strand_mixed, strand_operations
 
 NUMBER_OF_NODES = 11
 CROSS_SECTION = 6.2e-5  # m^2
@@ -24,21 +23,15 @@ TIME_CONSTANT = 0.05  # n·tau_eff in s
 
 
 def make_strand(time_constant: float) -> StrandComponent:
-    """Bare StrandComponent with only what get_coupling_loss touches."""
-    strand = StrandComponent.__new__(StrandComponent)
-    strand.node_fields = FieldContainer(GridLocation.NODE)
-    strand.operations = SimpleNamespace(
-        coupling_loss_time_constant=time_constant
+    """A real strand with the coupling-loss time constant under test."""
+    return make_strand_mixed(
+        cross_section=CROSS_SECTION,
+        operations=strand_operations(coupling_loss_time_constant=time_constant),
     )
-    strand.inputs = SimpleNamespace(cross_section=CROSS_SECTION)
-    return strand
 
 
-def make_conductor(time: float) -> SimpleNamespace:
-    return SimpleNamespace(
-        cond_time=[time],
-        mesh=SimpleNamespace(number_of_nodes=NUMBER_OF_NODES),
-    )
+def make_conductor(time: float):
+    return conductor_stub(number_of_nodes=NUMBER_OF_NODES, time=time)
 
 
 def test_coupling_loss_matches_closed_form():

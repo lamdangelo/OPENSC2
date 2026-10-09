@@ -21,6 +21,7 @@ from adapters.output.simulation_log import (
     format_log,
 )
 from electromagnetics.electromagnetic_flags import CurrentMode
+from factories import make_conductor
 
 from test_network_coupling import (
     NETWORK_SECTION,
@@ -135,7 +136,9 @@ def make_collection(*components):
 
 
 def make_stub_conductor(strands=(), jackets=(), fluids=(), network_ports=()):
-    return SimpleNamespace(
+    return make_conductor(
+        number_of_nodes=51,
+        length=2.0,
         identifier="CONDUCTOR_1",
         network_ports=list(network_ports),
         inventory=SimpleNamespace(
@@ -148,11 +151,6 @@ def make_stub_conductor(strands=(), jackets=(), fluids=(), network_ports=()):
             current_mode=CurrentMode.CURRENT_NOT_DEFINED,
         ),
         hydraulic_formulation=SimpleNamespace(value="velocity"),
-        mesh=SimpleNamespace(
-            number_of_elements=50,
-            number_of_nodes=51,
-            node_coordinates=np.linspace(0.0, 2.0, 51),
-        ),
     )
 
 
@@ -300,7 +298,7 @@ def make_tracked_conductor(time_now):
         node_fields=SimpleNamespace(temperature=np.array([4.6, 5.2, 4.8])),
     )
     conductor = make_stub_conductor(strands=[strand], fluids=[fluid])
-    conductor.cond_time = [time_now]
+    conductor.time_state.cond_time = [time_now]
     return conductor
 
 
@@ -376,7 +374,7 @@ def test_update_tracks_both_voltage_definitions(tmp_path):
         delta_voltage_along_sum=np.array([0.0, -2.3e-3, 1.1e-3]),
     )
     # Two strand-interleaved potentials of a single strand: phi[0], phi[-1].
-    conductor.nodal_potential = np.array([1.0e-3, 0.5e-3, -0.9e-3])
+    conductor.electric.nodal_potential = np.array([1.0e-3, 0.5e-3, -0.9e-3])
 
     summary = SimulationSummary()
     summary.update(simulation, conductor)
