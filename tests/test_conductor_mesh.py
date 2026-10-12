@@ -217,6 +217,8 @@ def test_uniform_mesh_file_run_is_bit_identical(constant_fluid, tmp_path):
 
 @pytest.fixture(scope="module")
 def refine():
+    if not (HELIAS / "refine_2d_deck.py").is_file():
+        pytest.skip("HELIAS-VIPER model scripts not present (models/ is not tracked)")
     sys.path.insert(0, str(HELIAS))
     import refine_2d_deck
     return refine_2d_deck
