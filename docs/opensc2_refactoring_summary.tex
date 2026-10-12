@@ -372,19 +372,132 @@ redesigned:
         fully implicit source treatment. All one-step methods now carry a two-level
         solution history.
   \item \textbf{Adaptive error control} (\code{IADAPTIME=4}, tolerance
-        \code{TOLTIME}): the local truncation error is estimated from the deviation of
-        the new solution from its linear extrapolation in time (proportional to
-        $\Delta t^2 \ddot U$), normalized \emph{per field} (each fluid's velocity,
-        pressure, temperature; each solid's temperature) with a weighted
-        root-mean-square norm and physical magnitude floors --- this is what makes the
-        estimate non-degenerate. The controller applies
-        $\Delta t \leftarrow 0.9\,\Delta t \sqrt{\varepsilon/\mathrm{err}}$ with growth
-        clamps $[0.25, 1.5]$, honors \code{STPMIN}/\code{STPMAX}, and clamps the step to
-        land exactly on requested output times and on square-wave heating-window edges
-        (both would otherwise be skipped by a variable step). There is no step
-        rejection (a state rollback is not possible in the present architecture), which
-        the conservative safety factor and growth clamp compensate.
+        \code{TOLTIME}): a local-truncation-error indicator formed from the deviation
+        of the new solution from its linear extrapolation in time, normalized
+        \emph{per field} with physical magnitude floors, drives a standard
+        proportional step controller. The estimator, its normalization and the
+        controller are given in Section~\ref{sec:adaptive}.
 \end{itemize}
+
+\subsubsection*{Adaptive error control}
+\label{sec:adaptive}
+
+\paragraph{Error indicator.}
+Let $U^{n-1}$, $U^{n}$ be the two stored solution levels at $t^{n-1}$, $t^{n}$,
+with steps $\Delta t_{n-1} = t^{n} - t^{n-1}$ and $\Delta t_{n} = t^{n+1} - t^{n}$,
+and let $U^{n+1}$ be the solution just computed. The linear extrapolation of the
+history to $t^{n+1}$ is
+\begin{equation}
+  U^{n+1}_{\mathrm{pred}} = U^{n} + r\,(U^{n} - U^{n-1}),
+  \qquad r = \frac{\Delta t_{n}}{\Delta t_{n-1}},
+  \label{eq:predictor}
+\end{equation}
+and the indicator is the deviation of the computed solution from it,
+$d = U^{n+1} - U^{n+1}_{\mathrm{pred}}$. Expanding a smooth $U(t)$ about $t^{n}$,
+\begin{equation}
+  d = \frac{\Delta t_{n}\,(\Delta t_{n} + \Delta t_{n-1})}{2}\,\ddot U(t^{n})
+      + \mathcal O(\Delta t^{3}),
+  \label{eq:deviation}
+\end{equation}
+which for uniform steps is $\Delta t^{2}\ddot U$. This is, up to the factor
+$2(\theta - \tfrac12)$, the leading local truncation error of the
+$\theta$ family (backward Euler: $\tfrac12\Delta t^{2}\ddot U$; Galerkin:
+$\tfrac16\Delta t^{2}\ddot U$). For the second-order steppers (Crank--Nicolson,
+BDF2) the true local error is $\mathcal O(\Delta t^{3}\dddot U)$, so
+\eqref{eq:deviation} overestimates it; the indicator then acts as a curvature
+limiter, which is the conservative choice in the absence of step rejection.
+The $\Delta t^{2}$ scaling of \eqref{eq:deviation} fixes the exponent of the
+controller below.
+
+\paragraph{Per-field normalization.}
+The solution vector interleaves, node by node, the velocity (or mass flow),
+pressure and temperature of every fluid channel and the temperature of every
+solid. For each such field $w$ with $N$ nodal values let $w^{n+1}$ be the
+sub-vector of $U^{n+1}$ holding those values and $d_w$ the corresponding
+sub-vector of the deviation $d$, i.e.\ its $N$ entries at the positions of
+field $w$ in the interleaved solution vector,
+$d_{w,i} = U^{n+1}_{w,i} - U^{n+1}_{\mathrm{pred},w,i}$ for node $i$. The
+relative indicator is
+\begin{equation}
+  e_w = \frac{\bigl\|d_w\bigr\|_{\mathrm{rms}}}{\max\bigl(\|w^{n+1}\|_\infty,\; w_{\mathrm{floor}}\bigr)},
+  \qquad
+  \|d_w\|_{\mathrm{rms}} = \Bigl(\frac1N\sum_{i=1}^{N} d_{w,i}^{2}\Bigr)^{1/2},
+  \label{eq:field-ratio}
+\end{equation}
+with the magnitude floors
+\begin{equation}
+  v_{\mathrm{floor}} = \SI{1}{m/s},\qquad
+  p_{\mathrm{floor}} = \SI{1e5}{Pa},\qquad
+  T_{\mathrm{floor}} = \SI{1}{K}
+  \label{eq:floors}
+\end{equation}
+(in the mass-flow formulation the first fluid slot holds $\dot m$ and its floor
+is the dimensional image $\rho A\,v_{\mathrm{floor}}$ of the velocity floor, with
+the channel's cross-section $A$ and maximum nodal density $\rho$, so that the
+controller is equally aggressive in both formulations). The step indicator is
+the worst field,
+\begin{equation}
+  \mathrm{err} = \max_{w} e_w .
+  \label{eq:worst-field}
+\end{equation}
+Two choices make this estimate non-degenerate where the legacy one failed. The
+floor in the denominator keeps a field resting near zero --- a stagnant
+velocity, the situation in which the old eigenvalue estimator produced an
+unbounded relative error and pinned the step at \code{STPMIN} for the whole run
+--- from dominating the indicator. The root-mean-square norm over the nodes,
+rather than the infinity norm, keeps a localized feature such as a moving quench
+front over a few dozen of $10^{4}$ nodes from doing the same; it is the
+weighted-RMS norm used by production ODE integrators.
+
+\paragraph{Controller.}
+With the user tolerance $\varepsilon$ (\code{TOLTIME}, default $10^{-3}$) the
+next step is
+\begin{equation}
+  \Delta t_{n+1} = \Delta t_{n}\,
+  \min\Bigl(f_{\max},\;\max\Bigl(f_{\min},\;
+  \sigma\sqrt{\frac{\varepsilon}{\mathrm{err}}}\Bigr)\Bigr),
+  \qquad
+  \sigma = 0.9,\quad f_{\min} = 0.25,\quad f_{\max} = 1.5,
+  \label{eq:controller}
+\end{equation}
+the square root being the inverse of the $\Delta t^{2}$ scaling in
+\eqref{eq:deviation}: if the indicator were exactly quadratic in the step, the
+unclamped update would land at $\mathrm{err} = \sigma^{2}\varepsilon$ on the
+next step. The result is then confined to the user window and to the discrete
+event times,
+\begin{equation}
+  \Delta t_{n+1} \leftarrow
+  \min\Bigl(\max(\Delta t_{n+1}, \Delta t_{\min}),\;\Delta t_{\max},\;
+  \min_{k}\,(t_{k}^{\mathrm{event}} - t^{n+1}),\; t_{\mathrm{end}} - t^{n+1}\Bigr),
+  \label{eq:clamps}
+\end{equation}
+where $\Delta t_{\min}$, $\Delta t_{\max}$ are \code{STPMIN}, \code{STPMAX} and the
+event times $t_{k}^{\mathrm{event}} > t^{n+1}$ are the next requested
+spatial-output time and the start and end of every square-wave heating window.
+Landing exactly on these instants is required because the output routine saves a
+distribution only when $|t - t_{\mathrm{save}}| < \Delta t/2$, and because the
+energy deposited by a square-wave source depends on the edges being resolved;
+a free variable step would step across both. The first step uses
+$\Delta t_{\min}$, and so does every step for which no indicator exists (fewer
+than two history levels).
+
+\paragraph{No step rejection.}
+A step whose indicator exceeds $\varepsilon$ is not discarded and recomputed:
+the solid, fluid and network states are updated in place during a step and no
+rollback exists in the present architecture. The controller therefore reacts one
+step late. This is what the safety factor $\sigma < 1$, the moderate growth
+clamp $f_{\max} = 1.5$ and the strong shrink clamp $f_{\min} = 0.25$ are for:
+after an indicator overshoot of a factor $q$ the next step is reduced by
+$\sigma/\sqrt{q}$ (down to a quarter), and a run of indicators at tolerance
+grows the step by at most $1.5$ per step, so that an approaching transient is
+met with a step that has grown geometrically rather than jumped.
+
+\paragraph{Coupled conductors.}
+When several conductors share a hydraulic network their steps must coincide.
+Each conductor evaluates \eqref{eq:controller}--\eqref{eq:clamps} from its own
+indicator and the coupled group then advances with the minimum,
+$\Delta t = \min_{c}\Delta t_{c}$; uncoupled conductors keep their own step and
+the simulation clock advances by the largest of them.
 
 On the W7-X benchmark the controller behaves exactly as the physics demands: it holds
 the \SI{1}{ms} floor during the thermal-hydraulic quenchback window ($t \lesssim
@@ -482,5 +595,98 @@ suite, verification gates were layered as the code matured:
   \item \textbf{Electric time integration}: the electric subproblem still uses the
         $\theta$ family only; \code{BDF2} there falls back to backward Euler.
 \end{itemize}
+
+\appendix 
+\section{Adaptive Time Control}
+\subsection{Adaptive Time Stepping}
+\label{sec:adaptive}
+
+The original code offered a step controller whose error estimate diverged at
+near-stagnant nodes and consequently pinned the step at its lower bound for the
+entire run. Since the time scales of a CICC quench span three orders of
+magnitude --- from the thermal-hydraulic quenchback within the first seconds to
+the hot-spot plateau --- a working step control is essential for the transients
+considered here. The layer was therefore redesigned as follows.
+
+\paragraph{Error indicator.}
+Let $\vec{U}^{n-1}$, $\vec{U}^{n}$ be the two stored solution levels with steps
+$\Delta t_{n-1}$, $\Delta t_n$, and let $\vec{U}^{n+1}$ be the solution just
+computed. The indicator is the deviation of $\vec{U}^{n+1}$ from the linear
+extrapolation of the history,
+%
+\begin{equation}
+	\vec{d} = \vec{U}^{n+1} - \left[ \vec{U}^{n} + r\,(\vec{U}^{n} - \vec{U}^{n-1}) \right],
+	\qquad r = \frac{\Delta t_n}{\Delta t_{n-1}} .
+	\label{eq:indicator}
+\end{equation}
+%
+Expanding a smooth $\vec{U}(t)$ about $t^n$ gives
+$\vec{d} = \tfrac{1}{2}\Delta t_n (\Delta t_n + \Delta t_{n-1})\, \ddot{\vec{U}}(t^n)
++ \mathcal{O}(\Delta t^3)$, i.e.\ $\Delta t^2 \ddot{\vec{U}}$ for uniform steps.
+This is, up to a constant factor, the leading local truncation error of the
+$\theta$ family. For the second-order steppers the true local error is
+$\mathcal{O}(\Delta t^3)$, so \eqref{eq:indicator} overestimates it and the
+indicator acts as a curvature limiter --- the conservative choice in the absence
+of step rejection.
+
+\paragraph{Normalization.}
+The solution vector interleaves, node by node, the velocity (or mass flow),
+pressure and temperature of every fluid channel and the temperature of every
+solid. For each such field $w$ with $N$ nodal values let $\vec{w}^{n+1}$ be the
+sub-vector of $\vec{U}^{n+1}$ holding those values and $\vec{d}_w$ the
+corresponding sub-vector of the deviation \eqref{eq:indicator}, i.e.\ the $N$
+entries of $\vec{d}$ at the positions of field $w$ in the interleaved solution
+vector, $d_{w,i} = U^{n+1}_{w,i} - U^{n+1}_{\mathrm{pred},w,i}$ for node $i$.
+The relative indicator and the step indicator are
+%
+\begin{equation}
+	e_w = \frac{\lVert \vec{d}_w \rVert_{\mathrm{rms}}}
+	{\max \left( \lVert \vec{w}^{n+1} \rVert_\infty,\; w_\mathrm{floor} \right)},
+	\qquad
+	\lVert \vec{d}_w \rVert_{\mathrm{rms}} = \Bigl( \frac{1}{N} \sum_{i=1}^{N} d_{w,i}^2 \Bigr)^{1/2},
+	\qquad
+	\mathrm{err} = \max_w e_w ,
+	\label{eq:normalization}
+\end{equation}
+%
+with $\lVert \cdot \rVert_\mathrm{rms}$ the root-mean-square over the nodes and
+the magnitude floors $v_\mathrm{floor} = \SI{1}{\metre\per\second}$,
+$p_\mathrm{floor} = \SI{1e5}{\pascal}$, $T_\mathrm{floor} = \SI{1}{\kelvin}$.
+Both choices are what make the estimate non-degenerate. The floor prevents a
+field resting near zero --- a stagnant velocity, precisely the situation in
+which the legacy estimator failed --- from dominating the indicator, and the
+root-mean-square norm prevents a localized feature such as a moving quench front
+over a few dozen of $10^4$ nodes from doing the same.
+
+\paragraph{Controller.}
+With the user tolerance $\varepsilon$ the next step follows a standard
+proportional update,
+%
+\begin{equation}
+	\Delta t_{n+1} = \Delta t_n \min \left[ f_\mathrm{max},\,
+	\max \left( f_\mathrm{min},\, \sigma \sqrt{\frac{\varepsilon}{\mathrm{err}}} \right) \right],
+	\qquad \sigma = 0.9,\; f_\mathrm{min} = 0.25,\; f_\mathrm{max} = 1.5,
+	\label{eq:controller}
+\end{equation}
+%
+the square root being the inverse of the $\Delta t^2$ scaling of
+\eqref{eq:indicator}. The result is confined to a user-defined window and
+clamped to land exactly on requested output times and on the edges of
+square-wave heating windows, both of which a free step would otherwise step
+across. Because the conductor state is updated in place and no rollback exists,
+a step exceeding $\varepsilon$ is not rejected and the controller reacts one
+step late; the safety factor $\sigma < 1$ and the asymmetric clamps compensate,
+reducing an overshoot by a factor $q$ to $\sigma / \sqrt{q}$ on the following
+step while limiting growth to a geometric approach to an oncoming transient.
+Conductors sharing a hydraulic network must advance together and take the
+minimum of their individual steps.
+
+On the W7-X case the controller holds the \SI{1}{\milli\second} floor through
+the quenchback window ($t \lesssim \SI{2}{\second}$, where the indicator sits an
+order of magnitude above tolerance), opens to $\sim\SI{35}{\milli\second}$ by
+$t = \SI{4}{\second}$ with the indicator riding at tolerance, and saturates at
+the upper bound in the hot-spot plateau. The step count for the
+\SI{25}{\second} transient drops from \num{25000} to \num{2102}
+(Tab.~\ref{tab:benchmark}).
 
 \end{document}
