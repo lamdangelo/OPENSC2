@@ -147,6 +147,14 @@ class Conductor:
         # None on every production path (see assemble_thermal_hydraulic_system).
         self.fluid_source_callback = None
 
+        # Opt-in verification hook (studies/mesh_resolution chain E, frozen
+        # Joule source): a callable (conductor) -> None invoked once per step
+        # in thermal.heat_sources after the Joule power has been distributed to
+        # the parallel jackets, allowed to overwrite column 0 of
+        # gauss_fields.linear_power_el_resistance of the solids. Not set by any
+        # input file; None on every production path.
+        self.joule_source_callback = None
+
         # Resolved hydraulic formulation of the 1D channel unknowns
         # (never AUTO): overwritten at setup by the resolution step in
         # Simulation.conductor_initialization from the declared input value

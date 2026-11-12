@@ -135,6 +135,10 @@ def _build_heat_source_nodal_pt(conductor: object, simulation: object) -> None:
     # Move each ideal-parallel jacket's Joule share from its strand's power
     # array to the jacket's (current redistribution on quench).
     distribute_joule_power_to_parallel_jackets(conductor)
+    # Opt-in override of the Joule source (default None: no effect).
+    joule_source_callback = getattr(conductor, "joule_source_callback", None)
+    if joule_source_callback is not None:
+        joule_source_callback(conductor)
 
 
 def _build_heat_source_gauss_pt(conductor: object) -> None:
