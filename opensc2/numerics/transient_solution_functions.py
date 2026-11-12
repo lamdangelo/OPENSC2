@@ -385,10 +385,17 @@ def assemble_thermal_hydraulic_system(conductor, qsource):
     # 	qsource = dict_qsource["single_conductor"]
 
     upwind_weights[:conductor.equation_counts.fluid_equations] = 1.0
+    # Fluid temperature rows (alpha_T): historically always 1.0 (the legacy
+    # variant below zeroed them for Crank-Nicolson only and is kept as a
+    # record). The optional conductor input FLUID_TEMPERATURE_UPWIND_WEIGHT
+    # (default 1.0, bit-identical) exposes it as a study parameter.
     # if conductor.inputs["METHOD"] == "CN":
     # 		upwind_weights[2*conductor.inventory.fluids.number:conductor.equation_counts.fluid_equations] = 0.0
     # else it is 1.0 by initialization; as far as SolidComponent are \
     # concerned upwind_weights is always 0 by initialization. (cdp, 08/2020)
+    upwind_weights[
+        2 * conductor.inventory.fluids.number : conductor.equation_counts.fluid_equations
+    ] = conductor.inputs.fluid_temperature_upwind_weight
 
     # LUMPED/CONSISTENT MASS PARAMETER
     # if LMPMAS:

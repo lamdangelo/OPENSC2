@@ -254,6 +254,9 @@ class ConductorInputLoader:
             outlet_heated_zone_end=raw_inputs["XJENOUT"],
             thermohydraulic_method=cf.MethodFlag.get_method_flag(raw_inputs["METHOD"]),
             upwind=bool(raw_inputs.get("UPWIND", False)),
+            fluid_temperature_upwind_weight=float(
+                raw_inputs.get("FLUID_TEMPERATURE_UPWIND_WEIGHT", 1.0)
+            ),
             hydraulic_formulation=get_hydraulic_formulation(
                 raw_inputs.get("HYDRAULIC_FORMULATION", "auto")
             ),

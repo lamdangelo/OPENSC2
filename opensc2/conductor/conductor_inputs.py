@@ -66,6 +66,14 @@ class ConductorInputs:
     phi_radiative: float  # Phi_rad - subjected to radiative heat exchange 
     phi_convective: float  # Phi_conv - subjected to convective heat exchange 
 
+    # FLUID_TEMPERATURE_UPWIND_WEIGHT - weight of the streamline-upwind
+    # artificial diffusion on the fluid TEMPERATURE rows (alpha_T). The
+    # momentum and pressure rows always keep weight 1. Default 1.0 keeps the
+    # historical behaviour (all fluid rows upwinded); 0.0 reproduces the
+    # commented-out legacy variant. YAML-only optional key, used by the
+    # mesh-resolution study (studies/mesh_resolution) as a study parameter.
+    fluid_temperature_upwind_weight: float = 1.0
+
 
 @dataclass
 class ConductorInputFiles:
