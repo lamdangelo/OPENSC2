@@ -773,6 +773,40 @@ def step(conductor, environment, qsource, num_step,
                   diagnostics)
 
 
+def picard_provisional_pass(conductor, qsource):
+    """Opt-in Picard pass (studies/mesh_resolution chain E, E2): assemble and
+    solve the step with the current (lagged) coefficients, write the
+    PROVISIONAL solution into the nodal fields so that the caller can
+    re-evaluate the electric state, the properties, the heat-transfer
+    coefficients and the sources at T^{n+1,*} before the definitive solve,
+    and restore the load-vector history that the assembly shifted. Nothing
+    of the time-integration history is advanced (finalize_step is not
+    called). Never invoked unless conductor.picard_passes > 0."""
+    load_backup = conductor.time_integration.load_vector.copy()
+    system_matrix, known_term_vector, row_scaling_factors = (
+        assemble_thermal_hydraulic_system(conductor, qsource)
+    )
+    solution = solve_thermal_banded_system(
+        conductor, system_matrix, known_term_vector
+    )
+    conductor.time_integration.load_vector[:] = load_backup
+    ndf = conductor.equation_counts.degrees_of_freedom_per_node
+    eq_idx = conductor.equation_index
+    for f_comp in conductor.inventory.fluids.collection:
+        fields = f_comp.coolant.node_fields
+        first = solution[eq_idx[f_comp.identifier].velocity::ndf].copy()
+        fields.pressure = solution[eq_idx[f_comp.identifier].pressure::ndf].copy()
+        fields.temperature = solution[eq_idx[f_comp.identifier].temperature::ndf].copy()
+        if conductor.hydraulic_formulation in MASS_FLOW_FORMULATIONS:
+            fields.mass_flow_rate = first
+            f_comp.coolant._refresh_density_and_velocity_from_mass_flow()
+        else:
+            fields.velocity = first
+            f_comp.coolant._compute_density_and_mass_flow_rates_nodal_gauss(conductor)
+    for s_comp in conductor.inventory.solids.collection:
+        s_comp.node_fields.temperature = solution[eq_idx[s_comp.identifier]::ndf].copy()
+
+
 def finalize_step(conductor, solution, known_term_vector,
                   row_scaling_factors,
                   diagnostics: DiagnosticsSink = NULL_DIAGNOSTICS):

@@ -17,7 +17,7 @@ import numpy as np
 from opensc2.electromagnetics.electromagnetic_flags import CurrentMode
 from opensc2.hydraulics.hydraulic_flags import MASS_FLOW_FORMULATIONS
 from opensc2.numerics.coupled_step import solve_coupled_conductors_step
-from opensc2.numerics.transient_solution_functions import get_time_step, step
+from opensc2.numerics.transient_solution_functions import get_time_step, step, picard_provisional_pass
 from opensc2.runtime.context import SimulationContext
 
 
@@ -82,6 +82,19 @@ def run_transient(
             # implicit step.
             conductor.operating_conditions_th(ctx)
             conductor.build_heat_source(ctx)
+            # Opt-in Picard passes (attribute picard_passes, default absent /
+            # 0 = unchanged single linearised step): coefficients and sources
+            # re-evaluated at the provisional T^{n+1}; skipped at step 1.
+            picard_passes = getattr(conductor, "picard_passes", 0)
+            if picard_passes and not conductor.network_ports and conductor.time_state.cond_num_step > 1:
+                for _ in range(int(picard_passes)):
+                    picard_provisional_pass(conductor, ctx.qsources[conductor.identifier])
+                    if conductor.inputs.current_mode != CurrentMode.CURRENT_NOT_DEFINED:
+                        conductor.electric_method()
+                    else:
+                        conductor.operating_conditions_em()
+                    conductor.operating_conditions_th(ctx)
+                    conductor.build_heat_source(ctx)
             # Conductors coupled to the hydraulic network are solved jointly
             # with the network below, once every coupled conductor is prepared.
             if not conductor.network_ports:
