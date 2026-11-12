@@ -302,3 +302,9 @@ analysis/sensitivity/runs/
 # Formulation verification suite outputs (regenerable: driver.py + make_plots.py)
 /results/
 /figures/
+
+# paper draft build files (studies/mesh_resolution/paper)
+*.fdb_latexmk
+*.fls
+*.out
+studies/mesh_resolution/paper/build.log
